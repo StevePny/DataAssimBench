@@ -1,0 +1,49 @@
+name: dab
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=conda_forge
+  - _openmp_mutex=4.5=2_kmp_llvm
+  - absl-py=1.2.0=pyhd8ed1ab_0
+  - c-ares=1.18.1=h7f98852_0
+  - ca-certificates=2022.6.15=ha878542_0
+  - certifi=2022.6.15=pyhd8ed1ab_1
+  - etils=0.7.1=pyhd8ed1ab_0
+  - grpc-cpp=1.46.4=h05bd8bd_5
+  - importlib_resources=5.9.0=pyhd8ed1ab_0
+  - jax=0.3.16=pyhd8ed1ab_0
+  - jaxlib=0.3.15=cpu_py38hda98989_3
+  - ld_impl_linux-64=2.38=h1181459_1
+  - libabseil=20220623.0=cxx17_h48a1fff_1
+  - libblas=3.9.0=16_linux64_openblas
+  - libcblas=3.9.0=16_linux64_openblas
+  - libffi=3.3=he6710b0_2
+  - libgcc-ng=12.1.0=h8d9b700_16
+  - libgfortran-ng=12.1.0=h69a702a_16
+  - libgfortran5=12.1.0=hdcd56e2_16
+  - liblapack=3.9.0=16_linux64_openblas
+  - libopenblas=0.3.21=pthreads_h78a6416_2
+  - libprotobuf=3.21.5=h6239696_0
+  - libstdcxx-ng=12.1.0=ha89aaad_16
+  - libzlib=1.2.12=h166bdaf_2
+  - llvm-openmp=14.0.4=he0ac6c6_0
+  - ncurses=6.3=h5eee18b_3
+  - numpy=1.23.2=py38h3a7f9d9_0
+  - openssl=1.1.1q=h166bdaf_0
+  - opt_einsum=3.3.0=pyhd8ed1ab_1
+  - pip=22.1.2=py38h06a4308_0
+  - python=3.8.13=h12debd9_0
+  - python_abi=3.8=2_cp38
+  - re2=2022.06.01=h27087fc_0
+  - readline=8.1.2=h7f8727e_1
+  - scipy=1.9.0=py38hea3f02b_0
+  - setuptools=63.4.1=py38h06a4308_0
+  - sqlite=3.39.2=h5082296_0
+  - tk=8.6.12=h1ccaba5_0
+  - typing_extensions=4.3.0=pyha770c72_0
+  - wheel=0.37.1=pyhd3eb1b0_0
+  - xz=5.2.5=h7f8727e_1
+  - zipp=3.8.1=pyhd8ed1ab_0
+  - zlib=1.2.12=h7f8727e_2
+prefix: /home/ksolvik/.conda/envs/dab
