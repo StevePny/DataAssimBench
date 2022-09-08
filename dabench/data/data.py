@@ -51,10 +51,10 @@ class Data():
         """Samples values at a list of multidimensional array indices.
 
         Args:
-            targets: Array of target indices in shape: (num_of_target_indices,
-                time_dim + original_dim). E.g. [[0,0], [0,1]] samples the
-                first and second cell values in the first timestep (in this
-                case original_dim = 1).
+            targets (ndarray): Array of target indices in shape:
+                (num_of_target_indices, time_dim + original_dim). E.g.
+                [[0,0], [0,1]] samples the first and second cell values in the
+                first timestep (in this case original_dim = 1).
         """
         tupled_targets = tuple(tuple(targets[:, i]) for
                                i in range(len(self.original_dim) + 1))
@@ -70,20 +70,24 @@ class Data():
             time_dim attributes
 
         Args:
-            n_steps: Number of timesteps (int, optional)
-            t_final: Final time of trajectory (float, optional)
-            x0: ndarray initial conditions state vector
-            M0: ndarray of the initial condition of the TLM matrix computation
-                shape (system_dim x system_dim)
-            return_tlm: boolean to specify whether to compute and return the
+            n_steps (int): Number of timesteps. One of n_steps OR
+                t_final must be specified.
+            t_final (float): Final time of trajectory. One of n_steps OR
+                t_final must be specified.
+            x0 (ndarray): initial conditions state vector of shape (system_dim)
+            M0 (ndarray): the initial condition of the TLM matrix computation
+                shape (system_dim, system_dim)
+            return_tlm (bool): specifies whether to compute and return the
                 integrated Jacobian as a Tangent Linear Model for each timestep
-            stride: int skip steps in the output data versus the model timestep
-                (delta_t)
-            **kwargs: arguments to the integrate function (permits changes in convergence tolerance, etc.)
+            stride (int): specify how many steps to skip in the output data 
+                versus the model timestep (delta_t)
+            **kwargs: arguments to the integrate function (permits changes in
+                convergence tolerance, etc.)
 
         Returns:
-            xaux (optional): the system trajectory (requires return_tlm=True)
-            M (optional): a list of TLMs corresponding to the system trajectory (requires return_tlm=True)
+            Nothing if return_tlm=False. If return_tlm=True, returns tuple
+                (xaux, M) where xaux is the system trajectory and M is a list
+                of TLMs corresponding to the system trajectory.
 
         """
 
@@ -99,14 +103,14 @@ class Data():
             if self.x0 is not None:
                 x0 = self.x0
             else:
-                raise Exception('Initial condition is None x0={}, it must either be provided as an argument or set as an attribute.'.format(x0))
+                raise Exception('Initial condition is None,x0 = {}), it must either be provided as an argument or set as an attribute in the model object.'.format(x0))
 
         if return_tlm:
             if M0 is None:
                 M0 = jnp.identity(self.system_dim)
             try:
                 xaux0 = jnp.concatenate((x0.ravel(), M0.ravel()))
-            except:
+            except:  # Should add the specific error we're trying to catch here
                 print('x0.shape = {}, M0.shape = {}'.format(x0.shape, M0.shape))
                 raise Exception('EXITING...')
             x0 = xaux0
@@ -119,10 +123,14 @@ class Data():
             f = self.rhs
 
         # Integrate and store values and times
+        # If data object has it's own integration method, use that
         if hasattr(self, 'integrate') and callable(getattr(self, 'integrate')):
-            y, t = self.integrate(f, x0, t_final, self.delta_t, stride=stride, **kwargs)
+            y, t = self.integrate(f, x0, t_final, self.delta_t, stride=stride,
+                                  **kwargs)
+        # Otherwise, use integrate from dabench.support.utils
         else:
-            y, t = integrate(f, x0, t_final, self.delta_t, stride=stride, **kwargs)
+            y, t = integrate(f, x0, t_final, self.delta_t, stride=stride,
+                             **kwargs)
 
         # The generate method specifically stores data in the object,
         # as opposed to the forecast method, which does not.
