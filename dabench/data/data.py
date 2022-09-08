@@ -108,11 +108,7 @@ class Data():
         if return_tlm:
             if M0 is None:
                 M0 = jnp.identity(self.system_dim)
-            try:
-                xaux0 = jnp.concatenate((x0.ravel(), M0.ravel()))
-            except:  # Should add the specific error we're trying to catch here
-                print('x0.shape = {}, M0.shape = {}'.format(x0.shape, M0.shape))
-                raise Exception('EXITING...')
+            xaux0 = jnp.concatenate((x0.ravel(), M0.ravel()))
             x0 = xaux0
             if self.rhs_aux is None:
                 raise Exception('self.rhs_aux must be specified prior to calling generate.')
