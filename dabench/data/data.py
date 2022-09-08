@@ -143,7 +143,7 @@ class Data():
             # Initialize output matrices
             M = jnp.zeros((self.time_dim, self.system_dim, self.system_dim))
 
-            # ISSUE: this can probably be formed by reshaping directly instead of a loop
+            # ISSUE: this will have to be rewritten, we can't overwrite elements in jax
             for i in range(self.time_dim):
                 M[i, :, :] = jnp.reshape(y[self.system_dim:, i],
                                          (self.system_dim, self.system_dim))
