@@ -2,13 +2,13 @@
 import logging
 import jax.numpy as jnp
 
-from data import Data
+from dabench.data import data
 from dabench.support.utils import integrate
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class DataLorenz63(Data):
+class DataLorenz63(data.Data):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
@@ -34,6 +34,7 @@ class DataLorenz63(Data):
             system_dim = 3
         elif system_dim != 3:
             print('WARNING: input system_dim is {}, setting system_dim = 3.'.format(system_dim))
+            print('Assigning system_dim to 3.')
             system_dim = 3
 
         super().__init__(system_dim=system_dim, input_dim=input_dim,
@@ -43,28 +44,30 @@ class DataLorenz63(Data):
                          noise=noise, noise_distribution=noise_distribution,
                          noise_type=noise_type, **kwargs)
 
-        self.sigma = sigma      # >
-        self.rho = rho          # > Model Constants
-        self.beta = beta        # >
-        self.x0 = x0            # Default initial Conditions
+        self.sigma = sigma
+        self.rho = rho  # Model Constants
+        self.beta = beta
+        self.x0 = x0  # Default initial Conditions
 
         # create alias
         self.dt = self.delta_t
 
-    def rhs(self, x):
+    def rhs(self, x, t=None):
         """vector field of Lorenz 63
 
         Args:
             x: state vector with shape (system_dim)
+            t: times vector. Needed as argument slot for odeint but unused
 
         Returns:
             vector field of Lorenz 63 with shape (system_dim)
         """
 
-        dx = jnp.zeros_like(x)
-        dx[0] = self.sigma * (x[1] - x[0])
-        dx[1] = self.rho * x[0] - x[1] - x[0] * x[2]
-        dx[2] = x[0] * x[1] - self.beta*x[2]
+        dx = jnp.array([
+            self.sigma * (x[1] - x[0]),
+            self.rho * x[0] - x[1] - x[0] * x[2],
+            x[0] * x[1] - self.beta*x[2]
+            ])
 
         return dx
 
