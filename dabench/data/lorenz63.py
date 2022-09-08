@@ -21,12 +21,8 @@ class DataLorenz63(data.Data):
     """
 
     def __init__(self, sigma=10., rho=28., beta=8./3., delta_t=0.01,
-                 x0=jnp.array([-3.1, -3.1, 20.7]), system_dim=3,
-                 input_dim=None, output_dim=None, time_dim=None, values=None,
-                 times=None, mean=None, std=None, plot_label=None,
-                 noise=0.0, noise_distribution='gaussian',
-                 noise_type='multiplicative',
-                 **kwargs):
+                 x0=jnp.array([-3.1, -3.1, 20.7]), system_dim=3, time_dim=None,
+                 values=None, **kwargs):
         """Initialize Lorenz63Data object, subclass of Data"""
 
         # Lorenz63 requires system dim to be 3
@@ -37,12 +33,8 @@ class DataLorenz63(data.Data):
             print('Assigning system_dim to 3.')
             system_dim = 3
 
-        super().__init__(system_dim=system_dim, input_dim=input_dim,
-                         output_dim=output_dim, time_dim=time_dim,
-                         values=values, times=times, delta_t=delta_t,
-                         mean=mean, std=std, plot_label=plot_label,
-                         noise=noise, noise_distribution=noise_distribution,
-                         noise_type=noise_type, **kwargs)
+        super().__init__(system_dim=system_dim, time_dim=time_dim,
+                         values=values, delta_t=delta_t, **kwargs)
 
         self.sigma = sigma
         self.rho = rho  # Model Constants
