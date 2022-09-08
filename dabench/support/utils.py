@@ -27,33 +27,14 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
         time array
     """
 
-    if (method == 'odeint'):
+    if method == 'odeint':
         t = jnp.arange(0.0, t_final, delta_t)
         if stride is not None:
             assert stride > 1 and isinstance(stride, int), \
                 'integrate: stride = {}, must be > 1 and an int'.format(stride)
             t = t[::stride]
-        try:
-            y = odeint(function, x0, t, **kwargs).transpose()
-        except:
-            print('x0 = {}'.format(x0))
-            raise Exception()
-#             
-#     elif (method == 'euler'):
-#         if stride is not None:
-#             raise TypeError("euler method does not support stride.")
-#         y, t = ode_euler(function, x0, t_final, delta_t)
-#     elif (method == 'adambash2'):
-#         if stride is not None:
-#             raise TypeError("adambash2 method does not support stride.")
-#         y, t = ode_adambash2(function, x0, t_final, delta_t)
-#     elif (method == 'rk2'):
-#         if stride is not None:
-#             raise TypeError("rk2 method does not support stride.")
-#         y, t = ode_rk2(function, x0, t_final, delta_t, **kwargs)
-#         
-#     else:
-#         raise('integration method {} not supported'.format(method))
+        y = odeint(function, x0, t, **kwargs).transpose()
+    else:
+        raise 'integration method {} not supported'.format(method)
 
     return y, t
-
