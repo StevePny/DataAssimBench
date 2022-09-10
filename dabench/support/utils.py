@@ -37,4 +37,4 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
     else:
         raise 'integration method {} not supported'.format(method)
 
-    return y, t
+    return y.T, t

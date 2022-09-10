@@ -131,7 +131,7 @@ class Data():
         # The generate method specifically stores data in the object,
         # as opposed to the forecast method, which does not.
         # Store values and times as part of data object
-        self.values = y[:self.system_dim, :]
+        self.values = y[:, :self.system_dim]
         self.times = t
         self.time_dim = len(t)
 

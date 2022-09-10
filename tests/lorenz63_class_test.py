@@ -40,11 +40,32 @@ def test_trajectories_equal(lorenz):
     assert jnp.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
 
 
+def test_trajectories_notequal(lorenz):
+    """Test if two trajectories are the different with different initial conditions."""
+    params = {'system_dimension': 3}
+    lorenz2 = DataLorenz63(**params)
+    runtime = 1
+    lorenz.generate(t_final=runtime)
+    lorenz2.generate(t_final=runtime,
+                     x0=jnp.array([-2.2, -2.2, 19.1]))
+
+    assert not jnp.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
+
+
+def test_trajectory_changes(lorenz):
+    """Test that last time step in trajectory is different from initial state"""
+    runtime = 1
+    lorenz.generate(t_final=runtime,
+                    x0=jnp.array([-2.2, -2.2, 19.1]))
+
+    assert not jnp.allclose(lorenz.values[-1],  jnp.array([-2.2, -2.2, 19.1]))
+
+
 def test_trajectory_shape(lorenz):
-    """Test output shape is (sys_dim, runtime)."""
+    """Test output shape is (runtime, sys_dim)."""
     # Typical Lorenz63 setup
     runtime = 1
     sys_dim = 3
     lorenz.generate(t_final=runtime)
 
-    assert lorenz.values.shape == (sys_dim, int(runtime/lorenz.dt))
+    assert lorenz.values.shape == (int(runtime/lorenz.dt), sys_dim)
