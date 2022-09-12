@@ -4,7 +4,7 @@ from dabench.support.utils import integrate
 
 
 class Data():
-    """Generic class for data generator objects
+    """Generic class for data generator objects.
 
     Attributes:
         system_dim (int): system dimension
@@ -14,7 +14,9 @@ class Data():
             i.e. 1d.
         random_seed (int): random seed, defaults to 37
         delta_t (float): the timestep of the data (assumed uniform)
-        values (:obj: `ndarray`): 2d array of data (time_dim, system_dim)
+        values (ndarray): 2d array of data (time_dim, system_dim),
+            set by generate() method
+        times (ndarray): 1d array of times (time_dim), set by generate() method
         """
 
     def __init__(self,
@@ -39,7 +41,7 @@ class Data():
             self.original_dim = original_dim
 
     def to_original_dim(self):
-        """Converts 1D representation of system back to original dimensions
+        """Converts 1D representation of system back to original dimensions.
 
         Returns:
             Multidimensional array with shape:
