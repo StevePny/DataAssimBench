@@ -60,8 +60,8 @@ class Data():
                                i in range(len(self.original_dim) + 1))
         return self.to_original_dim()[tupled_targets]
 
-    def generate(self, n_steps=None, t_final=None, x0=None, M0=None,
-                 return_tlm=False, stride=None, **kwargs):
+    def generate(self, n_steps=None, t_final=None, x0=None, stride=None,
+                 **kwargs):
         """Generates a dataset and assigns values and times to the data object.
 
         Notes:
@@ -75,51 +75,34 @@ class Data():
             t_final (float): Final time of trajectory. One of n_steps OR
                 t_final must be specified.
             x0 (ndarray): initial conditions state vector of shape (system_dim)
-            M0 (ndarray): the initial condition of the TLM matrix computation
-                shape (system_dim, system_dim)
-            return_tlm (bool): specifies whether to compute and return the
-                integrated Jacobian as a Tangent Linear Model for each timestep
             stride (int): specify how many steps to skip in the output data 
                 versus the model timestep (delta_t)
             **kwargs: arguments to the integrate function (permits changes in
                 convergence tolerance, etc.)
-
-        Returns:
-            Nothing if return_tlm=False. If return_tlm=True, returns tuple
-                (xaux, M) where xaux is the system trajectory and M is a list
-                of TLMs corresponding to the system trajectory.
-
         """
 
-        # Checks
+        # Check that n_steps or t_final is supplied
         if n_steps is not None:
             t_final = n_steps * self.delta_t
         elif t_final is not None:
-            n_steps = int(t_final/self.delta_t)  # (not used here)
+            n_steps = int(t_final/self.delta_t)
         else:
             raise Exception('Either n_steps or t_final must be supplied as an input argument.')
 
+        # Check that x0 initial conditions is supplied
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
             else:
                 raise Exception('Initial condition is None,x0 = {}), it must either be provided as an argument or set as an attribute in the model object.'.format(x0))
 
-        if return_tlm:
-            if M0 is None:
-                M0 = jnp.identity(self.system_dim)
-            xaux0 = jnp.concatenate((x0.ravel(), M0.ravel()))
-            x0 = xaux0
-            if self.rhs_aux is None:
-                raise Exception('self.rhs_aux must be specified prior to calling generate.')
-            f = self.rhs_aux
-        else:
-            if self.rhs is None:
-                raise Exception('self.rhs must be specified prior to calling generate.')
-            f = self.rhs
+        # Check that self.rhs is defined in model object
+        if self.rhs is None:
+            raise Exception('self.rhs must be specified prior to calling generate.')
+        f = self.rhs
 
         # Integrate and store values and times
-        # If data object has it's own integration method, use that
+        # If data object has its own integration method, use that
         if hasattr(self, 'integrate') and callable(getattr(self, 'integrate')):
             y, t = self.integrate(f, x0, t_final, self.delta_t, stride=stride,
                                   **kwargs)
@@ -134,18 +117,3 @@ class Data():
         self.values = y[:, :self.system_dim]
         self.times = t
         self.time_dim = len(t)
-
-        # Return the data series and associated TLMs if requested
-        if return_tlm:
-            # Reshape output
-            xaux = y[:self.system_dim, :]
-
-            # Initialize output matrices
-            M = jnp.zeros((self.time_dim, self.system_dim, self.system_dim))
-
-            # ISSUE: this will have to be rewritten, we can't overwrite elements in jax
-            for i in range(self.time_dim):
-                M[i, :, :] = jnp.reshape(y[self.system_dim:, i],
-                                         (self.system_dim, self.system_dim))
-
-            return xaux, M
