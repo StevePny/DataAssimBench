@@ -13,7 +13,7 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
 
     Args:
         function (ndarray): the model equations to integrate
-        x0 (ndarray): initial conditions state vector
+        x0 (ndarray): initial conditions state vector with shape (system_dim)
         t_final (float): the final absolute time
         delta_t (float): timestep size
         method (str): Integration method, one of 'odeint', 'euler',
@@ -23,12 +23,14 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
         **kwargs: keyword arguments for the integrator
 
     Returns:
-        Tuple of (y, t) where y is ndarray of state at each timestep and t is
-        time array
+        Tuple of (y, t) where y is ndarray of state at each timestep with shape
+        (time_dim, system_dim) and t is time array with shape (time_dim)
     """
 
     if method == 'odeint':
+        # Define timesteps
         t = jnp.arange(0.0, t_final, delta_t)
+        # If stride is defined, remove timesteps that are not on stride steps
         if stride is not None:
             assert stride > 1 and isinstance(stride, int), \
                 'integrate: stride = {}, must be > 1 and an int'.format(stride)
