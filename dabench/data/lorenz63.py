@@ -36,12 +36,15 @@ class DataLorenz63(data.Data):
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, delta_t=delta_t, **kwargs)
 
+        # Model constants
         self.sigma = sigma
         self.rho = rho  # Model Constants
         self.beta = beta
-        self.x0 = x0  # Default initial Conditions
 
-        # create alias
+        # Initial conditions
+        self.x0 = x0
+
+        # Create alias for timestep
         self.dt = self.delta_t
 
     def rhs(self, x, t=None):
