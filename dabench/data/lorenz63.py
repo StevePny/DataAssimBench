@@ -20,9 +20,16 @@ class DataLorenz63(data.Data):
         delta_t (float): length of one time step
     """
 
-    def __init__(self, sigma=10., rho=28., beta=8./3., delta_t=0.01,
-                 x0=jnp.array([-3.1, -3.1, 20.7]), system_dim=3, time_dim=None,
-                 values=None, **kwargs):
+    def __init__(self,
+                 sigma=10.,
+                 rho=28.,
+                 beta=8./3.,
+                 delta_t=0.01,
+                 x0=jnp.array([-3.1, -3.1, 20.7]),
+                 system_dim=3,
+                 time_dim=None,
+                 values=None,
+                 **kwargs):
         """Initialize Lorenz63Data object, subclass of Data"""
 
         # Lorenz63 requires system dim to be 3
