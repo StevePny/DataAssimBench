@@ -12,11 +12,15 @@ class DataLorenz63(data.Data):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
-        system_dim (int): system dimension
-        time_dim (int): total time steps
         sigma (float): Lorenz 63 params
         rho (float): Lorenz 63 params
         beta (float): Lorenz 63 params
+        x0 (ndarray, float): Initial state, array of floats of size
+            (system_dim). Default is jnp.array([-7.5, -11.5, 18.5]), which
+            is the system state after a 14000 step spinup with delta_t=0.01
+            and initial conditions [1.0, 1.0, -1.0]
+        system_dim (int): system dimension. Must be 3 for DataLorenz63.
+        time_dim (int): total time steps
         delta_t (float): length of one time step
     """
 
@@ -25,7 +29,7 @@ class DataLorenz63(data.Data):
                  rho=28.,
                  beta=8./3.,
                  delta_t=0.01,
-                 x0=jnp.array([-3.1, -3.1, 20.7]),
+                 x0=jnp.array([-7.5, -11.5, 18.5]),
                  system_dim=3,
                  time_dim=None,
                  values=None,
