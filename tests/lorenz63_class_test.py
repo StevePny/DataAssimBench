@@ -26,7 +26,7 @@ def test_variable_sizes(lorenz):
     lorenz.generate(t_final=runtime)
 
     assert lorenz.system_dim == 3
-    assert lorenz.time_dim == runtime/lorenz.dt
+    assert lorenz.time_dim == runtime/lorenz.delta_t
 
 
 def test_trajectories_equal(lorenz):
@@ -68,4 +68,4 @@ def test_trajectory_shape(lorenz):
     sys_dim = 3
     lorenz.generate(t_final=runtime)
 
-    assert lorenz.values.shape == (int(runtime/lorenz.dt), sys_dim)
+    assert lorenz.values.shape == (int(runtime/lorenz.delta_t), sys_dim)

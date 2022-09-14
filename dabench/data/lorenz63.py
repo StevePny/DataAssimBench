@@ -51,9 +51,6 @@ class DataLorenz63(data.Data):
         # Initial conditions
         self.x0 = x0
 
-        # Create alias for timestep
-        self.dt = self.delta_t
-
     def rhs(self, x, t=None):
         """vector field of Lorenz 63
 
