@@ -44,7 +44,8 @@ class DataLorenz63(data.Data):
         if system_dim is None:
             system_dim = 3
         elif system_dim != 3:
-            print('WARNING: input system_dim is {}, setting system_dim = 3.'.format(system_dim))
+            print('WARNING: input system_dim is {}, '
+                  'DataLorenz63 requires system_dim=3.'.format(system_dim))
             print('Assigning system_dim to 3.')
             system_dim = 3
 
