@@ -35,8 +35,8 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
             assert stride > 1 and isinstance(stride, int), \
                 'integrate: stride = {}, must be > 1 and an int'.format(stride)
             t = t[::stride]
-        y = odeint(function, x0, t, **kwargs).transpose()
+        y = odeint(function, x0, t, **kwargs)
     else:
         raise 'integration method {} not supported'.format(method)
 
-    return y.T, t
+    return y, t
