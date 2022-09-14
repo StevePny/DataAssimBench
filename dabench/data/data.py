@@ -34,13 +34,15 @@ class Data():
         else:
             self.original_dim = original_dim
 
+    def set_values(self, values):
+        """Sets values manually
 
-
-    def set_values(self,X):
-        """Sets values manually"""
-        self.values = X
-        self.time_dim = X.shape[0]
-        self.system_dim = X.shape[1]
+        Args:
+            values (ndarray): New values with shape (time_dim, system_dim).
+        """
+        self.values = values
+        self.time_dim = values.shape[0]
+        self.system_dim = values.shape[1]
 
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions
