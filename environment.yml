@@ -54,4 +54,3 @@ dependencies:
   - xz=5.2.5=h7f8727e_1
   - zipp=3.8.1=pyhd8ed1ab_0
   - zlib=1.2.12=h7f8727e_2
-prefix: /home/ksolvik/.conda/envs/dab
