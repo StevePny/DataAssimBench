@@ -22,7 +22,7 @@ class DataLorenz96(data.Data):
         system_dim (int): System dimension, must be between 5 and 40.
             Default is 5.
         time_dim (int): Total time steps
-        delta_t (float): Length of one time step
+        delta_t (float): Length of one time step, default is 0.01.
     """
 
     def __init__(self,
