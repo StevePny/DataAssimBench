@@ -64,6 +64,35 @@ class DataLorenz96(data.Data):
                                       jnp.zeros(system_dim-1)])
         self.x0 = x0
 
+<<<<<<< HEAD
+=======
+        # Set known Lyap Exponent spectrum
+        # Assumes forcing = 8.0
+        # ISSUE: ideally, add full spectrum of LEs up to system_dimension=40, and read in from file
+        # ISSUE: Add source information, and parameters for generation
+        if forcing_term == 8.:
+            if self.system_dimension == 5:
+                self.leading_LyapExp = 0.5
+            elif self.system_dimension == 6:
+                self.leading_LyapExp = 1.0
+            elif self.system_dimension == 7:
+                self.leading_LyapExp = 1.3
+            elif self.system_dimension == 8:
+                self.leading_LyapExp = 1.6
+            elif self.system_dimension == 9:
+                self.leading_LyapExp = 1.3
+            elif self.system_dimension == 10:
+                self.leading_LyapExp = 1.2
+            elif self.system_dimension == 11:
+                self.leading_LyapExp = 1.4
+            elif self.system_dimension == 12:
+                self.leading_LyapExp = 1.4
+            elif self.system_dimension == 13:
+                self.leading_LyapExp = 1.5
+            elif self.system_dimension == 14:
+                self.leading_LyapExp = 1.4
+
+>>>>>>> 28655da9f0b2e1cb47b9fdef5764819bc5c63a0a
     def rhs(self, x, t=None):
         """Computes vector field of Lorenz 96
 
