@@ -20,9 +20,11 @@ class DataLorenz63(data.Data):
         beta (float): Lorenz 63 param. Default is 8./3., the value used in
             Lorenz, 1963 (see DOI above)
         x0 (ndarray, float): Initial state, array of floats of size
-            (system_dim). Default is jnp.array([-7.5, -11.5, 18.5]), which
-            is the system state after a 14000 step spinup with delta_t=0.01
-            and initial conditions [1., 1., -1.]
+            (system_dim). Default is jnp.array([-10.0, -15.0, 21.3]), which
+            is the system state after a 6000 step spinup with delta_t=0.01
+            and initial conditions [0., 1., 0.], a spinup which replicates
+            the simulation described in Lorenz, 1963.
+
         system_dim (int): system dimension. Must be 3 for DataLorenz63.
         time_dim (int): total time steps
         delta_t (float): length of one time step
@@ -33,7 +35,7 @@ class DataLorenz63(data.Data):
                  rho=28.,
                  beta=8./3.,
                  delta_t=0.01,
-                 x0=jnp.array([-7.5, -11.5, 18.5]),
+                 x0=jnp.array([-10.0, -15.0, 21.3]),
                  system_dim=3,
                  time_dim=None,
                  values=None,
