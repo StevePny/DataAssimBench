@@ -1,6 +1,5 @@
-"""Tests for data class (dabench.data.data)"""
+"""Tests for DataLorenz63 class (dabench.data.lorenz63)"""
 
-from dabench.data import data
 from dabench.data.lorenz63 import DataLorenz63
 import jax.numpy as jnp
 import pytest
