@@ -1,9 +1,9 @@
+"""Lorenz 1963 3-variable model data generation"""
 
 import logging
 import jax.numpy as jnp
 
 from dabench.data import data
-from dabench.support.utils import integrate
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -24,7 +24,6 @@ class DataLorenz63(data.Data):
             is the system state after a 6000 step spinup with delta_t=0.01
             and initial conditions [0., 1., 0.], a spinup which replicates
             the simulation described in Lorenz, 1963.
-
         system_dim (int): system dimension. Must be 3 for DataLorenz63.
         time_dim (int): total time steps
         delta_t (float): length of one time step
