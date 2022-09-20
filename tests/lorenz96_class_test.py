@@ -57,7 +57,7 @@ def test_trajectories_equal():
     """Tests if two trajectories are the same with same initial conditions."""
     params = {'system_dim': 6,
               'time_dim': 1000,
-              'forcing_term': 8.0,
+              'forcing_term': 10.0,
               'delta_t': 0.001
               }
     lorenz96_1 = DataLorenz96(**params)
