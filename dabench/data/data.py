@@ -98,8 +98,7 @@ class Data():
                 convergence tolerance, etc.).
 
         Returns:
-            Nothing if return_tlm=False. If return_tlm=True, returns tuple
-                (xaux, M) where xaux is the system trajectory and M is a list
+            Nothing if return_tlm=False. If return_tlm=True, a list
                 of TLMs corresponding to the system trajectory.
         """
 
@@ -159,9 +158,6 @@ class Data():
 
         # Return the data series and associated TLMs if requested
         if return_tlm:
-            # Reshape output
-            xaux = y[:, :self.system_dim]
-
             # Reshape M matrix
             M = jnp.reshape(y[:, self.system_dim:],
                             (self.time_dim,
@@ -169,7 +165,7 @@ class Data():
                              self.system_dim)
                             )
 
-            return xaux, M
+            return M
 
     def rhs_aux(self, x, t):
         """The auxiliary model used to compute the TLM.
