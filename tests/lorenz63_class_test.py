@@ -68,3 +68,11 @@ def test_trajectory_shape(lorenz):
     lorenz.generate(t_final=runtime)
 
     assert lorenz.values.shape == (int(runtime/lorenz.delta_t), sys_dim)
+
+
+def test_return_tlm_shape(lorenz):
+    """Tests that tlm shape is (time_dim, system_dim, system_dim)"""
+    runtime = 1
+    tlm = lorenz.generate(t_final=runtime, return_tlm=True)
+    assert tlm.shape == (lorenz.time_dim, lorenz.system_dim,
+                         lorenz.system_dim)
