@@ -120,7 +120,12 @@ class Data():
                                 'either be provided as an argument or set as '
                                 'an attribute in the model object.'.format(x0))
 
-        # Check that self.rhs or self.rhs_aux are defined in model object
+        # Check that self.rhs is defined
+        if self.rhs is None:
+            raise AttributeError('self.rhs must be specified prior to '
+                                 'calling generate.')
+
+        # Set f matrix for integrate
         if return_tlm:
             # Prep x0
             if M0 is None:
@@ -133,10 +138,6 @@ class Data():
                                      'calling generate.')
             f = self.rhs_aux
         else:
-            # Check that self.rhs is defined
-            if self.rhs is None:
-                raise AttributeError('self.rhs must be specified prior to '
-                                     'calling generate.')
             f = self.rhs
 
         # Integrate and store values and times
