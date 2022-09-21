@@ -40,6 +40,16 @@ class Data():
         else:
             self.original_dim = original_dim
 
+    def set_values(self, values):
+        """Sets values manually
+
+        Args:
+            values (ndarray): New values with shape (time_dim, system_dim).
+        """
+        self.values = values
+        self.time_dim = values.shape[0]
+        self.system_dim = values.shape[1]
+
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
 
