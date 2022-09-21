@@ -109,14 +109,17 @@ class Data():
         elif t_final is not None:
             n_steps = int(t_final/self.delta_t)
         else:
-            raise Exception('Either n_steps or t_final must be supplied as an input argument.')
+            raise Exception('Either n_steps or t_final must be supplied as an '
+                            'input argument.')
 
         # Check that x0 initial conditions is supplied
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
             else:
-                raise Exception('Initial condition is None,x0 = {}), it must either be provided as an argument or set as an attribute in the model object.'.format(x0))
+                raise Exception('Initial condition is None,x0 = {}), it must '
+                                'either be provided as an argument or set as '
+                                'an attribute in the model object.'.format(x0))
 
         # Check that self.rhs or self.rhs_aux are defined in model object
         if return_tlm:
@@ -127,12 +130,14 @@ class Data():
             x0 = xaux0
             # Check that self.rhs_aux is defined
             if self.rhs_aux is None:
-                raise Exception('self.rhs_aux must be specified prior to calling generate.')
+                raise Exception('self.rhs_aux must be specified prior to '
+                                'calling generate.')
             f = self.rhs_aux
         else:
             # Check that self.rhs is defined
             if self.rhs is None:
-                raise Exception('self.rhs must be specified prior to calling generate.')
+                raise Exception('self.rhs must be specified prior to calling '
+                                'generate.')
             f = self.rhs
 
         # Integrate and store values and times
