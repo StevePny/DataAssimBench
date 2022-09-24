@@ -191,3 +191,97 @@ class Data():
         dxaux = jnp.concatenate((dxdt, dM.flatten()))
 
         return dxaux
+
+    def calc_lyapunov_exponent_series(self, total_time, rescale_time, x0=None,
+                                      convergence=0.005):
+        """Computes the spectrum of Lyapunov Exponents.
+
+        Notes:
+            Lyapunov exponents help describe the degree of "chaos" in the
+            model. Make sure to plot the output to check that the algorithm
+            converges. There are three ways to make the estimate more accurate:
+                1. Decrease the delta_t of the model
+                2. Increase total_time
+                3. Decrease rescale time
+            Algorithm: Eckmann 85,
+            https://www.ihes.fr/~ruelle/PUBLICATIONS/%5B81%5D.pdf pg 651
+            This method computes the full time series of Lyapunov Exponents,
+            which is useful for plotting for debugging. To get only the final
+            Lyapunov Exponent, use self.calc_lyapunov_exponent.
+
+        Args:
+            total_time (float) : time to integrate over to compute LEs.
+                Usually there's a tradeoff between accuracy and computation
+                time (more total_time leads to higher accuracy but more
+                computation time)
+            rescale_time (float) : Time for when the algorithm rescales the
+                propagator to reduce the exponential growth in errors.
+                Putting this at around half the maximal exponent
+                usually works.
+            x0 (array) : initial condition to start computing LE.  Needs
+                to be on the attractor (i.e., remove transients). Default is
+                None, which will fallback to use the x0 set during model object
+                initialization.
+            convergence (float) : prints warning if LE convergence is below
+                this number. Default is 0.005.
+        Returns:
+            LEs (array) : Computed Lyapunov exponents
+        """
+        D = self.system_dim
+        times = jnp.arange(0, total_time, rescale_time)
+
+        LE = jnp.zeros((len(times)-1, D))
+        M0 = jnp.eye(D)
+
+        prev_R = jnp.zeros(D)
+        for i, (t1, t2) in enumerate(zip(times[:-1], times[1:])):
+
+            M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
+            x_t2 = self.values[-1]
+            M_t2 = M[-1]
+
+            Q, R = jnp.linalg.qr(M_t2)
+
+            curr_R = jnp.log(jnp.abs(jnp.diag(R)))
+            LE[i] = (prev_R+curr_R)/t2
+            prev_R += curr_R
+
+            x0 = x_t2
+            M0 = Q
+        compute_conv = jnp.mean(jnp.abs(LE[-11:-1] - LE[-10:]), axis=0)
+        if jnp.any(compute_conv > convergence):
+            print('Exceeding convergence = {} > {}. Increase total_time and '
+                  'decrease rescale_time.'.format(compute_conv, convergence))
+
+        return LE
+
+    def calc_lyapunov_exponent(self, total_time, rescale_time, x0=None,
+                               convergence=0.005):
+        """Computes the final Lyapunov Exponent
+
+        Notes:
+            See self.calc_lyapunov_exponent_series for full info
+
+        Args:
+            total_time (float) : time to integrate over to compute LEs.
+                Usually there's a tradeoff between accuracy and computation
+                time (more total_time leads to higher accuracy but more
+                computation time)
+            rescale_time (float) : Time for when the algorithm rescales the
+                propagator to reduce the exponential growth in errors.
+                Putting this at around half the maximal exponent
+                usually works.
+            x0 (array) : initial condition to start computing LE.  Needs
+                to be on the attractor (i.e., remove transients). Default is
+                None, which will fallback to use the x0 set during model object
+                initialization.
+            convergence (float) : prints warning if LE convergence is below
+                this number. Default is 0.005.
+        Returns:
+            Lyapunov exponent (float)
+        """
+
+        return self.calc_lyapunov_exponent_series(total_time=total_time,
+                                                  rescale_time=rescale_time,
+                                                  x0=x0,
+                                                  convergence=convergence)[-1]
