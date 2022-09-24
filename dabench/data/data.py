@@ -192,8 +192,8 @@ class Data():
 
         return dxaux
 
-    def calc_lyapunov_exponents_series(self, total_time, rescale_time, x0=None,
-                                       convergence=0.005):
+    def calc_lyapunov_exponents_series(self, total_time=1, rescale_time=0.01,
+                                       convergence=0.05, x0=None):
         """Computes the spectrum of Lyapunov Exponents.
 
         Notes:
@@ -213,17 +213,18 @@ class Data():
             total_time (float) : time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time)
+                computation time). Default is 1.
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Putting this at around half the maximal exponent
-                usually works.
+                usually works. Default is 0.01 (1/100th of total_time=1).
+            convergence (float) : prints warning if LE convergence is below
+                this number. Default is 0.05.
             x0 (array) : initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
                 initialization.
-            convergence (float) : prints warning if LE convergence is below
-                this number. Default is 0.005.
+
         Returns:
             Lyapunov exponents for all timesteps, array of size
                 (total_time/rescale_time - 1, system_dim)
@@ -262,8 +263,8 @@ class Data():
 
         return LE
 
-    def calc_lyapunov_exponents(self, total_time, rescale_time, x0=None,
-                                convergence=0.005):
+    def calc_lyapunov_exponents(self, total_time=1, rescale_time=0.01,
+                                convergence=0.05, x0=None):
         """Computes the final Lyapunov Exponent
 
         Notes:
@@ -273,22 +274,23 @@ class Data():
             total_time (float) : time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time)
+                computation time). Default is 1.
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Putting this at around half the maximal exponent
-                usually works.
+                usually works. Default is 0.01 (1/100th of total_time=1).
+            convergence (float) : prints warning if LE convergence is below
+                this number. Default is 0.05.
             x0 (array) : initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
                 initialization.
-            convergence (float) : prints warning if LE convergence is below
-                this number. Default is 0.005.
+
         Returns:
             Lyapunov exponents array of size (system_dim)
         """
 
         return self.calc_lyapunov_exponents_series(total_time=total_time,
-                                                  rescale_time=rescale_time,
-                                                  x0=x0,
-                                                  convergence=convergence)[-1]
+                                                   rescale_time=rescale_time,
+                                                   x0=x0,
+                                                   convergence=convergence)[-1]
