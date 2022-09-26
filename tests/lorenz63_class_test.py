@@ -61,10 +61,17 @@ def test_trajectory_changes(lorenz):
 
 
 def test_trajectory_shape(lorenz):
-    """Tests output shape is (runtime, sys_dim)."""
+    """Tests output shape is (time_dim, system_dim)."""
     # Typical Lorenz63 setup
     runtime = 1
-    sys_dim = 3
     lorenz.generate(t_final=runtime)
 
-    assert lorenz.values.shape == (int(runtime/lorenz.delta_t), sys_dim)
+    assert lorenz.values.shape == (lorenz.time_dim, lorenz.system_dim)
+
+
+def test_return_tlm_shape(lorenz):
+    """Tests that tlm shape is (time_dim, system_dim, system_dim)"""
+    runtime = 1
+    tlm = lorenz.generate(t_final=runtime, return_tlm=True)
+    assert tlm.shape == (lorenz.time_dim, lorenz.system_dim,
+                         lorenz.system_dim)
