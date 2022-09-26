@@ -76,7 +76,6 @@ def test_return_tlm_shape(lorenz):
     assert tlm.shape == (lorenz.time_dim, lorenz.system_dim,
                          lorenz.system_dim)
 
-
 def test_lyapunov_exponents(lorenz):
     """Tests that shape of lyapunov exponents is same as system_dim)"""
     LE = lorenz.calc_lyapunov_exponents(total_time=1, rescale_time=0.01,
@@ -92,3 +91,4 @@ def test_lyapunov_exponents_series(lorenz):
                                         convergence=1.0)
     assert LE_ar.shape == (int(1/0.01) - 1, lorenz.system_dim)
     assert jnp.all(LE == LE_ar[-1])
+
