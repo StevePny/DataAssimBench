@@ -72,7 +72,7 @@ class DataSQGturb(data.Data):
                  r=0.0,
                  tdiab=10.0 * 86400,
                  diff_order=8,
-                 diff_efold=None,
+                 diff_efold=86400./3,
                  symmetric=True,
                  dealias=True,
                  precision='single',
@@ -83,7 +83,7 @@ class DataSQGturb(data.Data):
                  time_dim=None,
                  values=None,
                  times=None,
-                 delta_t=None,
+                 delta_t=900,
                  **kwargs,
                  ):
 
@@ -96,7 +96,7 @@ class DataSQGturb(data.Data):
         pvspec = rfft2(pv)
         self.x0 = pvspec.ravel()
         self.Nv, self.Nx, self.Ny = pvspec.shape
-        system_dim = self.Nv * self.Nx * self.Ny
+        self.system_dim = self.Nv * self.Nx * self.Ny
 
         # initialize SQG model.
         if pv.shape[0] != 2:
@@ -176,7 +176,7 @@ class DataSQGturb(data.Data):
         pvbar = pvbar.astype(dtype)
 
         # Add extra dimension to support multiplication
-        pvbar = jnp.expand_dims(pvbar, 2)
+        pvbar = jnp.expand_dims(pvbar, 1)
         pvbar = pvbar * jnp.ones((2, N, N), dtype)
         self.pvbar = pvbar
         # state to relax to with timescale tdiab
@@ -224,7 +224,7 @@ class DataSQGturb(data.Data):
 
         # Integrating factor for hyperdiffusion
         # with efolding time scale for diffusion of shortest wave (N/2)
-        self.hyperdiff = jnp.exp((-self.dt / self.diff_efold) *
+        self.hyperdiff = jnp.exp((-self.delta_t / self.diff_efold) *
                                  (ktot / ktotcutoff) ** self.diff_order)
 
     # Private support methods
@@ -391,7 +391,7 @@ class DataSQGturb(data.Data):
         times = t + jnp.arange(n_steps)*delta_t
         values = jnp.empty((n_steps, self.system_dim), dtype=x0.dtype)
 
-        # Integreate in spectral space
+        # Integrate in spectral space
         for i in range(n_steps):
             values = values.at[i, :].set(pvspec.ravel())
             pvspec = self._rk4(f, pvspec)
@@ -447,13 +447,13 @@ class DataSQGturb(data.Data):
         """
 
         self.rkstep = 0
-        k1 = self.dt * f(x)
+        k1 = self.delta_t * f(x)
         self.rkstep = 1
-        k2 = self.dt * f(x + 0.5 * k1)
+        k2 = self.delta_t * f(x + 0.5 * k1)
         self.rkstep = 2
-        k3 = self.dt * f(x + 0.5 * k2)
+        k3 = self.delta_t * f(x + 0.5 * k2)
         self.rkstep = 3
-        k4 = self.dt * f(x + k3)
+        k4 = self.delta_t * f(x + k3)
         y = x + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
         return y
 
