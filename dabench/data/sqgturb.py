@@ -41,7 +41,7 @@ class DataSQGturb(data.Data):
     """Class to set up SQGturb model and manage data.
 
     Attributes:
-        pv (ndarray): Potential velocity array
+        pv (ndarray): Potential vorticity array
         system_dim (int): The dimension of the system state
         time_dim (int): The dimension of the timeseries (not used)
         delta_t (float): model time step (seconds)
@@ -100,31 +100,31 @@ class DataSQGturb(data.Data):
 
         # initialize SQG model.
         if pv.shape[0] != 2:
-            raise ValueError("1st dim of pv should be 2")
+            raise ValueError('1st dim of pv should be 2')
         # N is number of grid points in each direction in physical space
         N = pv.shape[1]
         # N should be even
         if N % 2:
-            raise ValueError("2nd dim of pv (N) must be even"
-                             "(powers of 2 are fastest)")
+            raise ValueError('2nd dim of pv (N) must be even'
+                             '(powers of 2 are fastest)')
         self.N = N
 
         # Set data type based on precision attribute
-        if precision == "single":
+        if precision == 'single':
             # ffts in single precision (faster, default)
             dtype = jnp.float32
-        elif precision == "double":
+        elif precision == 'double':
             # ffts in double precision
             dtype = jnp.float64
         else:
-            raise ValueError("Precision must be 'single' or 'double'")
+            raise ValueError('Precision must be "single" or "double"')
 
         # Time step and diff_efold must both be specified
         if delta_t is None:
-            raise ValueError("must specify time step delta_t = {}".format(
+            raise ValueError('must specify time step delta_t = {}'.format(
                 delta_t))
         if diff_efold is None:
-            raise ValueError("must specify efolding time scale for diffusion")
+            raise ValueError('must specify efolding time scale for diffusion')
 
         # Force arrays to be float32 for precision='single' (for faster ffts)
         self.nsq = jnp.array(nsq, dtype)
@@ -227,6 +227,7 @@ class DataSQGturb(data.Data):
         self.hyperdiff = jnp.exp((-self.dt / self.diff_efold) *
                                  (ktot / ktotcutoff) ** self.diff_order)
 
+    # Private support methods
     def _invert(self, pvspec=None):
         """Inverts pvspec"""
 
@@ -309,6 +310,7 @@ class DataSQGturb(data.Data):
             yderiv = self.ifft2(self.il_pad * specarr_pad)
         return xderiv, yderiv
 
+    # Public support methods
     def fft2(self, pv):
         """Alias method for FFT of PV"""
         return rfft2(pv)
@@ -344,3 +346,114 @@ class DataSQGturb(data.Data):
         """Maps for 1D to 2D then runs inverse FFT"""
         pvspec = self.map1dto2d(x)
         return self.ifft2(pvspec)
+
+    # Integration methods
+    def integrate(self, f, x0, t_final, delta_t=None, include_x0=True,
+                  t=None, **kwargs):
+        """Advances pv forward number of timesteps given by 'n_steps' instance var.
+
+        Note:
+            If pv not specified, use pvspec instance variable.
+
+        Args:
+            f (function): right hand side (rhs) of the ODE
+            x0 (ndarray): potential vorticity (pvspec) initial condition in
+                spectral space
+        """
+
+        # Convert input state vector to a 2D spectral array
+        pvspec = self.map1dto2d(x0)
+
+        # Get number of time steps
+        n_steps = int(t_final/self.delta_t)
+
+        # Checks
+        # Make sure that there is no remainder
+        if not n_steps * delta_t == t_final:
+            raise ValueError('Cannot have remainder in nsteps = {}, '
+                             'delta_t = {}, t_final = {}, and n_steps * '
+                             'delta_t = {}'.format(n_steps, delta_t, t_final,
+                                                   n_steps*delta_t))
+
+        # If delta_t not specified as arg for method, use delta_t from object
+        if delta_t is None:
+            delta_t = self.delta_t
+
+        # If t not specified as arg for method, use t from object
+        if t is None:
+            t = self.t
+
+        # If including initial state, add 1 to n_steps
+        if include_x0:
+            n_steps = n_steps + 1
+
+        self.time_dimension = n_steps
+        times = t + jnp.arange(n_steps)*delta_t
+        values = jnp.empty((n_steps, self.system_dim), dtype=x0.dtype)
+
+        # Integreate in spectral space
+        for i in range(n_steps):
+            values = values.at[i, :].set(pvspec.ravel())
+            pvspec = self._rk4(f, pvspec)
+            pvspec = self.hyperdiff * pvspec
+
+            if jnp.isnan(pvspec).any():
+                raise Exception('Model values contain NaNs. '
+                                'EXITING at i={}...'.format(i))
+
+        # Update internal states
+        self.pvspec = pvspec
+        self.t = times[-1]
+
+        return values, times
+
+    def rhs(self, pvspec=None):
+        """computes tendencies of pv on z=0, H. Inverts pv to get 
+            streamfunction.
+        """
+
+        if pvspec is None:
+            pvspec = self.pvspec
+        psispec = self._invert(pvspec)
+
+        # Nonlinear jacobian and thermal relaxation
+        psix, psiy = self._xyderiv(psispec)
+        pvx, pvy = self._xyderiv(pvspec)
+        jacobian = psix * pvy - psiy * pvx
+        jacobianspec = self.fft2(jacobian)
+        if self.dealias:
+            # 2/3 rule: truncate spectral coefficients of jacobian
+            jacobianspec = self._spectrunc(jacobianspec)
+        dpvspecdt = ((1.0 / self.tdiab) * (self.pvspec_eq - pvspec) -
+                     jacobianspec)
+
+        # Ekman damping at boundaries.
+        if self.ekman:
+            dpvspecdt = dpvspecdt.at[0].set(dpvspecdt[0] + self.r *
+                                            self.ksqlsq * psispec[0])
+            # for asymmetric jet (U=0 at sfc), no Ekman layer at lid
+            if self.symmetric:
+                dpvspecdt = dpvspecdt.at[1].set(dpvspecdt[1] - self.r *
+                                                self.ksqlsq * psispec[1])
+
+        # save wind field
+        self.u = -psiy
+        self.v = psix
+        return dpvspecdt
+
+    def _rk4(self, f, x):
+        """Updates pv using 4th order runge-kutta time step with implicit
+            "integrating factor" treatment of hyperdiffusion.
+        """
+
+        self.rkstep = 0
+        k1 = self.dt * f(x)
+        self.rkstep = 1
+        k2 = self.dt * f(x + 0.5 * k1)
+        self.rkstep = 2
+        k3 = self.dt * f(x + 0.5 * k2)
+        self.rkstep = 3
+        k4 = self.dt * f(x + k3)
+        y = x + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        return y
+
