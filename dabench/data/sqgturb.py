@@ -41,6 +41,7 @@ class DataSQGturb(data.Data):
     """Class to set up SQGturb model and manage data.
 
     Attributes:
+        pv (ndarray): Potential velocity array
         system_dim (int): The dimension of the system state
         time_dim (int): The dimension of the timeseries (not used)
         delta_t (float): model time step (seconds)
@@ -71,7 +72,7 @@ class DataSQGturb(data.Data):
                  r=0.0,
                  tdiab=10.0 * 86400,
                  diff_order=8,
-                 diff_efold=None, # diff_efold = 86400./3.
+                 diff_efold=None,
                  symmetric=True,
                  dealias=True,
                  precision='single',
@@ -225,3 +226,121 @@ class DataSQGturb(data.Data):
         # with efolding time scale for diffusion of shortest wave (N/2)
         self.hyperdiff = jnp.exp((-self.dt / self.diff_efold) *
                                  (ktot / ktotcutoff) ** self.diff_order)
+
+    def _invert(self, pvspec=None):
+        """Inverts pvspec"""
+
+        if pvspec is None:
+            pvspec = self.pvspec
+
+        # invert boundary pv to get streamfunction
+        psispec = jnp.empty((2, self.N, self.N // 2 + 1), dtype=pvspec.dtype)
+        psispec = jnp.array([self.Hovermu * ((pvspec[1] / self.sinhmu) -
+                                             (pvspec[0] / self.tanhmu)),
+                             self.Hovermu * ((pvspec[1] / self.tanhmu) -
+                                             (pvspec[0] / self.sinhmu))
+                             ], dtype=pvspec.dtype)
+
+        return psispec
+
+    def _invert_inverse(self, psispec=None):
+        """ Performs inverse operation of '_invert'
+        (Not used here.)
+        """
+
+        if psispec is None:
+            psispec = self._invert(self.pvspec)
+
+        # given streamfunction, return PV
+        alpha = self.Hovermu
+        th = self.tanhmu
+        sh = self.sinhmu
+        tmp1 = 1.0 / sh ** 2 - 1.0 / th ** 2
+        tmp1 = tmp1.at[0, 0].set(1.0)
+        pvspec = jnp.array([((psispec[0] / th) - (psispec[1] / sh)) /
+                            (alpha * tmp1),
+                            ((psispec[0] / sh) - (psispec[1] / th)) /
+                            (alpha * tmp1)
+                            ], dtype=psispec.dtype)
+        # area mean PV not determined by streamfunction
+        pvspec = pvspec.at[:, 0, 0].set(0.0)
+
+        return pvspec
+
+    def _specpad(self, specarr):
+        """Pads spectral arrays with zeros to interpolate to 3/2 larger grid
+            using inverse fft."""
+        # Take care of normalization factor for inverse transform.
+        specarr_pad = jnp.zeros((2, 3 * self.N // 2, 3 * self.N // 4 + 1),
+                                dtype=specarr.dtype)
+        specarr_pad = specarr_pad.at[:, :(self.N // 2), :(self.N // 2)].set(
+            (2.25 * specarr[:, :(self.N // 2), :(self.N // 2)]))
+        specarr_pad = specarr_pad.at[:, (-self.N // 2):, : (self.N // 2)].set(
+            (2.25 * specarr[:, (-self.N // 2):, :(self.N // 2)]))
+
+        # Include negative Nyquist frequency.
+        specarr_pad = specarr_pad.at[:, :(self.N // 2), (self.N // 2)].set(
+            jnp.conjugate(2.25 * specarr[:, :(self.N // 2), -1]))
+        specarr_pad = specarr_pad.at[:, (-self.N // 2):, (self.N // 2)].set(
+            jnp.conjugate(2.25 * specarr[:, (-self.N // 2):, -1]))
+        return specarr_pad
+
+    def _spectrunc(self, specarr):
+        """Truncates spectral array to 2/3 size"""
+        specarr_trunc = jnp.zeros((2, self.N, self.N // 2 + 1),
+                                  dtype=specarr.dtype)
+        specarr_trunc = specarr_trunc.at[
+            :, :(self.N // 2), :(self.N // 2)].set(
+            specarr[:, :(self.N // 2), :(self.N // 2)])
+        specarr_trunc = specarr_trunc.at[
+            :, (-self.N // 2):, :(self.N // 2)].set(
+            specarr[:, (-self.N // 2):, :(self.N // 2)])
+        return specarr_trunc
+
+    def _xyderiv(self, specarr):
+        """Calculates x and y derivatives"""
+        if not self.dealias:
+            xderiv = self.ifft2(self.ik * specarr)
+            yderiv = self.ifft2(self.il * specarr)
+        else:
+            # pad spectral coeffs with zeros for dealiased jacobian
+            specarr_pad = self._specpad(specarr)
+            xderiv = self.ifft2(self.ik_pad * specarr_pad)
+            yderiv = self.ifft2(self.il_pad * specarr_pad)
+        return xderiv, yderiv
+
+    def fft2(self, pv):
+        """Alias method for FFT of PV"""
+        return rfft2(pv)
+
+    def ifft2(self, pvspec):
+        """Alias method for inverse FFT of PV Spectral"""
+        return irfft2(pvspec)
+
+    def map2dto1d(self, pv):
+        """Maps 2D PV to 1D system state"""
+        return pv.ravel()
+
+    def map1dto2d(self, x):
+        """Maps 1D state vector to 2D PV"""
+        return jnp.reshape(x, (self.Nv, self.Nx, self.Ny))
+
+    def fft2_2dto1d(self, pv):
+        """Runs FFT then maps from 2D to 1D"""
+        pvspec = self.fft2(pv)
+        return self.map2dto1d(pvspec)
+
+    def ifft2_2dto1d(self, pvspec):
+        """Runs inverse FFT then maps from 2D to 1D"""
+        pv = self.ifft2(pvspec)
+        return self.map2dto1d(pv)
+
+    def map1dto2d_fft2(self, x):
+        """Maps for 1D to 2D then runs FFT"""
+        pv = self.map1dto2d(x)
+        return self.fft2(pv)
+
+    def map1dto2d_ifft2(self,  x):
+        """Maps for 1D to 2D then runs inverse FFT"""
+        pvspec = self.map1dto2d(x)
+        return self.ifft2(pvspec)
