@@ -12,6 +12,12 @@ def lorenz():
     return DataLorenz63(**params)
 
 
+@pytest.fixture
+def lorenz_lyaps(lorenz):
+    """Calculates Lyapunov Exponent values for tests."""
+    return lorenz.calc_lyapunov_exponents_series()
+
+
 def test_initialization(lorenz):
     """Tests the initialization size of class DataLorenz63 after generation."""
     lorenz.generate(t_final=1)
@@ -76,19 +82,27 @@ def test_return_tlm_shape(lorenz):
     assert tlm.shape == (lorenz.time_dim, lorenz.system_dim,
                          lorenz.system_dim)
 
-def test_lyapunov_exponents(lorenz):
-    """Tests that shape of lyapunov exponents is same as system_dim)"""
-    LE = lorenz.calc_lyapunov_exponents(total_time=1, rescale_time=0.01,
-                                        convergence=1.0)
+
+def test_lyapunov_exponents(lorenz, lorenz_lyaps):
+    """Tests that shape of lyapunov exponents is same as system_dim"""
+    LE = lorenz_lyaps[-1]
     assert len(LE) == lorenz.system_dim
 
 
-def test_lyapunov_exponents_series(lorenz):
+def test_lyapunov_exponents_series(lorenz, lorenz_lyaps):
     """Tests shape of lyapunov exponents series and value of last timestep"""
-    LE_ar = lorenz.calc_lyapunov_exponents_series(
-            total_time=1, rescale_time=0.01, convergence=1.0)
-    LE = lorenz.calc_lyapunov_exponents(total_time=1, rescale_time=0.01,
-                                        convergence=1.0)
-    assert LE_ar.shape == (int(1/0.01) - 1, lorenz.system_dim)
-    assert jnp.all(LE == LE_ar[-1])
+    LE = lorenz.calc_lyapunov_exponents_final()
+    assert lorenz_lyaps.shape == (int(60/1) - 1, lorenz.system_dim)
+    assert jnp.all(LE == lorenz_lyaps[-1])
+
+
+def test_lyapunov_exponents_values(lorenz_lyaps):
+    """Tests that Lorenz63 lyapunov exponents are close to known values.
+
+    Note:
+        Values from https://sprott.physics.wisc.edu/chaos/lorenzle.htm
+    """
+    LE = lorenz_lyaps[-1]
+    known_LE = jnp.array([0.906, 0, -14.572])
+    assert jnp.allclose(known_LE, LE,  rtol=0.1, atol=0.01)
 
