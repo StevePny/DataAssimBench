@@ -92,7 +92,7 @@ def test_lyapunov_exponents(lorenz, lorenz_lyaps):
 def test_lyapunov_exponents_series(lorenz, lorenz_lyaps):
     """Tests shape of lyapunov exponents series and value of last timestep"""
     LE = lorenz.calc_lyapunov_exponents_final()
-    assert lorenz_lyaps.shape == (int(60/1) - 1, lorenz.system_dim)
+    assert lorenz_lyaps.shape == (150 - 1, lorenz.system_dim)
     assert jnp.all(LE == lorenz_lyaps[-1])
 
 
@@ -104,5 +104,5 @@ def test_lyapunov_exponents_values(lorenz_lyaps):
     """
     LE = lorenz_lyaps[-1]
     known_LE = jnp.array([0.906, 0, -14.572])
-    assert jnp.allclose(known_LE, LE,  rtol=0.1, atol=0.01)
+    assert jnp.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
 

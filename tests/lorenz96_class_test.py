@@ -1,6 +1,5 @@
 """Tests for DataLorenz96 class (dabench.data.lorenz96.DataLorenz96)"""
 
-from dabench.data import data
 from dabench.data.lorenz96 import DataLorenz96
 import jax.numpy as jnp
 import pytest
@@ -151,12 +150,12 @@ def test_lyapunov_exponents(lorenz96, lorenz96_lyaps):
 def test_lyapunov_exponents_series(lorenz96, lorenz96_lyaps):
     """Tests shape of lyapunov exponents series and value of last timestep"""
     LE = lorenz96.calc_lyapunov_exponents_final()
-    assert lorenz96_lyaps.shape == (int(144/1) - 1, lorenz96.system_dim)
+    assert lorenz96_lyaps.shape == (500 - 1, lorenz96.system_dim)
     assert jnp.all(LE == lorenz96_lyaps[-1])
 
 
 def test_lyapunov_exponents_values(lorenz96_lyaps):
     """Tests that Lorenz96 lyapunov exponents are close to known values."""
     LE = lorenz96_lyaps[-1]
-    known_LE = jnp.array([0.3559, -0.0096, -0.4594, -1.3361, -3.5008])
-    assert jnp.allclose(known_LE, LE,  rtol=0.1, atol=0.01)
+    known_LE = jnp.array([0.4717, -0.0022, -0.4617, -1.3783, -3.5838])
+    assert jnp.allclose(known_LE, LE,  rtol=0.05, atol=0.01)

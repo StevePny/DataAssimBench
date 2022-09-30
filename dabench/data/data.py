@@ -193,7 +193,7 @@ class Data():
         return dxaux
 
     def calc_lyapunov_exponents_series(self, total_time=None, rescale_time=1,
-                                       convergence=0.05, x0=None):
+                                       convergence=0.01, x0=None):
         """Computes the spectrum of Lyapunov Exponents.
 
         Notes:
@@ -202,7 +202,7 @@ class Data():
             converges. There are three ways to make the estimate more accurate:
                 1. Decrease the delta_t of the model
                 2. Increase total_time
-                3. Decrease rescale time
+                3. Decrease rescale time (try increasing total_time first)
             Algorithm: Eckmann 85,
             https://www.ihes.fr/~ruelle/PUBLICATIONS/%5B81%5D.pdf pg 651
             This method computes the full time series of Lyapunov Exponents,
@@ -213,10 +213,10 @@ class Data():
             total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default depends on model type and matches
-                the spinup used to generate the default initial conditions:
-                For Lorenz63: n_steps=6000 (total_time=60 for delta_t=0.01)
-                For Lorenz96: n_steps=14400 (total_time=144 for delta_t=0.01)
+                computation time). Default depends on model type and are based
+                roughly on how long it takes for satisfactory convergence:
+                For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
+                For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
@@ -236,9 +236,9 @@ class Data():
         if total_time is None:
             subclass_name = self.__class__.__name__
             if subclass_name == 'DataLorenz63':
-                total_time = int(6000*self.delta_t)
+                total_time = int(15000*self.delta_t)
             elif subclass_name == 'DataLorenz96':
-                total_time = int(14400*self.delta_t)
+                total_time = int(50000*self.delta_t)
             else:
                 total_time = 100
 
@@ -292,10 +292,10 @@ class Data():
             total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default depends on model type and matches
-                the spinup used to generate the default initial conditions:
-                For Lorenz63: n_steps=6000 (total_time=60 for delta_t=0.01)
-                For Lorenz96: n_stpes=14400 (total_time=144 for delta_t=0.01)
+                computation time). Default depends on model type and are based
+                roughly on how long it takes for satisfactory convergence:
+                For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
+                For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
