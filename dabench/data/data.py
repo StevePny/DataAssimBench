@@ -213,7 +213,7 @@ class Data():
             total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default depends on model type and mathces
+                computation time). Default depends on model type and matches
                 the spinup used to generate the default initial conditions:
                 For Lorenz63: n_steps=6000 (total_time=60 for delta_t=0.01)
                 For Lorenz96: n_steps=14400 (total_time=144 for delta_t=0.01)
@@ -292,7 +292,7 @@ class Data():
             total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default depends on model type and mathces
+                computation time). Default depends on model type and matches
                 the spinup used to generate the default initial conditions:
                 For Lorenz63: n_steps=6000 (total_time=60 for delta_t=0.01)
                 For Lorenz96: n_stpes=14400 (total_time=144 for delta_t=0.01)
