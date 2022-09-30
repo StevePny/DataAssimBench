@@ -12,9 +12,15 @@ def lorenz96():
     params = {'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
-              'delta_t': 0.001
+              'delta_t': 0.01
               }
     return DataLorenz96(**params)
+
+
+@pytest.fixture
+def lorenz96_lyaps(lorenz96):
+    """Calculates Lyapunov Exponent values for tests."""
+    return lorenz96.calc_lyapunov_exponents_series()
 
 
 def test_initialization():
@@ -75,7 +81,7 @@ def test_trajectories_notequal():
     params = {'system_dim': 6,
               'time_dim': 1000,
               'forcing_term': 8.0,
-              'delta_t': 0.001
+              'delta_t': 0.01
               }
     lorenz96_1 = DataLorenz96(**params)
     lorenz96_2 = DataLorenz96(x0=jnp.array([6.20995768, 6.24066944,
@@ -98,7 +104,6 @@ def test_trajectory_changes(lorenz96):
     lorenz96.generate(t_final=runtime)
 
     assert not jnp.allclose(lorenz96.values[-1], initial_conditions)
-
 
 
 def test_generate_saved_results():
@@ -135,3 +140,23 @@ def test_generate_saved_results():
     assert jnp.allclose(y_simulated, y_true, rtol=0.01, atol=0)
     assert jnp.allclose(jnp.sum(y_simulated), jnp.sum(y_true), rtol=1e-4,
                         atol=0)
+
+
+def test_lyapunov_exponents(lorenz96, lorenz96_lyaps):
+    """Tests that shape of lyapunov exponents is same as system_dim"""
+    LE = lorenz96_lyaps[-1]
+    assert len(LE) == lorenz96.system_dim
+
+
+def test_lyapunov_exponents_series(lorenz96, lorenz96_lyaps):
+    """Tests shape of lyapunov exponents series and value of last timestep"""
+    LE = lorenz96.calc_lyapunov_exponents_final()
+    assert lorenz96_lyaps.shape == (int(144/1) - 1, lorenz96.system_dim)
+    assert jnp.all(LE == lorenz96_lyaps[-1])
+
+
+def test_lyapunov_exponents_values(lorenz96_lyaps):
+    """Tests that Lorenz96 lyapunov exponents are close to known values."""
+    LE = lorenz96_lyaps[-1]
+    known_LE = jnp.array([0.3559, -0.0096, -0.4594, -1.3361, -3.5008])
+    assert jnp.allclose(known_LE, LE,  rtol=0.1, atol=0.01)
