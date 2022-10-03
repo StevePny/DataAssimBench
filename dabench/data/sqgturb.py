@@ -433,12 +433,11 @@ class DataSQGturb(data.Data):
 
         # Ekman damping at boundaries.
         if self.ekman:
-            dpvspecdt = dpvspecdt.at[0].set(dpvspecdt[0] + self.r *
-                                            self.ksqlsq * psispec[0])
+            dpvspecdt = dpvspecdt.at[0].add(self.r * self.ksqlsq * psispec[0])
             # for asymmetric jet (U=0 at sfc), no Ekman layer at lid
             if self.symmetric:
-                dpvspecdt = dpvspecdt.at[1].set(dpvspecdt[1] - self.r *
-                                                self.ksqlsq * psispec[1])
+                dpvspecdt = dpvspecdt.at[1].subtract(self.r * self.ksqlsq *
+                                                     psispec[1])
 
         # save wind field
         self.u = -psiy
