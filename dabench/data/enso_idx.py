@@ -4,6 +4,7 @@ from urllib import request
 import logging
 import warnings
 import jax.numpy as jnp
+import numpy as np
 
 from dabench.data import data
 
@@ -91,7 +92,7 @@ class DataENSOIDX(data.Data):
                 n_lines = len(tmp)
                 if var in ['wnd', 'slp', 'soi', 'soi3m', 'olr']:
                     block_size = int(n_lines/n_block[var])
-                    for ni, i in enumerate(jnp.arange(n_block[var])[jnp.in1d(
+                    for ni, i in enumerate(jnp.arange(n_block[var])[np.in1d(
                             vtype_full[var], vtype[var])]):
                         vals, years = self._get_vals(tmp[i * block_size:(i+1) *
                                                          block_size],
@@ -129,7 +130,7 @@ class DataENSOIDX(data.Data):
         common_vals = jnp.array(common_vals)
         names = list(all_vals.keys())
         
-        values = common_vals
+        values = common_vals.T
         times = common_years
         self.names = names
         logging.debug(f"ENSOIDXData.__init__: system dim x time dim: {len(names)} x {len(times)}")
@@ -157,7 +158,7 @@ class DataENSOIDX(data.Data):
                 vals.append([float(tmp[n_header:][y][4:][m*7:m*7+7])
                              for m in range(12)])
 
-        vals = jnp.concatenate(vals)
+        vals = jnp.concatenate(jnp.array(vals))
         years = jnp.concatenate(jnp.reshape(jnp.array(years*12),
                                             (12, -1)).T +
                                 jnp.linspace(0, 1, 12, endpoint=False))
@@ -170,7 +171,7 @@ class DataENSOIDX(data.Data):
             l = [float(e) for e in line.split()]
             years.append(l[0])
             vals.append(l[1:])
-        vals = jnp.concatenate(vals)
+        vals = jnp.concatenate(jnp.array(vals))
         years = jnp.concatenate(jnp.reshape(jnp.array(years*12), (12, -1)).T +
                                 jnp.linspace(0, 1, 12, endpoint=False))
         return vals, years    
