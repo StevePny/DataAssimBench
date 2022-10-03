@@ -32,9 +32,13 @@ Uses the FFT spectral collocation method with 4th order Runge Kutta time
     stepping (dealiasing with 2/3 rule, hyperdiffusion treated implicitly).
 """
 
+from dabench.data import data
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
-from dabench.data import data
+from jax.config import config
+
+# Set to enable 64bit floats in Jax
+config.update('jax_enable_x64', True)
 
 
 class DataSQGturb(data.Data):
