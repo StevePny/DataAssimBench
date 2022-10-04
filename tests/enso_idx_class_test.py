@@ -7,13 +7,12 @@ import pytest
 
 def test_initialization():
     """Test initialization of enso idx data"""
-    file_list = {'wnd': ['zwnd200'],
+    file_dict = {'wnd': ['zwnd200'],
                  'slp': ['darwin']}
-    vtype = {'wnd': ['ori', 'ano'],
-             'slp': ['ori', 'std']}
+    var_types = {'wnd': ['ori', 'ano'],
+                 'slp': ['ori', 'std']}
 
-    idx = DataENSOIDX(file_list, vtype)
+    idx = DataENSOIDX(file_dict, var_types)
 
-    assert idx.values.shape[1] == 4
-    assert idx.values.shape[0] == 524
     assert idx.values[0, 0] == 15.5
+    assert idx.values.shape[1] == 4
