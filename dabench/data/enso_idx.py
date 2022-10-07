@@ -53,7 +53,8 @@ class DataENSOIDX(data.Data):
 
         """Initialize DataENSOIDX object, subclass of Data"""
 
-        # Full list: https://www.cpc.ncep.noaa.gov/data/indices/
+        # Full list of file names at bottom of this page:
+        # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml
         # This dict is used as an example. Can copy and edit down as needed
         file_dict_full = {'wnd': ['zwnd200', 'wpac850', 'cpac850', 'epac850',
                                   'qbo.u30.index', 'qbo.u50.index'],
@@ -132,14 +133,19 @@ class DataENSOIDX(data.Data):
 
         all_years = {}
         all_vals = {}
+        # Loop over variable types
         for var in file_dict:
+            # Loop over file names within variable types
             for file_name in file_dict[var]:
+                # List to store text lines from file
                 tmp = []
                 for line in request.urlopen(
                         'https://www.cpc.ncep.noaa.gov/data/indices/' +
                         file_name):
                     tmp.append(line)
                 n_lines = len(tmp)
+                # These variables share common file format
+                # Use _get_vals()
                 if var in ['wnd', 'slp', 'soi', 'soi3m', 'olr']:
                     block_size = int(n_lines/n_block[var])
                     for ni, i in enumerate(jnp.arange(n_block[var])[np.in1d(
@@ -151,12 +157,14 @@ class DataENSOIDX(data.Data):
                         logging.debug('ENSOIDXData.__init__: Opening %s', name)
                         all_vals[name] = vals
                         all_years[name] = years
+                # eqsoi uses _get_eqsoi()
                 elif var == 'eqsoi':
                     vals, years = self._get_eqsoi(tmp,)
                     name = file_name+'_'+var_types[var][0]
                     logging.debug('ENSOIDXData.__init__: Opening %s', name)
                     all_vals[name] = vals
                     all_years[name] = years
+                # These vars use _get_sst()
                 elif var in ['sst', 'cpolr', 'desst', 'rsst']:
                     vals, years = self._get_sst(tmp, jnp.in1d(
                             var_types_full[var], var_types[var])
@@ -166,7 +174,11 @@ class DataENSOIDX(data.Data):
                         logging.debug('ENSOIDXData.__init__: Opening %s', name)
                         all_vals[name] = vals[i]
                         all_years[name] = years
+                else:
+                    raise ValueError('Variable name {} not recognized'.format(
+                        var))
 
+        # Find common years between variables
         common_years = list(all_years.values())[0]
         for v in all_vals:
             # get rid of missing values
@@ -174,6 +186,7 @@ class DataENSOIDX(data.Data):
                                        (all_vals[v] != 999.9)]
             common_years = jnp.intersect1d(common_years, valid_years)
 
+        # Concatenate values across variables
         common_vals = []
         for v in all_vals:
             common_vals.append(all_vals[v][jnp.in1d(all_years[v],
@@ -188,6 +201,7 @@ class DataENSOIDX(data.Data):
         logging.debug('ENSOIDXData.__init__: system dim x time dim: %s x %s',
                       len(names), len(times))
 
+        # Set system_dim
         if system_dim is None:
             system_dim = len(names)
         elif system_dim != len(names):
