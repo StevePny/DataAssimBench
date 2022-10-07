@@ -197,8 +197,11 @@ class DataENSOIDX(data.Data):
         # Use _get_vals()
         if var in ['wnd', 'slp', 'soi', 'soi3m', 'olr']:
             block_size = int(n_lines/n_block[var])
-            for ni, i in enumerate(jnp.arange(n_block[var])[np.in1d(
-                    var_types_full[var], var_types[var])]):
+            # Find the indices of the variable types while maintaining input order
+            ss_sorter = np.argsort(var_types_full[var])
+            var_types_indices = ss_sorter[np.searchsorted(
+                var_types_full[var], var_types[var], sorter=ss_sorter)]
+            for ni, i in enumerate(jnp.arange(n_block[var])[var_types_indices]):
                 vals, years = self._get_vals(tmp[i * block_size:
                                                  (i+1) * block_size],
                                              n_header[var])
@@ -215,9 +218,10 @@ class DataENSOIDX(data.Data):
             all_years[name] = years
         # These vars use _get_sst()
         elif var in ['sst', 'cpolr', 'desst', 'rsst']:
-            vals, years = self._get_sst(tmp, jnp.in1d(
-                    var_types_full[var], var_types[var])
-                )
+            ss_sorter = np.argsort(var_types_full[var])
+            var_types_indices = ss_sorter[np.searchsorted(
+                var_types_full[var], var_types[var], sorter=ss_sorter)]
+            vals, years = self._get_sst(tmp, var_types_indices)
             for i in range(len(var_types[var])):
                 name = file_name+'_'+var_types[var][i]
                 logging.debug('ENSOIDXData.__init__: Opening %s', name)
@@ -276,12 +280,19 @@ class DataENSOIDX(data.Data):
         n_years = len(tmp)-n_header
         vals = []
         years = []
+        # Figure out whether whether columns are 6 or 7 characters wide
+        if tmp[n_header:][0].decode('utf-8')[4:][6] in (' ', '-'):
+            column_size = 6
+        elif tmp[n_header:][0].decode('utf-8')[4:][7] in (' ', '-'):
+            column_size = 7
+        else:
+            raise ValueError("Can't determine if column size is 6 or 7")
         for y in range(n_years):
             years.append(int(tmp[n_header:][y][:4]))
-            # Split line every 6 characters
+            # Split line every 6 or 7 characters based on file
             split_text = textwrap.wrap(
                 tmp[n_header:][y].decode('utf-8')[4:].replace('\n', ''),
-                6, drop_whitespace=False)
+                column_size, drop_whitespace=False)
             vals.append([float(e) for e in split_text])
 
         vals = jnp.concatenate(jnp.array(vals))
@@ -328,13 +339,12 @@ class DataENSOIDX(data.Data):
         """
         n_header = 1
         n_row = len(tmp)
-        n_v = len(var_types_indices)
         vals = []
         years = []
         for r in range(n_header, n_row):
             years.append(float(tmp[r][:4]) + (float(tmp[r][4:8])-1)/12)
             vals.append([float(tmp[r][8:][v*8:v*8+8])
-                         for v in jnp.arange(n_v)[var_types_indices]])
+                         for v in var_types_indices])
         vals = jnp.array(vals).T
         years = jnp.array(years)
 
