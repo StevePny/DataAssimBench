@@ -5,6 +5,7 @@ import logging
 import warnings
 import jax.numpy as jnp
 import numpy as np
+import textwrap
 
 from dabench.data import data
 
@@ -277,13 +278,11 @@ class DataENSOIDX(data.Data):
         years = []
         for y in range(n_years):
             years.append(int(tmp[n_header:][y][:4]))
-            try:
-                vals.append([float(tmp[n_header:][y][4:][m*6:m*6+6])
-                             for m in range(12)])
-            # TODO: Fix bare except
-            except:
-                vals.append([float(tmp[n_header:][y][4:][m*7:m*7+7])
-                             for m in range(12)])
+            # Split line every 6 characters
+            split_text = textwrap.wrap(
+                tmp[n_header:][y].decode('utf-8')[4:].replace('\n', ''),
+                6, drop_whitespace=False)
+            vals.append([float(e) for e in split_text])
 
         vals = jnp.concatenate(jnp.array(vals))
         years = jnp.concatenate(jnp.reshape(jnp.array(years*12),
