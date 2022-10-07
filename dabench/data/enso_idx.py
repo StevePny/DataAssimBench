@@ -143,9 +143,22 @@ class DataENSOIDX(data.Data):
                            all_vals, all_years):
         """Downloads data for one file_name and variable pair
 
+        Args:
+            file_name (str): CPC file name.
+            var (str): Variable name, e.g. 'wnd', 'slp', etc.
+            var_types (dict): Types of variables to get for each variable name,
+                e.g. 'ori' (original), 'ano' (anomaly), etc.
+            var_types_full (dict): Types of variables available for each
+                variable name, used to help with parsing.
+            all_vals (dict): Dictionary of variable names and corresponding
+                values downloaded so far. This method adds new variables
+                and returns.
+            all_years (dict): Dictionary of variable names and corresponding
+                years downloaded so far. This method adds new variables
+                and returns.
+
         Returns:
-            Tuple containing values (ndarray), years (ndarray), and dict key
-                name (string).
+            Tuple containing updated all_vals (dict) and all_years (dict).
         """
 
         # The downloaded text files are all different, these dicts help parse
@@ -216,6 +229,19 @@ class DataENSOIDX(data.Data):
         return all_vals, all_years
 
     def _combine_vals_years(self, all_vals, all_years):
+        """Merges all_vals and all_years dicts into ndarrays
+
+        Args:
+            all_vals (dict): Dictionary of downloaded variable names and
+                corresponding values.
+            all_years (dict): Dictionary of variable names and corresponding
+            all_years (dict): Dictionary of downloaded variable names and
+                corresponding years.
+
+        Returns:
+            Tuple of common_vals (ndarray), common_years (ndarray), and names
+                (list)
+        """
         # Find common years between variables
         common_years = list(all_years.values())[0]
         for v in all_vals:
@@ -224,7 +250,7 @@ class DataENSOIDX(data.Data):
                                        (all_vals[v] != 999.9)]
             common_years = jnp.intersect1d(common_years, valid_years)
 
-        # Concatenate values across variables
+        # Concatenate values between variables
         common_vals = []
         for v in all_vals:
             common_vals.append(all_vals[v][jnp.in1d(all_years[v],
