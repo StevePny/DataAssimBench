@@ -88,31 +88,6 @@ class DataENSOIDX(data.Data):
                           'olr': ['ori', 'ano', 'std'],
                           'cpolr': ['ano']}
 
-        # The downloaded text files are all different, these dicts help parse
-        # Number of blocks (each representing a variable) in file
-        n_block = {'wnd': 3,
-                   'slp': 3,
-                   'soi': 2,
-                   'soi3m': 1,
-                   'eqsoi': 1,
-                   'sst': 1,
-                   'desst': 1,
-                   'rsst': 1,
-                   'olr': 3,
-                   'cpolr': 1}
-
-        # Size of header at top of file and between blocks
-        n_header = {'wnd': 4,
-                    'slp': 4,
-                    'soi': 4,
-                    'soi3m': 1,
-                    'eqsoi': 0,
-                    'sst': 1,
-                    'desst': 1,
-                    'rsst': 1,
-                    'olr': 4,
-                    'cpolr': 1}
-
         # Default if file_dict is None
         if file_dict is None:
             file_dict = {'wnd': ['zwnd200'],
@@ -137,63 +112,13 @@ class DataENSOIDX(data.Data):
         for var in file_dict:
             # Loop over file names within variable types
             for file_name in file_dict[var]:
-                # List to store text lines from file
-                tmp = []
-                for line in request.urlopen(
-                        'https://www.cpc.ncep.noaa.gov/data/indices/' +
-                        file_name):
-                    tmp.append(line)
-                n_lines = len(tmp)
-                # These variables share common file format
-                # Use _get_vals()
-                if var in ['wnd', 'slp', 'soi', 'soi3m', 'olr']:
-                    block_size = int(n_lines/n_block[var])
-                    for ni, i in enumerate(jnp.arange(n_block[var])[np.in1d(
-                            var_types_full[var], var_types[var])]):
-                        vals, years = self._get_vals(tmp[i * block_size:
-                                                         (i+1) * block_size],
-                                                     n_header[var])
-                        name = file_name + '_' + var_types[var][ni]
-                        logging.debug('ENSOIDXData.__init__: Opening %s', name)
-                        all_vals[name] = vals
-                        all_years[name] = years
-                # eqsoi uses _get_eqsoi()
-                elif var == 'eqsoi':
-                    vals, years = self._get_eqsoi(tmp,)
-                    name = file_name+'_'+var_types[var][0]
-                    logging.debug('ENSOIDXData.__init__: Opening %s', name)
-                    all_vals[name] = vals
-                    all_years[name] = years
-                # These vars use _get_sst()
-                elif var in ['sst', 'cpolr', 'desst', 'rsst']:
-                    vals, years = self._get_sst(tmp, jnp.in1d(
-                            var_types_full[var], var_types[var])
-                        )
-                    for i in range(len(var_types[var])):
-                        name = file_name+'_'+var_types[var][i]
-                        logging.debug('ENSOIDXData.__init__: Opening %s', name)
-                        all_vals[name] = vals[i]
-                        all_years[name] = years
-                else:
-                    raise ValueError('Variable name {} not recognized'.format(
-                        var))
+                all_vals, all_years = self._download_cpc_vals(
+                        file_name, var, var_types, var_types_full,
+                        all_vals, all_years)
 
-        # Find common years between variables
-        common_years = list(all_years.values())[0]
-        for v in all_vals:
-            # get rid of missing values
-            valid_years = all_years[v][(all_vals[v] != -999.9) &
-                                       (all_vals[v] != 999.9)]
-            common_years = jnp.intersect1d(common_years, valid_years)
-
-        # Concatenate values across variables
-        common_vals = []
-        for v in all_vals:
-            common_vals.append(all_vals[v][jnp.in1d(all_years[v],
-                                                    common_years)])
-        common_vals = jnp.array(common_vals)
-        names = list(all_vals.keys())
-
+        # Combine all variable values and years
+        common_vals, common_years, names = self._combine_vals_years(
+            all_vals, all_years)
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
         values = common_vals.T
         times = common_years
@@ -213,6 +138,101 @@ class DataENSOIDX(data.Data):
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, delta_t=None, **kwargs)
+
+    def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
+                           all_vals, all_years):
+        """Downloads data for one file_name and variable pair
+
+        Returns:
+            Tuple containing values (ndarray), years (ndarray), and dict key
+                name (string).
+        """
+
+        # The downloaded text files are all different, these dicts help parse
+        # Number of blocks (each representing a variable) in file
+        n_block = {'wnd': 3,
+                   'slp': 3,
+                   'soi': 2,
+                   'soi3m': 1,
+                   'eqsoi': 1,
+                   'sst': 1,
+                   'desst': 1,
+                   'rsst': 1,
+                   'olr': 3,
+                   'cpolr': 1}
+
+        # Size of header at top of file and between blocks
+        n_header = {'wnd': 4,
+                    'slp': 4,
+                    'soi': 4,
+                    'soi3m': 1,
+                    'eqsoi': 0,
+                    'sst': 1,
+                    'desst': 1,
+                    'rsst': 1,
+                    'olr': 4,
+                    'cpolr': 1}
+        # List to store text lines from file
+        tmp = []
+        for line in request.urlopen(
+                'https://www.cpc.ncep.noaa.gov/data/indices/' +
+                file_name):
+            tmp.append(line)
+        n_lines = len(tmp)
+        # These variables share common file format
+        # Use _get_vals()
+        if var in ['wnd', 'slp', 'soi', 'soi3m', 'olr']:
+            block_size = int(n_lines/n_block[var])
+            for ni, i in enumerate(jnp.arange(n_block[var])[np.in1d(
+                    var_types_full[var], var_types[var])]):
+                vals, years = self._get_vals(tmp[i * block_size:
+                                                 (i+1) * block_size],
+                                             n_header[var])
+                name = file_name + '_' + var_types[var][ni]
+                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                all_vals[name] = vals
+                all_years[name] = years
+        # eqsoi uses _get_eqsoi()
+        elif var == 'eqsoi':
+            vals, years = self._get_eqsoi(tmp,)
+            name = file_name+'_'+var_types[var][0]
+            logging.debug('ENSOIDXData.__init__: Opening %s', name)
+            all_vals[name] = vals
+            all_years[name] = years
+        # These vars use _get_sst()
+        elif var in ['sst', 'cpolr', 'desst', 'rsst']:
+            vals, years = self._get_sst(tmp, jnp.in1d(
+                    var_types_full[var], var_types[var])
+                )
+            for i in range(len(var_types[var])):
+                name = file_name+'_'+var_types[var][i]
+                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                all_vals[name] = vals[i]
+                all_years[name] = years
+        else:
+            raise ValueError('Variable name {} not recognized'.format(
+                var))
+
+        return all_vals, all_years
+
+    def _combine_vals_years(self, all_vals, all_years):
+        # Find common years between variables
+        common_years = list(all_years.values())[0]
+        for v in all_vals:
+            # get rid of missing values
+            valid_years = all_years[v][(all_vals[v] != -999.9) &
+                                       (all_vals[v] != 999.9)]
+            common_years = jnp.intersect1d(common_years, valid_years)
+
+        # Concatenate values across variables
+        common_vals = []
+        for v in all_vals:
+            common_vals.append(all_vals[v][jnp.in1d(all_years[v],
+                                                    common_years)])
+        common_vals = jnp.array(common_vals)
+        names = list(all_vals.keys())
+
+        return common_vals, common_years, names
 
     def _get_vals(self, tmp, n_header):
         """Parses text lines from files of most data types
