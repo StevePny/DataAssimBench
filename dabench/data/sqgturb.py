@@ -33,9 +33,11 @@ Uses the FFT spectral collocation method with 4th order Runge Kutta time
 """
 
 from dabench.data import data
+import jax
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
+from functools import partial
 
 # Set to enable 64bit floats in Jax
 config.update('jax_enable_x64', True)
@@ -95,7 +97,7 @@ class DataSQGturb(data.Data):
                          output_dim=output_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
                          **kwargs)
-         
+
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
         self.x0 = pvspec.ravel()
@@ -161,12 +163,7 @@ class DataSQGturb(data.Data):
             # theta = (f*theta0/g)*(0.5*U*mu/(l*H))*np.cosh(mu*(z-0.5*H)/H)*
             # np.cos(l*y)/np.sinh(0.5*mu)
             # + theta0 + (theta0*nsq*z/g)
-            pvbar = (
-                -(mu * 0.5 * self.U / (l * self.H))
-                * jnp.cosh(0.5 * mu)
-                * jnp.cos(l * y)
-                / jnp.sinh(0.5 * mu)
-                )
+            pvbar = self._symmetric_pvbar(mu, self.U, l, self.H, y)
         else:
             # asymmetric version, equilibrium state has no flow at surface and
             # temp gradient slightly weaker at sfc.
@@ -174,9 +171,7 @@ class DataSQGturb(data.Data):
             # theta = (f*theta0/g)*(U*mu/(l*H))*np.cosh(mu*z/H)*
             # np.cos(l*y)/np.sinh(mu)
             # + theta0 + (theta0*nsq*z/g)
-            pvbar = (-(mu * self.U / (l * self.H)) *
-                     jnp.cos(l * y) / jnp.sinh(mu))
-            pvbar = pvbar.at[1, :].set(pvbar[0, :] * jnp.cosh(mu))
+            pvbar = self._asymmetric_pvbar(mu, self.U, l, self.H, y)
         pvbar = pvbar.astype(dtype)
 
         # Add extra dimension to support multiplication
@@ -232,14 +227,11 @@ class DataSQGturb(data.Data):
                                  (ktot / ktotcutoff) ** self.diff_order)
 
     # Private support methods
-    def _invert(self, pvspec=None):
+    @partial(jax.jit, static_argnums=(0,))
+    def _invert(self, pvspec):
         """Inverts pvspec"""
 
-        if pvspec is None:
-            pvspec = self.pvspec
-
         # invert boundary pv to get streamfunction
-        psispec = jnp.empty((2, self.N, self.N // 2 + 1), dtype=pvspec.dtype)
         psispec = jnp.array([self.Hovermu * ((pvspec[1] / self.sinhmu) -
                                              (pvspec[0] / self.tanhmu)),
                              self.Hovermu * ((pvspec[1] / self.tanhmu) -
@@ -248,13 +240,12 @@ class DataSQGturb(data.Data):
 
         return psispec
 
-    def _invert_inverse(self, psispec=None):
+    @partial(jax.jit, static_argnums=(0,))
+    def _invert_inverse(self, psispec):
         """ Performs inverse operation of '_invert'
+
         (Not used here.)
         """
-
-        if psispec is None:
-            psispec = self._invert(self.pvspec)
 
         # given streamfunction, return PV
         alpha = self.Hovermu
@@ -272,6 +263,7 @@ class DataSQGturb(data.Data):
 
         return pvspec
 
+    @partial(jax.jit, static_argnums=(0,))
     def _specpad(self, specarr):
         """Pads spectral arrays with zeros to interpolate to 3/2 larger grid
             using inverse fft."""
@@ -290,6 +282,7 @@ class DataSQGturb(data.Data):
             jnp.conjugate(2.25 * specarr[:, (-self.N // 2):, -1]))
         return specarr_pad
 
+    @partial(jax.jit, static_argnums=(0,))
     def _spectrunc(self, specarr):
         """Truncates spectral array to 2/3 size"""
         specarr_trunc = jnp.zeros((2, self.N, self.N // 2 + 1),
@@ -302,50 +295,98 @@ class DataSQGturb(data.Data):
             specarr[:, (-self.N // 2):, :(self.N // 2)])
         return specarr_trunc
 
+    @partial(jax.jit, static_argnums=(0,))
     def _xyderiv(self, specarr):
         """Calculates x and y derivatives"""
-        if not self.dealias:
-            xderiv = self.ifft2(self.ik * specarr)
-            yderiv = self.ifft2(self.il * specarr)
-        else:
-            # pad spectral coeffs with zeros for dealiased jacobian
-            specarr_pad = self._specpad(specarr)
-            xderiv = self.ifft2(self.ik_pad * specarr_pad)
-            yderiv = self.ifft2(self.il_pad * specarr_pad)
+        xderiv = self.ifft2(self.ik * specarr)
+        yderiv = self.ifft2(self.il * specarr)
         return xderiv, yderiv
 
+    @partial(jax.jit, static_argnums=(0,))
+    def _xyderiv_dealias(self, specarr):
+        """Calculates x and y derivatives"""
+        specarr_pad = self._specpad(specarr)
+        xderiv = self.ifft2(self.ik_pad * specarr_pad)
+        yderiv = self.ifft2(self.il_pad * specarr_pad)
+        return xderiv, yderiv
+
+    @partial(jax.jit, static_argnums=(0, 1,))
+    def _rk4(self, f, delta_t, x):
+        """Updates pv using 4th order runge-kutta time step with implicit
+            "integrating factor" treatment of hyperdiffusion.
+        """
+
+        k1 = delta_t * f(x)
+        k2 = delta_t * f(x + 0.5 * k1)
+        k3 = delta_t * f(x + 0.5 * k2)
+        k4 = delta_t * f(x + k3)
+        y = x + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        return y
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _symmetric_pvbar(self, mu, U, l, H, y):
+        """Computes symmetric pvbar"""
+        pvbar = (
+            -(mu * 0.5 * U / (l * H))
+            * jnp.cosh(0.5 * mu)
+            * jnp.cos(l * y)
+            / jnp.sinh(0.5 * mu)
+            )
+        return pvbar
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _asymmetric_pvbar(self, mu, U, l, H, y):
+        """Computes asymmetric pvbar"""
+        pvbar = (-(mu * U / (l * H)) *
+                 jnp.cos(l * y) / jnp.sinh(mu))
+        pvbar = pvbar.at[1, :].set(pvbar[0, :] * jnp.cosh(mu))
+        return pvbar
+
+    @partial(jax.jit, static_argnums=(0, 1,))
+    def _perform_integrate_step(self, f, delta_t, pvspec, hyperdiff):
+        """Performs one step of integration"""
+        return hyperdiff*self._rk4(f, delta_t, pvspec)
+
     # Public support methods
+    @partial(jax.jit, static_argnums=(0,))
     def fft2(self, pv):
         """Alias method for FFT of PV"""
         return rfft2(pv)
 
+    @partial(jax.jit, static_argnums=(0,))
     def ifft2(self, pvspec):
         """Alias method for inverse FFT of PV Spectral"""
         return irfft2(pvspec)
 
+    @partial(jax.jit, static_argnums=(0,))
     def map2dto1d(self, pv):
         """Maps 2D PV to 1D system state"""
         return pv.ravel()
 
+    @partial(jax.jit, static_argnums=(0,))
     def map1dto2d(self, x):
         """Maps 1D state vector to 2D PV"""
         return jnp.reshape(x, (self.Nv, self.Nx, self.Ny))
 
+    @partial(jax.jit, static_argnums=(0,))
     def fft2_2dto1d(self, pv):
         """Runs FFT then maps from 2D to 1D"""
         pvspec = self.fft2(pv)
         return self.map2dto1d(pvspec)
 
+    @partial(jax.jit, static_argnums=(0,))
     def ifft2_2dto1d(self, pvspec):
         """Runs inverse FFT then maps from 2D to 1D"""
         pv = self.ifft2(pvspec)
         return self.map2dto1d(pv)
 
+    @partial(jax.jit, static_argnums=(0,))
     def map1dto2d_fft2(self, x):
         """Maps for 1D to 2D then runs FFT"""
         pv = self.map1dto2d(x)
         return self.fft2(pv)
 
+    @partial(jax.jit, static_argnums=(0,))
     def map1dto2d_ifft2(self,  x):
         """Maps for 1D to 2D then runs inverse FFT"""
         pvspec = self.map1dto2d(x)
@@ -354,7 +395,7 @@ class DataSQGturb(data.Data):
     # Integration methods
     def integrate(self, f, x0, t_final, delta_t=None, include_x0=True,
                   t=None, **kwargs):
-        """Advances pv forward number of timesteps given by 'n_steps' instance var.
+        """Advances pv forward number of timesteps given by self.n_steps.
 
         Note:
             If pv not specified, use pvspec instance variable.
@@ -398,8 +439,8 @@ class DataSQGturb(data.Data):
         # Integrate in spectral space
         for i in range(n_steps):
             values = values.at[i, :].set(pvspec.ravel())
-            pvspec = self._rk4(f, pvspec)
-            pvspec = self.hyperdiff * pvspec
+            pvspec = self._perform_integrate_step(f, self.delta_t, pvspec,
+                                                  self.hyperdiff)
 
             if jnp.isnan(pvspec).any():
                 raise Exception('Model values contain NaNs. '
@@ -411,52 +452,36 @@ class DataSQGturb(data.Data):
 
         return values, times
 
-    def rhs(self, pvspec=None):
-        """computes tendencies of pv on z=0, H. Inverts pv to get 
-            streamfunction.
-        """
+    def rhs(self, pvspec):
+        """Computes pv deriv on z=0, inverts pv to get streamfunction."""
 
-        if pvspec is None:
-            pvspec = self.pvspec
         psispec = self._invert(pvspec)
 
         # Nonlinear jacobian and thermal relaxation
-        psix, psiy = self._xyderiv(psispec)
-        pvx, pvy = self._xyderiv(pvspec)
+        if self.dealias:
+            psix, psiy = self._xyderiv_dealias(psispec)
+            pvx, pvy = self._xyderiv_dealias(pvspec)
+        else:
+            psix, psiy = self._xyderiv(psispec)
+            pvx, pvy = self._xyderiv(pvspec)
         jacobian = psix * pvy - psiy * pvx
         jacobianspec = self.fft2(jacobian)
         if self.dealias:
             # 2/3 rule: truncate spectral coefficients of jacobian
             jacobianspec = self._spectrunc(jacobianspec)
-        dpvspecdt = ((1.0 / self.tdiab) * (self.pvspec_eq - pvspec) -
-                     jacobianspec)
+            dpvspecdt = ((1.0 / self.tdiab) * (self.pvspec_eq - pvspec) -
+                         jacobianspec)
 
         # Ekman damping at boundaries.
         if self.ekman:
             dpvspecdt = dpvspecdt.at[0].add(self.r * self.ksqlsq * psispec[0])
             # for asymmetric jet (U=0 at sfc), no Ekman layer at lid
             if self.symmetric:
-                dpvspecdt = dpvspecdt.at[1].subtract(self.r * self.ksqlsq *
-                                                     psispec[1])
+                dpvspecdt = dpvspecdt.at[1].add(-1 * self.r * self.ksqlsq *
+                                                psispec[1])
 
         # save wind field
         self.u = -psiy
         self.v = psix
         return dpvspecdt
-
-    def _rk4(self, f, x):
-        """Updates pv using 4th order runge-kutta time step with implicit
-            "integrating factor" treatment of hyperdiffusion.
-        """
-
-        self.rkstep = 0
-        k1 = self.delta_t * f(x)
-        self.rkstep = 1
-        k2 = self.delta_t * f(x + 0.5 * k1)
-        self.rkstep = 2
-        k3 = self.delta_t * f(x + 0.5 * k2)
-        self.rkstep = 3
-        k4 = self.delta_t * f(x + k3)
-        y = x + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-        return y
 
