@@ -192,8 +192,8 @@ class Data():
 
         return dxaux
 
-    def calc_lyapunov_exponents_series(self, total_time=1, rescale_time=0.01,
-                                       convergence=0.05, x0=None):
+    def calc_lyapunov_exponents_series(self, total_time=None, rescale_time=1,
+                                       convergence=0.01, x0=None):
         """Computes the spectrum of Lyapunov Exponents.
 
         Notes:
@@ -202,7 +202,7 @@ class Data():
             converges. There are three ways to make the estimate more accurate:
                 1. Decrease the delta_t of the model
                 2. Increase total_time
-                3. Decrease rescale time
+                3. Decrease rescale time (try increasing total_time first)
             Algorithm: Eckmann 85,
             https://www.ihes.fr/~ruelle/PUBLICATIONS/%5B81%5D.pdf pg 651
             This method computes the full time series of Lyapunov Exponents,
@@ -210,16 +210,18 @@ class Data():
             Lyapunov Exponent, use self.calc_lyapunov_exponents.
 
         Args:
-            total_time (float) : time to integrate over to compute LEs.
+            total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default is 1.
+                computation time). Default depends on model type and are based
+                roughly on how long it takes for satisfactory convergence:
+                For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
+                For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
-                Putting this at around half the maximal exponent
-                usually works. Default is 0.01 (1/100th of total_time=1).
-            convergence (float) : prints warning if LE convergence is below
-                this number. Default is 0.05.
+                Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
+            convergence (float) : Prints warning if LE convergence is below
+                this number. Default is 0.01.
             x0 (array) : initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
@@ -229,6 +231,22 @@ class Data():
             Lyapunov exponents for all timesteps, array of size
                 (total_time/rescale_time - 1, system_dim)
         """
+
+        # Set total_time
+        if total_time is None:
+            subclass_name = self.__class__.__name__
+            if subclass_name == 'DataLorenz63':
+                total_time = int(15000*self.delta_t)
+            elif subclass_name == 'DataLorenz96':
+                total_time = int(50000*self.delta_t)
+            else:
+                total_time = 100
+
+        if rescale_time > total_time:
+            raise ValueError('rescale_time must be less than or equal to '
+                             'total_time. Current values are rescale_time = {}'
+                             ' and total_time = {}'.format(rescale_time,
+                                                           total_time))
         D = self.system_dim
         times = jnp.arange(0, total_time, rescale_time)
 
@@ -263,24 +281,26 @@ class Data():
 
         return LE
 
-    def calc_lyapunov_exponents(self, total_time=1, rescale_time=0.01,
-                                convergence=0.05, x0=None):
-        """Computes the final Lyapunov Exponent
+    def calc_lyapunov_exponents_final(self, total_time=None, rescale_time=1,
+                                      convergence=0.05, x0=None):
+        """Computes the final Lyapunov Exponents
 
         Notes:
-            See self.calc_lyapunov_exponents for full info
+            See self.calc_lyapunov_exponents_series for full info
 
         Args:
-            total_time (float) : time to integrate over to compute LEs.
+            total_time (float) : Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
-                computation time). Default is 1.
+                computation time). Default depends on model type and are based
+                roughly on how long it takes for satisfactory convergence:
+                For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
+                For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
             rescale_time (float) : Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
-                Putting this at around half the maximal exponent
-                usually works. Default is 0.01 (1/100th of total_time=1).
-            convergence (float) : prints warning if LE convergence is below
-                this number. Default is 0.05.
+                Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
+            convergence (float) : Prints warning if LE convergence is below
+                this number. Default is 0.01.
             x0 (array) : initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
