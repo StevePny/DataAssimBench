@@ -3,6 +3,7 @@ import numpy as np
 import jax.numpy as jnp
 from dabench.support.utils import integrate
 import xarray as xr
+import warnings
 
 
 class Data():
@@ -197,6 +198,8 @@ class Data():
 
             # Set x and y
             og_dims = []
+            if 'level' in dims.keys():
+                og_dims += [dims['level']]
             if 'latitude' in dims.keys():
                 og_dims += [dims['latitude']]
             elif 'lat' in dims.keys():
@@ -205,8 +208,11 @@ class Data():
                 og_dims += [dims['longitude']]
             elif 'lon' in dims.keys():
                 og_dims += [dims['lon']]
-            if 'level' in dims.keys():
-                og_dims += [dims['level']]
+
+            if len(og_dims) == 0:
+                warnings.warn('Unable to find any spatial or level dimensions '
+                              'in NetCDF. Setting original_dim to system_dim: '
+                              '{}'.format(len(ds.data_vars)))
 
             og_dims += [len(ds.data_vars)]
 
@@ -216,12 +222,12 @@ class Data():
             vars_list = []
             names_list = []
             for data_var in ds.data_vars:
-                vars_list.append(ds[data_var].values.reshape(
-                    ds[data_var].shape[0], np.prod(ds[data_var].shape[1:])))
+                vars_list.append(ds[data_var].values)
                 names_list.append(data_var)
 
             self.var_names = np.array(names_list)
-            self.set_values(np.concatenate(vars_list, axis=1))
+            self.set_values(np.stack(vars_list, axis=-1).reshape(
+                vars_list[0].shape[0], -1))
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
