@@ -195,15 +195,33 @@ class Data():
             elif 'times' in dims.keys():
                 self.set_times(ds['times'])
 
+            # Set x and y
+            og_dims = []
+            if 'latitude' in dims.keys():
+                og_dims += [dims['latitude']]
+            elif 'lat' in dims.keys():
+                og_dims += [dims['lat']]
+            if 'longitude' in dims.keys():
+                og_dims += [dims['longitude']]
+            elif 'lon' in dims.keys():
+                og_dims += [dims['lon']]
+            if 'level' in dims.keys():
+                og_dims += [dims['level']]
+
+            og_dims += [len(ds.data_vars)]
+
+            self.original_dim = tuple(og_dims)
+
             # Gather values
             vars_list = []
             names_list = []
             for data_var in ds.data_vars:
-                vars_list.append(ds[data_var].values.flatten())
+                vars_list.append(ds[data_var].values.reshape(
+                    ds[data_var].shape[0], np.prod(ds[data_var].shape[1:])))
                 names_list.append(data_var)
 
             self.var_names = np.array(names_list)
-            self.set_values(np.stack(vars_list, axis=1))
+            self.set_values(np.concatenate(vars_list, axis=1))
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
@@ -226,7 +244,8 @@ class Data():
             times = self.times
 
         # Get values as list:
-        values_list = [("time", self.values[:, i]) for i in range(self.values.shape[1])]
+        values_list = [("time", self.values[:, i]) for i in range(
+            self.values.shape[1])]
 
         data_dict = dict(zip(var_names, values_list))
         coords_dict = {
