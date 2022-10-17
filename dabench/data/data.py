@@ -250,7 +250,7 @@ class Data():
             times = self.times
 
         # Get values as list:
-        values_list = [("time", self.values[:, i]) for i in range(
+        values_list = [('time', self.values[:, i]) for i in range(
             self.values.shape[1])]
 
         data_dict = dict(zip(var_names, values_list))
