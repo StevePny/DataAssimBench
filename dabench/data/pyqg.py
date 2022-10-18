@@ -67,6 +67,7 @@ class DataPYQG(data.Data):
                  U2=0.0,
                  x0=None,
                  delta_t=7200,
+                 ntd=1,
                  time_dim=None,
                  values=None,
                  times=None,
@@ -80,7 +81,7 @@ class DataPYQG(data.Data):
         """
 
         self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
-                              U2=U2, twrite=10000, ntd=4, **kwargs)
+                              U2=U2, twrite=10000, ntd=ntd, **kwargs)
 
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
@@ -118,6 +119,7 @@ class DataPYQG(data.Data):
                             'input argument.')
 
         # Check that x0 initial conditions is supplied
+        self.x0 = x0
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
@@ -127,9 +129,26 @@ class DataPYQG(data.Data):
                         'dimension must to 2 for this 2-layer QG model')
                 self.m.set_q1q2(x0[0], x0[1])
             else:
-                raise TypeError('Initial condition is None, x0 = {}. it must '
-                                'either be provided as an argument or set as '
-                                'an attribute in the model object.'.format(x0))
+                print('Initial condition not set. Start with random IC.')
+                fk = self.m.wv != 0
+                ckappa = np.zeros_like(self.m.wv2)
+                ckappa[fk] = np.sqrt(self.m.wv2[fk]*(1. + (self.m.wv2[fk]/36.)
+                                                     ** 2)) ** -1
+
+                nhx,  nhy = self.m.wv2.shape
+
+                Pi_hat = (np.random.randn(nhx, nhy)*ckappa + 1j *
+                          np.random.randn(nhx, nhy)*ckappa)
+
+                Pi = self.m.ifft(Pi_hat[np.newaxis, :, :])
+                Pi = Pi - Pi.mean()
+                Pi_hat = self.m.fft(Pi)
+                KEaux = self.m.spec_var(self.m.wv * Pi_hat)
+
+                pih = (Pi_hat/np.sqrt(KEaux))
+                qih = -self.m.wv2*pih
+                self.x0 = self.m.ifft(qih)
+                self.m.set_q1q2(self.x0[0], self.x0[1])
 
         # Integrate and store values and times
         self.m.dt = self.delta_t
@@ -140,8 +159,9 @@ class DataPYQG(data.Data):
         qs = self.__advance__()
 
         # Save values
-        self.values = qs
-        self.time_dimension = self.values.shape[0]
+        self.original_dim = qs.shape[1:]
+        self.time_dim = qs.shape[0]
+        self.values = qs.reshape((self.time_dim, -1))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""
@@ -160,7 +180,7 @@ class DataPYQG(data.Data):
         for _ in self.m.run_with_snapshots(tsnapstart=0, tsnapint=self.m.dt):
             qs.append(deepcopy(self.m.q))
 
-        # q was in (nz,ny,nx), qs is now in (nt,nz,nx,ny)
+        # Reshape: q was in (nz,ny,nx), qs is now in (nt,nz,nx,ny)
         qs = np.moveaxis(np.array(qs), -2, -1) 
         qs[:, 0] += self.m.Qy[0]*self.m.y  
         qs[:, 1] += self.m.Qy[1]*self.m.y
