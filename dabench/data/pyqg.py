@@ -50,12 +50,6 @@ class DataPYQG(data.Data):
         twrite (int): Interval for cfl writeout. Units: number of timesteps.
         tmax (float): Total time of integration (overwritten by t_final).
             Units: seconds.
-        tavestart (float): Start time for averaging. Units: seconds.
-        tsnapstart (float): Start time for snapshot writeout. Units: seconds.
-        taveint (float): Time interval for accumulation of diagnostic averages.
-            Units: seconds. (For performance purposes, averaging does not have
-            to occur every timestep)
-        tsnapint (float): Time interval for snapshots. Units: seconds.
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
     """
@@ -67,6 +61,9 @@ class DataPYQG(data.Data):
                  U1=0.025,
                  U2=0.0,
                  x0=None,
+                 twrite=10000,
+                 nx=None,
+                 ny=None,
                  delta_t=7200,
                  ntd=1,
                  time_dim=None,
@@ -81,8 +78,16 @@ class DataPYQG(data.Data):
 
         """
 
-        self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
-                              U2=U2, twrite=10000, ntd=ntd, **kwargs)
+        if ny is None:
+            ny = nx
+
+        if nx is not None:
+            self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
+                                  U2=U2, twrite=twrite, ntd=ntd, nx=nx,
+                                  **kwargs)
+        else:
+            self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
+                                  U2=U2, twrite=twrite, ntd=ntd, **kwargs)
 
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
