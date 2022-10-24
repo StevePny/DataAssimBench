@@ -126,8 +126,8 @@ class DataBarotropic(data.Data):
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
-                if len(x0.shape) != 2:
-                    raise ValueError('Initial condition x0 must be a 2D array')
+                if len(x0.shape) != 3:
+                    raise ValueError('Initial condition x0 must be a 3D array')
                 self.m.set_q(x0)
             else:
                 print('Initial condition not set. Start with McWilliams 84 IC '
@@ -157,6 +157,8 @@ class DataBarotropic(data.Data):
         else:
             self.x0 = x0
 
+        self.original_dim = self.x0.shape
+
         # Integrate and store values and times
         self.m.dt = self.delta_t
         self.m.tmax = t_final
@@ -166,7 +168,6 @@ class DataBarotropic(data.Data):
         qs = self.__advance__()
 
         # Save values
-        self.original_dim = qs.shape[1:]
         self.time_dim = qs.shape[0]
         self.values = jnp.array(qs.reshape((self.time_dim, -1)))
 
