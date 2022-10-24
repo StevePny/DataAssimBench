@@ -52,15 +52,15 @@ class DataBarotropic(data.Data):
             cores on your machine.
     """
     def __init__(self,
-                 beta=1.5e-11,
+                 beta=0.,
                  rek=0.,
-                 rd=15000.0,
+                 rd=0.,
                  H=1.,
                  L=2*np.pi,
                  x0=None,
                  nx=256,
                  ny=None,
-                 delta_t=7200,
+                 delta_t=0.001,
                  taveint=1,
                  ntd=1,
                  time_dim=None,
@@ -125,7 +125,10 @@ class DataBarotropic(data.Data):
                     raise ValueError('Initial condition x0 must be a 2D array')
                 self.m.set_q(x0)
             else:
-                print('Initial condition not set. Start with random IC.')
+                print('Initial condition not set. Start with McWilliams 84 IC '
+                      'condition:\n'
+                      'doi:10.1017/S0022112084001750')
+
                 fk = self.m.wv != 0
                 ckappa = np.zeros_like(self.m.wv2)
                 ckappa[fk] = np.sqrt(self.m.wv2[fk]*(1. + (self.m.wv2[fk]/36.)
@@ -145,6 +148,7 @@ class DataBarotropic(data.Data):
                 qih = -self.m.wv2 * pih
                 qi = self.m.ifft(qih)
                 self.m.set_q(qi)
+                self.x0 = qi
 
         # Integrate and store values and times
         self.m.dt = self.delta_t
