@@ -112,6 +112,9 @@ class DataBarotropic(data.Data):
                 both, the generate() arg takes precedence.
         """
 
+        # Set random seed
+        np.random.seed(37)
+
         # Set n_steps
         if n_steps is None:
             n_steps = int(t_final/self.delta_t)
@@ -120,7 +123,6 @@ class DataBarotropic(data.Data):
 
         # Check that x0 initial conditions is supplied
         # If not, set based on McWilliams 84
-        self.x0 = x0
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
@@ -152,6 +154,8 @@ class DataBarotropic(data.Data):
                 qi = self.m.ifft(qih)
                 self.m.set_q(qi)
                 self.x0 = qi
+        else:
+            self.x0 = x0
 
         # Integrate and store values and times
         self.m.dt = self.delta_t

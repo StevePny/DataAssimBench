@@ -42,15 +42,14 @@ class DataPYQG(data.Data):
         delta (float): Layer thickness ratio (H1/H2)
         U1 (float): Upper layer flow. Units: m/s
         U2 (float): Lower layer flow. Units: m/s
-        H1 (float): Upper layer thickness.
-        H2 (float): Lower layer thickness.
+        H1 (float): Layer thickness (sets both H1 and H2).
         nx (int): Number of grid points in the x direction.
         ny (int): Number of grid points in the y direction (default: nx).
         L (float): Domain length in x direction. Units: meters.
         W (float): Domain width in y direction. Units: meters (default: L).
         filterfac (float): amplitdue of the spectral spherical filter
             (originally 18.4, later changed to 23.6).
-        delta_t          (float): Numerical timestep. Units: seconds.
+        delta_t (float): Numerical timestep. Units: seconds.
         twrite (int): Interval for cfl writeout. Units: number of timesteps.
         tmax (float): Total time of integration (overwritten by t_final).
             Units: seconds.
@@ -62,6 +61,7 @@ class DataPYQG(data.Data):
                  rd=15000.0,
                  delta=0.25,
                  H1=500,
+                 H2=None,
                  U1=0.025,
                  U2=0.0,
                  x0=None,
@@ -79,9 +79,9 @@ class DataPYQG(data.Data):
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
 
-        self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
-                              U2=U2, twrite=twrite, ntd=ntd, nx=nx, ny=ny,
-                              **kwargs)
+        self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1,
+                              U1=U1, U2=U2, twrite=twrite, ntd=ntd, nx=nx,
+                              ny=ny, **kwargs)
 
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
@@ -108,6 +108,9 @@ class DataPYQG(data.Data):
                 both, the generate() arg takes precedence.
         """
 
+        # Set seed
+        np.random.seed(37)
+
         # Checks
         # Check that n_steps or t_final is supplied
         if n_steps is not None:
@@ -119,7 +122,6 @@ class DataPYQG(data.Data):
                             'input argument.')
 
         # Check that x0 initial conditions is supplied
-        self.x0 = x0
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
@@ -149,6 +151,8 @@ class DataPYQG(data.Data):
                 qih = -self.m.wv2*pih
                 self.x0 = self.m.ifft(qih)
                 self.m.set_q1q2(self.x0[0], self.x0[1])
+        else:
+            self.x0 = x0
 
         # Integrate and store values and times
         self.m.dt = self.delta_t
