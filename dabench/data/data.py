@@ -1,6 +1,9 @@
 """Base class for data generator objects"""
+import numpy as np
 import jax.numpy as jnp
 from dabench.support.utils import integrate
+import xarray as xr
+import warnings
 
 
 class Data():
@@ -49,6 +52,15 @@ class Data():
         self.values = values
         self.time_dim = values.shape[0]
         self.system_dim = values.shape[1]
+
+    def set_times(self, times):
+        """Sets times manually
+
+        Args:
+            times (ndarray): New times with shape (time_dim,).
+        """
+        self.times = times
+        self.time_dim = times.shape[0]
 
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
@@ -167,6 +179,91 @@ class Data():
                             )
 
             return M
+
+    def load_netcdf(self, filepath):
+        """Loads values from netCDF file, saves them in values attribute
+
+        Args:
+            filepath (str): Path to netCDF file to load
+        """
+        with xr.open_dataset(filepath) as ds:
+
+            dims = ds.dims
+
+            # Set times
+            if 'time' in dims.keys():
+                self.set_times(ds['time'])
+            elif 'times' in dims.keys():
+                self.set_times(ds['times'])
+
+            # Set x and y
+            og_dims = []
+            if 'level' in dims.keys():
+                og_dims += [dims['level']]
+            if 'latitude' in dims.keys():
+                og_dims += [dims['latitude']]
+            elif 'lat' in dims.keys():
+                og_dims += [dims['lat']]
+            if 'longitude' in dims.keys():
+                og_dims += [dims['longitude']]
+            elif 'lon' in dims.keys():
+                og_dims += [dims['lon']]
+
+            if len(og_dims) == 0:
+                warnings.warn('Unable to find any spatial or level dimensions '
+                              'in NetCDF. Setting original_dim to system_dim: '
+                              '{}'.format(len(ds.data_vars)))
+
+            og_dims += [len(ds.data_vars)]
+
+            self.original_dim = tuple(og_dims)
+
+            # Gather values
+            vars_list = []
+            names_list = []
+            for data_var in ds.data_vars:
+                vars_list.append(ds[data_var].values)
+                names_list.append(data_var)
+
+            self.var_names = np.array(names_list)
+            self.set_values(np.stack(vars_list, axis=-1).reshape(
+                vars_list[0].shape[0], -1))
+
+    def save_netcdf(self, filename):
+        """Saves values in values attribute to netCDF file
+
+        Args:
+            filepath (str): Path to netCDF file to save
+        """
+
+        # Set variable names
+        if not hasattr(self, 'var_names') or self.var_names is None:
+            var_names = ['var{}'.format(i) for
+                         i in range(self.values.shape[1])]
+        else:
+            var_names = self.var_names
+
+        # Set times
+        if not hasattr(self, 'times') or self.times is None:
+            times = np.arange(self.values.shape[0])
+        else:
+            times = self.times
+
+        # Get values as list:
+        values_list = [('time', self.values[:, i]) for i in range(
+            self.values.shape[1])]
+
+        data_dict = dict(zip(var_names, values_list))
+        coords_dict = {
+            'time': times,
+            'system_dim': range(len(var_names))
+            }
+        ds = xr.Dataset(
+            data_vars=data_dict,
+            coords=coords_dict
+            )
+
+        ds.to_netcdf(filename, mode='w')
 
     def rhs_aux(self, x, t):
         """The auxiliary model used to compute the TLM.
