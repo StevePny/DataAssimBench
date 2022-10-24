@@ -31,7 +31,7 @@ class DataPYQG(data.Data):
 
     Notes:
         Uses default attribute values from pyqg.QGModel:
-        https://pyqg.readthedocs.io/en/latest/api.html#specific-model-types
+        https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
     Attributes:
         system_dim (int): system dimension
@@ -77,9 +77,6 @@ class DataPYQG(data.Data):
         """ Initialize DataPYQG object, subclass of Data
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
-
-        Args:
-
         """
 
         self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
