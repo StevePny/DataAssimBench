@@ -29,6 +29,10 @@ class DataPYQG(data.Data):
     The data class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
+    Notes:
+        Uses default attribute values from pyqg.QGModel:
+        https://pyqg.readthedocs.io/en/latest/api.html#specific-model-types
+
     Attributes:
         system_dim (int): system dimension
         beta (float): Gradient of coriolis parameter. Units: meters^-1 *
@@ -62,7 +66,7 @@ class DataPYQG(data.Data):
                  U2=0.0,
                  x0=None,
                  twrite=10000,
-                 nx=None,
+                 nx=64,
                  ny=None,
                  delta_t=7200,
                  ntd=1,
@@ -78,16 +82,9 @@ class DataPYQG(data.Data):
 
         """
 
-        if ny is None:
-            ny = nx
-
-        if nx is not None:
-            self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
-                                  U2=U2, twrite=twrite, ntd=ntd, nx=nx,
-                                  **kwargs)
-        else:
-            self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
-                                  U2=U2, twrite=twrite, ntd=ntd, **kwargs)
+        self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1, U1=U1,
+                              U2=U2, twrite=twrite, ntd=ntd, nx=nx, ny=ny,
+                              **kwargs)
 
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
@@ -187,8 +184,8 @@ class DataPYQG(data.Data):
             qs.append(deepcopy(self.m.q))
 
         # Reshape: q was in (nz,ny,nx), qs is now in (nt,nz,nx,ny)
-        qs = np.moveaxis(np.array(qs), -2, -1) 
-        qs[:, 0] += self.m.Qy[0]*self.m.y  
+        qs = np.moveaxis(np.array(qs), -2, -1)
+        qs[:, 0] += self.m.Qy[0]*self.m.y
         qs[:, 1] += self.m.Qy[1]*self.m.y
 
         return qs
