@@ -29,25 +29,34 @@ class DataBarotropic(data.Data):
     The data class is a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
+    Notes:
+        Uses default attribute values from pyqg.BTModel:
+        https://pyqg.readthedocs.io/en/latest/api.html#pyqg.BTModel
+        Those values originally come from Mcwilliams 1984:
+            J. C. Mcwilliams (1984). The emergence of isolated coherent
+            vortices in turbulent flow. Journal of Fluid Mechanics, 146,
+            pp 21-43 doi:10.1017/S0022112084001750.
+
     Attributes:
         system_dim (int): system dimension
         beta (float): Gradient of coriolis parameter. Units: meters^-1 *
-            seconds^-1
-        rek (float): Linear drag in lower layer. Units: seconds^-1
-        rd (float): Deformation radius. Units: meters.
-        H (float): layer thickness.
-        nx (int): Number of grid points in the x direction.
-        ny (int): Number of grid points in the y direction (default: nx).
-        L (float): Domain length in x direction. Units: meters.
-        W (float): Domain width in y direction. Units: meters (default: L).
-        filterfac (float): amplitdue of the spectral spherical filter
-            (originally 18.4, later changed to 23.6).
+            seconds^-1. Default is 0.
+        rek (float): Linear drag in lower layer. Units: seconds^-1.
+            Default is 0.
+        rd (float): Deformation radius. Units: meters. Default is 0.
+        H (float): Layer thickness. Units: meters. Default is 1.
+        nx (int): Number of grid points in the x direction. Default is 256.
+        ny (int): Number of grid points in the y direction. Default: nx.
+        L (float): Domain length in x direction. Units: meters. Default is
+            2*pi.
+        W (float): Domain width in y direction. Units: meters. Default: L.
+        filterfac (float): amplitdue of the spectral spherical filter.
+            Default is 23.6.
         delta_t (float): Numerical timestep. Units: seconds.
         taveint (float): Time interval for accumulation of diagnostic averages.
-            Units: seconds. (For performance purposes, averaging does not have
-            to occur every timestep).
-        tmax (float): Total time of integration (overwritten by t_final).
-            Units: seconds.
+            For performance purposes, averaging does not have to occur every
+            timestep. Units: seconds. Default is 1 (i.e. every 1000 timesteps
+            when delta_t = 0.001)
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
     """
@@ -70,9 +79,6 @@ class DataBarotropic(data.Data):
         """ Initializes DataBarotropic object, subclass of Data
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
-
-        Args:
-
         """
 
         if ny is None:
@@ -88,7 +94,7 @@ class DataBarotropic(data.Data):
 
         self.x0 = x0
 
-    def generate(self, n_steps=None, t_final=None, x0=None):
+    def generate(self, n_steps=None, t_final=40, x0=None):
         """Generates values and times, saves them to the data object
 
         Notes:
@@ -97,26 +103,23 @@ class DataBarotropic(data.Data):
             time_dim attributes.
 
         Args:
-            n_steps (int): Number of timesteps. One of n_steps OR
-                t_final must be specified.
-            t_final (float): Final time of trajectory. One of n_steps OR
-                t_final must be specified.
+            n_steps (int): Number of timesteps. Default is None, which sets
+            n_steps to t_final/delta_t
+            t_final (float): Final time of trajectory. Default is 40, which
+                results in n_steps = 40000
             x0 (ndarray, optional): the initial conditions. Can also be
                 provided when initializing model object. If provided by
                 both, the generate() arg takes precedence.
         """
 
-        # Checks
-        # Check that n_steps or t_final is supplied
-        if n_steps is not None:
-            t_final = n_steps * self.delta_t
-        elif t_final is not None:
+        # Set n_steps
+        if n_steps is None:
             n_steps = int(t_final/self.delta_t)
         else:
-            raise TypeError('Either n_steps or t_final must be supplied as an '
-                            'input argument.')
+            t_final = n_steps * self.delta_t
 
         # Check that x0 initial conditions is supplied
+        # If not, set based on McWilliams 84
         self.x0 = x0
         if x0 is None:
             if self.x0 is not None:
