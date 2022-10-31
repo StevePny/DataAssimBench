@@ -48,7 +48,11 @@ class DataSQGturb(data.Data):
     """Class to set up SQGturb model and manage data.
 
     Attributes:
-        pv (ndarray): Potential vorticity array
+        pv (ndarray): Potential vorticity array. If None (default),
+             loads data from 57600 step spinup with initial conditions taken
+             from Jeff Whitaker's original implementation:
+             https://github.com/jswhit/sqgturb. 57600 steps matches the
+             "nature run" spin up in that repository.
         system_dim (int): The dimension of the system state
         time_dim (int): The dimension of the timeseries (not used)
         delta_t (float): model time step (seconds)
@@ -70,7 +74,7 @@ class DataSQGturb(data.Data):
     """
 
     def __init__(self,
-                 pv,
+                 pv=None,
                  f=1.0e-4,
                  nsq=1.0e-4,
                  L=20.0e6,
@@ -98,6 +102,10 @@ class DataSQGturb(data.Data):
                          output_dim=output_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
                          **kwargs)
+
+        # Fall back on default if no pv
+        if pv is None:
+            pv = np.load('dabench/suppl_data/sqgturb_57600steps.npy')
 
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
