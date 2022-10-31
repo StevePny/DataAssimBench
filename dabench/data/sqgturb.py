@@ -314,6 +314,10 @@ class DataSQGturb(data.Data):
     def _rk4(self, x, all_x):
         """Updates pv using 4th order runge-kutta time step with implicit
             "integrating factor" treatment of hyperdiffusion.
+
+        Notes:
+            Returns the a tuple with the same values in order to function
+                with jax.lax.scan.
         """
         fn = self.rhs
         k1 = self.delta_t * fn(x)
@@ -396,7 +400,8 @@ class DataSQGturb(data.Data):
             If pv not specified, use pvspec instance variable.
 
         Args:
-            f (function): right hand side (rhs) of the ODE
+            f (function): right hand side (rhs) of the ODE. Not used, but
+                needed to function with generate() from data.Data().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """
@@ -434,7 +439,9 @@ class DataSQGturb(data.Data):
         pvspec, values = jax.lax.scan(self._rk4, pvspec, xs=None,
                                       length=n_steps)
 
+        # Reshape to (time_dim, system_dim)
         values = values.reshape((self.time_dim, -1))
+
         # Update internal states
         self.pvspec = pvspec
         self.t = times[-1]
