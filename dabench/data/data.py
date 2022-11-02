@@ -180,18 +180,57 @@ class Data():
 
             return M
 
-    def load_netcdf(self, filepath=None):
+    def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
             filepath (str): Path to netCDF file to load. If not given,
                 defaults to loading ERA5 ECMWF SLP data over Japan
                 from 2018 to 2021.
+            years_select (list-like): Years to load (ints). If None, loads all
+                timesteps.
+            dates_select (list-like): Dates to load. Elements must be
+                datetime date or datetime objects, depending on type of time
+                indices in NetCDF. If both years_select and dates_select
+                are specified, time_stamps overwrites "years" argument. If
+                None, loads all timesteps.
         """
         if filepath is None:
             filepath = 'dabench/suppl_data/era5_japan_slp.nc'
 
         with xr.open_dataset(filepath) as ds:
+
+            if dates_select is not None:
+                dates_filter_indices = ds.time.dt.date.isin(dates_select)
+                # First check to make sure the dates exist in the object
+                if dates_filter_indices.sum() == 0:
+                    raise ValueError('NetCDF does not contain any of the dates'
+                                     'specified in dates\n'
+                                     'dates_select = {}\n'
+                                     'NetCDF contains {}'.format(
+                                         dates_select,
+                                         np.unique(ds.time.dt.date)
+                                         )
+                                     )
+                else:
+                    ds = ds.isel(time=dates_filter_indices)
+            else:
+                if years_select is not None:
+                    year_filter_indices = ds.time.dt.year.isin(years_select)
+                    # First check to make sure the years exist in the object
+                    if year_filter_indices.sum() == 0:
+                        raise ValueError('NetCDF does not contain any of the'
+                                         'years specified in years_select\n'
+                                         'years_select = {}\n'
+                                         'NetCDF contains {}'.format(
+                                             years_select,
+                                             np.unique(ds.time.dt.year)
+                                             )
+                                         )
+                    else:
+                        ds = ds.isel(time=year_filter_indices)
+
+
             dims = ds.dims
 
             # Set times
