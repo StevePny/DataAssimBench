@@ -180,14 +180,18 @@ class Data():
 
             return M
 
-    def load_netcdf(self, filepath):
+    def load_netcdf(self, filepath=None):
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
-            filepath (str): Path to netCDF file to load
+            filepath (str): Path to netCDF file to load. If not given,
+                defaults to loading ERA5 ECMWF SLP data over Japan
+                from 2017 to 2021.
         """
-        with xr.open_dataset(filepath) as ds:
+        if filepath is None:
+            filepath = 'dabench/suppl_data/era5_japan_slp.nc'
 
+        with xr.open_dataset(filepath) as ds:
             dims = ds.dims
 
             # Set times
@@ -214,7 +218,8 @@ class Data():
                               'in NetCDF. Setting original_dim to system_dim: '
                               '{}'.format(len(ds.data_vars)))
 
-            og_dims += [len(ds.data_vars)]
+            if len(ds.data_vars) > 1:
+                og_dims += [len(ds.data_vars)]
 
             self.original_dim = tuple(og_dims)
 
