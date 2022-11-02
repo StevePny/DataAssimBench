@@ -205,7 +205,7 @@ class Data():
                 # First check to make sure the dates exist in the object
                 if dates_filter_indices.sum() == 0:
                     raise ValueError('NetCDF does not contain any of the dates'
-                                     'specified in dates\n'
+                                     ' specified in dates_select\n'
                                      'dates_select = {}\n'
                                      'NetCDF contains {}'.format(
                                          dates_select,
@@ -219,7 +219,7 @@ class Data():
                     year_filter_indices = ds.time.dt.year.isin(years_select)
                     # First check to make sure the years exist in the object
                     if year_filter_indices.sum() == 0:
-                        raise ValueError('NetCDF does not contain any of the'
+                        raise ValueError('NetCDF does not contain any of the '
                                          'years specified in years_select\n'
                                          'years_select = {}\n'
                                          'NetCDF contains {}'.format(
