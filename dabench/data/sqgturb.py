@@ -34,6 +34,7 @@ Uses the FFT spectral collocation method with 4th order Runge Kutta time
 
 from dabench.data import data
 import jax
+import numpy as np
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
@@ -47,7 +48,11 @@ class DataSQGturb(data.Data):
     """Class to set up SQGturb model and manage data.
 
     Attributes:
-        pv (ndarray): Potential vorticity array
+        pv (ndarray): Potential vorticity array. If None (default),
+             loads data from 57600 step spinup with initial conditions taken
+             from Jeff Whitaker's original implementation:
+             https://github.com/jswhit/sqgturb. 57600 steps matches the
+             "nature run" spin up in that repository.
         system_dim (int): The dimension of the system state
         time_dim (int): The dimension of the timeseries (not used)
         delta_t (float): model time step (seconds)
@@ -69,7 +74,7 @@ class DataSQGturb(data.Data):
     """
 
     def __init__(self,
-                 pv,
+                 pv=None,
                  f=1.0e-4,
                  nsq=1.0e-4,
                  L=20.0e6,
@@ -97,6 +102,10 @@ class DataSQGturb(data.Data):
                          output_dim=output_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
                          **kwargs)
+
+        # Fall back on default if no pv
+        if pv is None:
+            pv = np.load('dabench/suppl_data/sqgturb_57600steps.npy')
 
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
@@ -310,18 +319,21 @@ class DataSQGturb(data.Data):
         yderiv = self.ifft2(self.il_pad * specarr_pad)
         return xderiv, yderiv
 
-    @partial(jax.jit, static_argnums=(0, 1,))
-    def _rk4(self, f, delta_t, x):
+    def _rk4(self, x, all_x):
         """Updates pv using 4th order runge-kutta time step with implicit
             "integrating factor" treatment of hyperdiffusion.
-        """
 
-        k1 = delta_t * f(x)
-        k2 = delta_t * f(x + 0.5 * k1)
-        k3 = delta_t * f(x + 0.5 * k2)
-        k4 = delta_t * f(x + k3)
+        Notes:
+            Returns the a tuple with the same values in order to function
+                with jax.lax.scan.
+        """
+        fn = self.rhs
+        k1 = self.delta_t * fn(x)
+        k2 = self.delta_t * fn(x + 0.5 * k1)
+        k3 = self.delta_t * fn(x + 0.5 * k2)
+        k4 = self.delta_t * fn(x + k3)
         y = x + (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-        return y
+        return self.hyperdiff*y, self.hyperdiff*y
 
     @partial(jax.jit, static_argnums=(0,))
     def _symmetric_pvbar(self, mu, U, l, H, y):
@@ -341,11 +353,6 @@ class DataSQGturb(data.Data):
                  jnp.cos(l * y) / jnp.sinh(mu))
         pvbar = pvbar.at[1, :].set(pvbar[0, :] * jnp.cosh(mu))
         return pvbar
-
-    @partial(jax.jit, static_argnums=(0, 1,))
-    def _perform_integrate_step(self, f, delta_t, pvspec, hyperdiff):
-        """Performs one step of integration"""
-        return hyperdiff*self._rk4(f, delta_t, pvspec)
 
     # Public support methods
     @partial(jax.jit, static_argnums=(0,))
@@ -401,7 +408,8 @@ class DataSQGturb(data.Data):
             If pv not specified, use pvspec instance variable.
 
         Args:
-            f (function): right hand side (rhs) of the ODE
+            f (function): right hand side (rhs) of the ODE. Not used, but
+                needed to function with generate() from data.Data().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """
@@ -432,19 +440,15 @@ class DataSQGturb(data.Data):
         if include_x0:
             n_steps = n_steps + 1
 
-        self.time_dimension = n_steps
+        self.time_dim = n_steps
         times = t + jnp.arange(n_steps)*delta_t
-        values = jnp.empty((n_steps, self.system_dim), dtype=x0.dtype)
 
-        # Integrate in spectral space
-        for i in range(n_steps):
-            values = values.at[i, :].set(pvspec.ravel())
-            pvspec = self._perform_integrate_step(f, self.delta_t, pvspec,
-                                                  self.hyperdiff)
+        # Integrate in spectral spacestep_n
+        pvspec, values = jax.lax.scan(self._rk4, pvspec, xs=None,
+                                      length=n_steps)
 
-            if jnp.isnan(pvspec).any():
-                raise Exception('Model values contain NaNs. '
-                                'EXITING at i={}...'.format(i))
+        # Reshape to (time_dim, system_dim)
+        values = values.reshape((self.time_dim, -1))
 
         # Update internal states
         self.pvspec = pvspec
