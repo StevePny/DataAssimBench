@@ -186,7 +186,7 @@ class Data():
         Args:
             filepath (str): Path to netCDF file to load. If not given,
                 defaults to loading ERA5 ECMWF SLP data over Japan
-                from 2017 to 2021.
+                from 2018 to 2021.
         """
         if filepath is None:
             filepath = 'dabench/suppl_data/era5_japan_slp.nc'
