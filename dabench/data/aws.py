@@ -27,13 +27,12 @@ class DataAWS(data.Data):
         self.months = months
         self.years = years
 
-
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=None, delta_t=None, **kwargs)
 
     def _build_urls(self):
         
-        file_pattern = 'http://era5-pds.s3.amazonaws.com/{year}/{month}/data/{variable}.nc'
+        file_pattern = 'http://era5-pds.s3.amazonaws.com/zarr/{year}/{month}/data/{variable}.zarr'
         urls_mapper = [file_pattern.format(year=y, month=m, variable=v)
                        for y in self.years
                        for m in self.months
@@ -42,15 +41,14 @@ class DataAWS(data.Data):
 
         return urls_mapper
 
-    def _get_filehandles(self, urls_mapper):
-        return [fsspec.open(url).open() for url in urls_mapper]
-
     def load_aws_era5(self):
 
         urls_mapper = self._build_urls()
-        filehandles = self._get_filehandles(urls_mapper)
 
-        ds = xr.open_mfdataset(filehandles)
+        ds = xr.open_mfdataset(urls_mapper, engine='zarr',
+                               concat_dim='time0', combine='nested',
+                               coords='minimal', compat='override',
+                               parallel=True)
 
         self._import_xarray_ds(ds)
 
