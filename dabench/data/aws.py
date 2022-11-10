@@ -2,6 +2,10 @@
 
 For now just ERA5 ECMWF data:
 https://registry.opendata.aws/ecmwf-era5/
+
+For list of variables, see:
+    https://github.com/planet-os/notebooks/blob/master/aws/era5-pds.md
+    (Note: Do not include the .nc extension in variable names)
 """
 
 
@@ -10,8 +14,31 @@ from dabench.data import data
 
 
 class DataAWS(data.Data):
-    """Class for loading data from AWS Open Data"""
+    """Class for loading ERA5 data from AWS Open Data
 
+    Notes:
+        Source: https://registry.opendata.aws/ecmwf-era5/
+        Data is HRES sub-daily.
+
+    Attributes:
+        system_dim (int): System dimension
+        time_dim (int): Total time steps
+        variables (list of strings): Names of ERA5 variables to load.
+            For list of variables, see:
+            https://github.com/planet-os/notebooks/blob/master/aws/era5-pds.md
+            NOTE: Do NOT include .nc extension in variable name.
+            Default is ['air_temperature_at_2_metres']
+        months (list of strings): List of months to include in '01', '02', etc.
+            format.
+        years (list of integers): List of years to include. Data is available
+            from 1979 to present.
+        min_lat (float): Minimum latitude for bounding box. If None, loads
+            global data (which can be VERY large). Bounding box default covers
+            Cuba.
+        max_lat (float): Max latitude for bounding box (see min_lat for info).
+        min_lon (float): Min latitude for bounding box (see min_lat for info).
+        max_lon (float): Max latitude for bounding box (see min_lat for info).
+    """
     def __init__(
             self,
             variables=['air_temperature_at_2_metres'],
@@ -39,7 +66,6 @@ class DataAWS(data.Data):
                          values=None, delta_t=None, **kwargs)
 
     def _build_urls(self):
-        
         file_pattern = 'http://era5-pds.s3.amazonaws.com/zarr/{year}/{month}/data/{variable}.zarr'
         urls_mapper = [file_pattern.format(year=y, month=m, variable=v)
                        for y in self.years
@@ -50,6 +76,7 @@ class DataAWS(data.Data):
         return urls_mapper
 
     def load_aws_era5(self):
+        """Load data from AWS OpenDataStore"""
 
         urls_mapper = self._build_urls()
 
