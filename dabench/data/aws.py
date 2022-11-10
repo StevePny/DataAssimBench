@@ -7,7 +7,6 @@ https://registry.opendata.aws/ecmwf-era5/
 
 import xarray as xr
 from dabench.data import data
-import fsspec
 
 
 class DataAWS(data.Data):
@@ -55,9 +54,9 @@ class DataAWS(data.Data):
         urls_mapper = self._build_urls()
 
         ds = xr.open_mfdataset(urls_mapper, engine='zarr',
-                               concat_dim='time0', combine='nested',
                                coords='minimal', compat='override',
                                parallel=True)
+
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries
             ds = ds.sel(lat=slice(self.max_lat, self.min_lat))
