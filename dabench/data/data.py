@@ -185,7 +185,7 @@ class Data():
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
             if dates_filter_indices.sum() == 0:
-                raise ValueError('NetCDF does not contain any of the dates'
+                raise ValueError('Dataset does not contain any of the dates'
                                  ' specified in dates_select\n'
                                  'dates_select = {}\n'
                                  'NetCDF contains {}'.format(
@@ -200,7 +200,7 @@ class Data():
                 year_filter_indices = ds.time.dt.year.isin(years_select)
                 # First check to make sure the years exist in the object
                 if year_filter_indices.sum() == 0:
-                    raise ValueError('NetCDF does not contain any of the '
+                    raise ValueError('Dataset does not contain any of the '
                                      'years specified in years_select\n'
                                      'years_select = {}\n'
                                      'NetCDF contains {}'.format(
@@ -212,35 +212,45 @@ class Data():
                     ds = ds.isel(time=year_filter_indices)
 
         dims = ds.dims
+        coords = ds.coords
 
         # Set times
         time_key = None
-        dim_keys = dims.keys()
-        if 'time' in dim_keys:
+        dims_keys = dims.keys()
+        coords_keys = coords.keys()
+        if 'time' in dims_keys:
             time_key = 'time'
-        elif 'times' in dim_keys:
+        elif 'times' in dims_keys:
             time_key = 'times'
-        elif 'time0' in dim_keys:
+        elif 'time0' in dims_keys:
             time_key = 'time0'
         if time_key is not None:
             self.set_times(ds[time_key])
 
         # Set x and y
         og_dims = []
-        if 'level' in dim_keys:
+        if 'level' in dims_keys:
             og_dims += [dims['level']]
-        if 'latitude' in dim_keys:
+        if 'latitude' in dims_keys:
             og_dims += [dims['latitude']]
-        elif 'lat' in dim_keys:
+        elif 'lat' in dims_keys:
             og_dims += [dims['lat']]
-        if 'longitude' in dim_keys:
+        elif 'latitude' in coords_keys:
+            og_dims += [np.unique(coords['latitude'].values).shape[0]]
+        elif 'lat' in coords_keys:
+            og_dims += [np.unique(coords['lat'].values).shape[0]]
+        if 'longitude' in dims_keys:
             og_dims += [dims['longitude']]
-        elif 'lon' in dim_keys:
+        elif 'lon' in dims_keys:
             og_dims += [dims['lon']]
+        elif 'longitude' in coords_keys:
+            og_dims += [np.unique(coords['longitude'].values).shape[0]]
+        elif 'lon' in coords_keys:
+            og_dims += [np.unique(coords['lon'].values).shape[0]]
 
         if len(og_dims) == 0:
             warnings.warn('Unable to find any spatial or level dimensions '
-                          'in NetCDF. Setting original_dim to system_dim: '
+                          'in dataset. Setting original_dim to system_dim: '
                           '{}'.format(len(ds.data_vars)))
 
         if len(ds.data_vars) > 1:
