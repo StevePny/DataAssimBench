@@ -212,12 +212,10 @@ class Data():
                     ds = ds.isel(time=year_filter_indices)
 
         dims = ds.dims
-        coords = ds.coords
 
         # Set times
         time_key = None
         dims_keys = dims.keys()
-        coords_keys = coords.keys()
         if 'time' in dims_keys:
             time_key = 'time'
         elif 'times' in dims_keys:
@@ -235,18 +233,10 @@ class Data():
             og_dims += [dims['latitude']]
         elif 'lat' in dims_keys:
             og_dims += [dims['lat']]
-        elif 'latitude' in coords_keys:
-            og_dims += [np.unique(coords['latitude'].values).shape[0]]
-        elif 'lat' in coords_keys:
-            og_dims += [np.unique(coords['lat'].values).shape[0]]
         if 'longitude' in dims_keys:
             og_dims += [dims['longitude']]
         elif 'lon' in dims_keys:
             og_dims += [dims['lon']]
-        elif 'longitude' in coords_keys:
-            og_dims += [np.unique(coords['longitude'].values).shape[0]]
-        elif 'lon' in coords_keys:
-            og_dims += [np.unique(coords['lon'].values).shape[0]]
 
         if len(og_dims) == 0:
             warnings.warn('Unable to find any spatial or level dimensions '
