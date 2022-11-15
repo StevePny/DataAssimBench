@@ -12,16 +12,17 @@ Note:
 """
 
 
+import warnings
 import xarray as xr
 from dabench.data import data
 
 
 class DataGCP(data.Data):
-    """Class for loading ERA5 data from AWS Open Data
+    """Class for loading ERA5 data from Google Cloud Platform
 
     Notes:
-        Source: https://registry.opendata.aws/ecmwf-era5/
-        Data is HRES sub-daily.
+        Source: https://cloud.google.com/storage/docs/public-datasets/era5
+        Data is hourly
 
     Attributes:
         system_dim (int): System dimension
@@ -105,6 +106,7 @@ class DataGCP(data.Data):
                 'Valid variables are: {ds_vars}'.format(
                     vnames=missing_vars, dtype=self.data_type,
                     ds_vars=list(ds.data_vars))
+                )
 
         # Subset by selected variables
         ds = ds[self.variables]
@@ -133,3 +135,13 @@ class DataGCP(data.Data):
                 drop=True)
 
         self._import_xarray_ds(ds)
+
+    def generate(self):
+        """Alias for _load_gcp_era5"""
+        warnings.warn('DataGCP.generate() is an alias for the load() method. '
+                      'Proceeding with downloading ERA5 data from GCP...')
+        self._load_gcp_era5()
+
+    def load(self):
+        """Alias for _load_gcp_era5"""
+        self._load_gcp_era5()

@@ -8,7 +8,7 @@ For list of variables, see:
     (Note: Do not include the .nc extension in variable names)
 """
 
-
+import warnings
 import xarray as xr
 from dabench.data import data
 
@@ -75,7 +75,7 @@ class DataAWS(data.Data):
 
         return urls_mapper
 
-    def load_aws_era5(self):
+    def _load_aws_era5(self):
         """Load data from AWS OpenDataStore"""
 
         urls_mapper = self._build_urls()
@@ -100,4 +100,12 @@ class DataAWS(data.Data):
 
         self._import_xarray_ds(ds)
 
+    def generate(self):
+        """Alias for _load_aws_era5"""
+        warnings.warn('DataAWS.generate() is an alias for the load() method. '
+                      'Proceeding with downloading ERA5 data from AWS...')
+        self._load_aws_era5()
 
+    def load(self):
+        """Alias for _load_aws_era5"""
+        self._load_aws_era5()
