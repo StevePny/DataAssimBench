@@ -211,6 +211,14 @@ class Data():
                 else:
                     ds = ds.isel(time=year_filter_indices)
 
+        # Check size before loading
+        size_gb = ds.nbytes / (1024 ** 3)
+        if size_gb > 1:
+            warnings.warn('Trying to load large xarray dataset into memory. \n'
+                          'Size: {} GB. Operation may take a long time, '
+                          'stall, or crash.'.format(size_gb))
+
+        # Get dims
         dims = ds.dims
 
         # Set times
