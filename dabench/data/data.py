@@ -223,7 +223,7 @@ class Data():
         elif 'time0' in dims_keys:
             time_key = 'time0'
         if time_key is not None:
-            self.set_times(ds[time_key])
+            self.set_times(ds[time_key].values)
 
         # Set x and y
         og_dims = []
