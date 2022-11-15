@@ -35,6 +35,8 @@ class DataGCP(data.Data):
             to, see:
             https://github.com/google-research/ARCO-ERA5#data-description
             Default is ['sst'] (sea surface temperature)
+        levels (int): For multi-level data, specifies which levels to download.
+            Default is [1] (surface). Only applies to model-level-moisture.
         date_start (string): Start of time range to download, in 'yyyy-mm-dd'
             format. Can also just specify year ('yyyy') or year and month
             ('yyyy-mm'). Default is '2020-06-01'.
@@ -54,7 +56,7 @@ class DataGCP(data.Data):
             variables=['sst'],
             date_start='2020-06-01',
             date_end='2020-9-30',
-            # Defaults are Cuba bounding box
+            levels=[1],
             min_lat=19.8554808619,
             max_lat=23.1886107447,
             min_lon=-84.9749110583,
@@ -77,6 +79,7 @@ class DataGCP(data.Data):
         self.variables = variables
         self.date_start = date_start
         self.date_end = date_end
+        self.levels = levels
         self.min_lat = min_lat
         self.max_lat = max_lat
         self.min_lon = min_lon
@@ -91,7 +94,7 @@ class DataGCP(data.Data):
 
         return url
 
-    def load_gcp_era5(self):
+    def _load_gcp_era5(self):
         """Load ERA5 data from Google Cloud Platform"""
 
         url = self._build_url()
@@ -113,6 +116,10 @@ class DataGCP(data.Data):
 
         # Slice by time
         ds = ds.sel(time=slice(self.date_start, self.date_end))
+
+        # Select levels (only for model-level-moisture)
+        if self.data_type == 'model-level-moisture':
+            ds = ds.where(ds.hybrid.isin(self.levels, drop=True))
 
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries
