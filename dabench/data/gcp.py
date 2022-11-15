@@ -5,6 +5,10 @@ https://cloud.google.com/storage/docs/public-datasets/era5
 
 For list of variables and more info, see:
     https://github.com/google-research/ARCO-ERA5#data-description
+
+Note:
+    Does not support data stored as spherical harmonic coefficients,
+    and so cannot import 'model-level-wind' or 'single-level-surface'.
 """
 
 
@@ -23,8 +27,7 @@ class DataGCP(data.Data):
         system_dim (int): System dimension
         time_dim (int): Total time steps
         data_type (string): Which data type to load, must be one of:
-            'single-level-forecast', 'single-level-reanalysis',
-            'single-level-surface', 'model-level-wind', or
+            'single-level-forecast', 'single-level-reanalysis', or
             'model-level-moisture'. Default is 'single-level-reanalysis'.
         variables (list of strings): Abbreviated names of ERA5 variables to
             load. For description of variables and which data_type they belong
@@ -59,6 +62,16 @@ class DataGCP(data.Data):
             time_dim=None,
             **kwargs
             ):
+
+        # Check that data type is valid
+        if data_type not in ['model-level-moisture', 'single-level-forecast',
+                             'single-level-reanalysis']:
+            raise ValueError(
+                '{} is not an valid data_type. Select one of:\n '
+                '"model-level-moisture", "single-level-forecast", '
+                '"single-level-reanalysis"'.format(data_type)
+                )
+
         self.data_type = data_type
         self.variables = variables
         self.date_start = date_start
@@ -83,6 +96,15 @@ class DataGCP(data.Data):
         url = self._build_url()
 
         ds = xr.open_zarr(url, chunks={'time': 48}, consolidated=True)
+
+        # Check that variables are in zarr
+        missing_vars = [v for v in self.variables if v not in ds.data_vars]
+        if len(missing_vars) > 0:
+            raise ValueError(
+                '{vnames} are not valid variables for data_type = {dtype}.\n'
+                'Valid variables are: {ds_vars}'.format(
+                    vnames=missing_vars, dtype=self.data_type,
+                    ds_vars=list(ds.data_vars))
 
         # Subset by selected variables
         ds = ds[self.variables]
