@@ -119,7 +119,7 @@ class DataGCP(data.Data):
 
         # Select levels (only for model-level-moisture)
         if self.data_type == 'model-level-moisture':
-            ds = ds.where(ds.hybrid.isin(self.levels, drop=True))
+            ds = ds.where(ds.hybrid.isin(self.levels), drop=True)
 
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries
