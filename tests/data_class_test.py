@@ -71,7 +71,7 @@ def test_load_netcdf_years():
     assert og_dim_data[20, 5, 5] == pytest.approx(101301.56)
     with pytest.raises(
             ValueError,
-            match='NetCDF does not contain any of the years specified'
+            match='Dataset does not contain any of the years specified'
             ):
         test_data.load_netcdf(years_select=[1957, 2057])
 
@@ -89,7 +89,7 @@ def test_load_netcdf_dates():
     assert og_dim_data[2, 3, 4] == pytest.approx(100478.59)
     with pytest.raises(
             ValueError,
-            match='NetCDF does not contain any of the dates specified'
+            match='Dataset does not contain any of the dates specified'
             ):
         test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 31),
                                             datetime.date(1957, 11, 1)])
