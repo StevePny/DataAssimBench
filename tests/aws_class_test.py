@@ -14,6 +14,7 @@ def aws_small():
 
     return aws_obj
 
+
 @pytest.fixture
 def aws_multivar():
     """Defines aws object for rest of tests"""
