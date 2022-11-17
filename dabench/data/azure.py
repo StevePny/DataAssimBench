@@ -138,6 +138,9 @@ class DataAzure(data.Data):
 
         ds = xr.open_mfdataset(urls_mapper, parallel=True, **xarray_kwargs)
 
+        # Slice by time
+        ds = ds.sel(time=slice(self.date_start, self.date_end))
+
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries
             ds = ds.sel(lat=slice(self.max_lat, self.min_lat))
