@@ -267,6 +267,7 @@ class Data():
         self.set_values(np.stack(vars_list, axis=-1).reshape(
             vars_list[0].shape[0], -1))
 
+
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
 
