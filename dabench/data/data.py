@@ -180,6 +180,94 @@ class Data():
 
             return M
 
+    def _import_xarray_ds(self, ds, years_select=None, dates_select=None):
+        if dates_select is not None:
+            dates_filter_indices = ds.time.dt.date.isin(dates_select)
+            # First check to make sure the dates exist in the object
+            if dates_filter_indices.sum() == 0:
+                raise ValueError('Dataset does not contain any of the dates'
+                                 ' specified in dates_select\n'
+                                 'dates_select = {}\n'
+                                 'NetCDF contains {}'.format(
+                                     dates_select,
+                                     np.unique(ds.time.dt.date)
+                                     )
+                                 )
+            else:
+                ds = ds.isel(time=dates_filter_indices)
+        else:
+            if years_select is not None:
+                year_filter_indices = ds.time.dt.year.isin(years_select)
+                # First check to make sure the years exist in the object
+                if year_filter_indices.sum() == 0:
+                    raise ValueError('Dataset does not contain any of the '
+                                     'years specified in years_select\n'
+                                     'years_select = {}\n'
+                                     'NetCDF contains {}'.format(
+                                         years_select,
+                                         np.unique(ds.time.dt.year)
+                                         )
+                                     )
+                else:
+                    ds = ds.isel(time=year_filter_indices)
+
+        # Check size before loading
+        size_gb = ds.nbytes / (1024 ** 3)
+        if size_gb > 1:
+            warnings.warn('Trying to load large xarray dataset into memory. \n'
+                          'Size: {} GB. Operation may take a long time, '
+                          'stall, or crash.'.format(size_gb))
+
+        # Get dims
+        dims = ds.dims
+
+        # Set times
+        time_key = None
+        dims_keys = dims.keys()
+        if 'time' in dims_keys:
+            time_key = 'time'
+        elif 'times' in dims_keys:
+            time_key = 'times'
+        elif 'time0' in dims_keys:
+            time_key = 'time0'
+        if time_key is not None:
+            self.set_times(ds[time_key].values)
+
+        # Set x and y
+        og_dims = []
+        if 'level' in dims_keys:
+            og_dims += [dims['level']]
+        if 'latitude' in dims_keys:
+            og_dims += [dims['latitude']]
+        elif 'lat' in dims_keys:
+            og_dims += [dims['lat']]
+        if 'longitude' in dims_keys:
+            og_dims += [dims['longitude']]
+        elif 'lon' in dims_keys:
+            og_dims += [dims['lon']]
+
+        if len(og_dims) == 0:
+            warnings.warn('Unable to find any spatial or level dimensions '
+                          'in dataset. Setting original_dim to system_dim: '
+                          '{}'.format(len(ds.data_vars)))
+
+        if len(ds.data_vars) > 1:
+            og_dims += [len(ds.data_vars)]
+
+        self.original_dim = tuple(og_dims)
+
+        # Gather values
+        vars_list = []
+        names_list = []
+        for data_var in ds.data_vars:
+            vars_list.append(ds[data_var].values)
+            names_list.append(data_var)
+
+        self.var_names = np.array(names_list)
+        self.set_values(np.stack(vars_list, axis=-1).reshape(
+            vars_list[0].shape[0], -1))
+
+
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
 
@@ -199,79 +287,9 @@ class Data():
             filepath = 'dabench/suppl_data/era5_japan_slp.nc'
 
         with xr.open_dataset(filepath) as ds:
+            self._import_xarray_ds(ds, years_select=years_select,
+                                   dates_select=dates_select)
 
-            if dates_select is not None:
-                dates_filter_indices = ds.time.dt.date.isin(dates_select)
-                # First check to make sure the dates exist in the object
-                if dates_filter_indices.sum() == 0:
-                    raise ValueError('NetCDF does not contain any of the dates'
-                                     ' specified in dates_select\n'
-                                     'dates_select = {}\n'
-                                     'NetCDF contains {}'.format(
-                                         dates_select,
-                                         np.unique(ds.time.dt.date)
-                                         )
-                                     )
-                else:
-                    ds = ds.isel(time=dates_filter_indices)
-            else:
-                if years_select is not None:
-                    year_filter_indices = ds.time.dt.year.isin(years_select)
-                    # First check to make sure the years exist in the object
-                    if year_filter_indices.sum() == 0:
-                        raise ValueError('NetCDF does not contain any of the '
-                                         'years specified in years_select\n'
-                                         'years_select = {}\n'
-                                         'NetCDF contains {}'.format(
-                                             years_select,
-                                             np.unique(ds.time.dt.year)
-                                             )
-                                         )
-                    else:
-                        ds = ds.isel(time=year_filter_indices)
-
-
-            dims = ds.dims
-
-            # Set times
-            if 'time' in dims.keys():
-                self.set_times(ds['time'])
-            elif 'times' in dims.keys():
-                self.set_times(ds['times'])
-
-            # Set x and y
-            og_dims = []
-            if 'level' in dims.keys():
-                og_dims += [dims['level']]
-            if 'latitude' in dims.keys():
-                og_dims += [dims['latitude']]
-            elif 'lat' in dims.keys():
-                og_dims += [dims['lat']]
-            if 'longitude' in dims.keys():
-                og_dims += [dims['longitude']]
-            elif 'lon' in dims.keys():
-                og_dims += [dims['lon']]
-
-            if len(og_dims) == 0:
-                warnings.warn('Unable to find any spatial or level dimensions '
-                              'in NetCDF. Setting original_dim to system_dim: '
-                              '{}'.format(len(ds.data_vars)))
-
-            if len(ds.data_vars) > 1:
-                og_dims += [len(ds.data_vars)]
-
-            self.original_dim = tuple(og_dims)
-
-            # Gather values
-            vars_list = []
-            names_list = []
-            for data_var in ds.data_vars:
-                vars_list.append(ds[data_var].values)
-                names_list.append(data_var)
-
-            self.var_names = np.array(names_list)
-            self.set_values(np.stack(vars_list, axis=-1).reshape(
-                vars_list[0].shape[0], -1))
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
