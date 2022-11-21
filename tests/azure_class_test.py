@@ -18,12 +18,12 @@ def azure_small():
 @pytest.fixture
 def azure_multivar():
     """Defines azure object for rest of tests"""
-    azure_obj = DataAzure(variables=['air_temperature_at_2_metres',
-                                     'air_pressure_at_mean_sea_level'],
-                          date_start='1993-06-10', date_end='1993-06-12')
-    azure_obj.load()
+    azure_obj2 = DataAzure(variables=['air_temperature_at_2_metres',
+                                      'air_pressure_at_mean_sea_level'],
+                           date_start='1993-06-10', date_end='1993-06-12')
+    azure_obj2.load()
 
-    return azure_obj
+    return azure_obj2
 
 
 def test_shapes(azure_small):
