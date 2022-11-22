@@ -7,3 +7,32 @@ The field of data assimilation (DA) studies the integration of theory with obser
 Today, applied DA has matured in operational weather forecasting to include the entire online cycled process of continually ingesting numerous disparate observational data sources and integrating them with numerical prediction models to make regular forecasts. The process can also include correcting the models or applying post-processing to forecasts.  
 
 
+## Installation
+
+#### Clone Repo:
+
+```bash
+git clone git@github.com:StevePny/DataAssimBench.git
+```
+
+#### Set Up Conda Environment
+
+```bash
+cd DataAssimBench
+conda env create -f environment.yml
+conda activate ddc
+```
+
+#### Install dabench
+```bash
+pip install .
+```
+
+## Quick Start
+
+```python
+import dabench
+help(dabench.data)
+```
+
+
