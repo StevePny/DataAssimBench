@@ -20,7 +20,7 @@ git clone git@github.com:StevePny/DataAssimBench.git
 ```bash
 cd DataAssimBench
 conda env create -f environment.yml
-conda activate ddc
+conda activate dab
 ```
 
 #### Install dabench
