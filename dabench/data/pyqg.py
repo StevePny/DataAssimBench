@@ -16,8 +16,9 @@ try:
     import pyqg
 except ImportError:
     pyqg = None
-    raise ImportError(
+    logging.warning(
         'Package: pyqg not found!\n'
+        'DataPYQG will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
