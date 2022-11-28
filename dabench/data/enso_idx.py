@@ -7,10 +7,10 @@ import jax.numpy as jnp
 import numpy as np
 import textwrap
 
-from dabench.data import data
+from dabench.data import base
 
 
-class DataENSOIDX(data.Data):
+class ENSOIDX(base.BaseData):
     """Class to get ENSO index from CPC website
 
     Notes:
@@ -52,7 +52,7 @@ class DataENSOIDX(data.Data):
     def __init__(self, file_dict=None, var_types=None, system_dim=None,
                  time_dim=None, **kwargs):
 
-        """Initialize DataENSOIDX object, subclass of Data"""
+        """Initialize ENSOIDX object, subclass of BaseData"""
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml

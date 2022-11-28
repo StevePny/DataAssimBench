@@ -10,10 +10,10 @@ For list of variables, see:
 
 import warnings
 import xarray as xr
-from dabench.data import data
+from dabench.data import base
 
 
-class DataAWS(data.Data):
+class AWS(base.BaseData):
     """Class for loading ERA5 data from AWS Open Data
 
     Notes:
@@ -102,7 +102,7 @@ class DataAWS(data.Data):
 
     def generate(self):
         """Alias for _load_aws_era5"""
-        warnings.warn('DataAWS.generate() is an alias for the load() method. '
+        warnings.warn('AWS.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from AWS...')
         self._load_aws_era5()
 

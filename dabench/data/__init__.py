@@ -1,4 +1,4 @@
-from .data import BaseData
+from .base import BaseData
 
 from .lorenz63 import Lorenz63
 from .lorenz96 import Lorenz96
