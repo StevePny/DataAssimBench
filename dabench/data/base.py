@@ -6,7 +6,7 @@ import xarray as xr
 import warnings
 
 
-class Data():
+class BaseData():
     """Generic class for data generator objects.
 
     Attributes:

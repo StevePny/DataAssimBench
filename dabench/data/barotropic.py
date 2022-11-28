@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import base
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -18,13 +18,13 @@ except ImportError:
     pyqg = None
     logging.warning(
         'Package: pyqg not found!\n'
-        'DataBarotropic will not work without this optional package\n'
+        'Barotropic will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
 
 
-class DataBarotropic(data.Data):
+class Barotropic(base.BaseData):
     """ Class to set up barotropic model
 
     The data class is a wrapper of a "optional" pyqg package.
@@ -77,7 +77,7 @@ class DataBarotropic(data.Data):
                  values=None,
                  times=None,
                  **kwargs):
-        """ Initializes DataBarotropic object, subclass of Data
+        """ Initializes Barotropic object, subclass of BaseData
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """

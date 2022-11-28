@@ -14,10 +14,10 @@ Note:
 
 import warnings
 import xarray as xr
-from dabench.data import data
+from dabench.data import base
 
 
-class DataGCP(data.Data):
+class GCP(base.BaseData):
     """Class for loading ERA5 data from Google Cloud Platform
 
     Notes:
@@ -145,7 +145,7 @@ class DataGCP(data.Data):
 
     def generate(self):
         """Alias for _load_gcp_era5"""
-        warnings.warn('DataGCP.generate() is an alias for the load() method. '
+        warnings.warn('GCP.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from GCP...')
         self._load_gcp_era5()
 

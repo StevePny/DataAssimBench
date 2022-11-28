@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import base
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -18,16 +18,16 @@ except ImportError:
     pyqg = None
     logging.warning(
         'Package: pyqg not found!\n'
-        'DataPYQG will not work without this optional package\n'
+        'PYQG will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
 
 
-class DataPYQG(data.Data):
+class PYQG(base.BaseData):
     """ Class to set up quasi-geotropic model
 
-    The data class is simply a wrapper of a "optional" pyqg package.
+    The PYQG class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:
@@ -75,7 +75,7 @@ class DataPYQG(data.Data):
                  values=None,
                  times=None,
                  **kwargs):
-        """ Initialize DataPYQG object, subclass of Data
+        """ Initialize PYQG object, subclass of BaseData
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """

@@ -3,12 +3,12 @@
 import logging
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import base
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class DataLorenz63(data.Data):
+class Lorenz63(base.BaseData):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
@@ -24,7 +24,7 @@ class DataLorenz63(data.Data):
             is the system state after a 6000 step spinup with delta_t=0.01
             and initial conditions [0., 1., 0.], a spinup which replicates
             the simulation described in Lorenz, 1963.
-        system_dim (int): system dimension. Must be 3 for DataLorenz63.
+        system_dim (int): system dimension. Must be 3 for Lorenz63.
         time_dim (int): total time steps
         delta_t (float): length of one time step
     """
@@ -39,14 +39,14 @@ class DataLorenz63(data.Data):
                  time_dim=None,
                  values=None,
                  **kwargs):
-        """Initialize Lorenz63Data object, subclass of Data"""
+        """Initialize Lorenz63 object, subclass of BaseData"""
 
         # Lorenz63 requires system dim to be 3
         if system_dim is None:
             system_dim = 3
         elif system_dim != 3:
             print('WARNING: input system_dim is {}, '
-                  'DataLorenz63 requires system_dim=3.'.format(system_dim))
+                  'Lorenz63 requires system_dim=3.'.format(system_dim))
             print('Assigning system_dim to 3.')
             system_dim = 3
 
