@@ -81,6 +81,14 @@ class Barotropic(base.Base):
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
+        if pyqg is None:
+            raise ModuleNotFoundError(
+                'No module named \'pyqg\'\n'
+                'Barotropic will not work without this optional package\n'
+                'To install via conda: conda install -c conda-forge pyqg\n'
+                'For more information: '
+                'https://pyqg.readthedocs.io/en/latest/installation.html'
+                )
 
         if ny is None:
             ny = nx
