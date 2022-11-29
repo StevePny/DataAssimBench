@@ -80,6 +80,15 @@ class PYQG(base.Base):
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
 
+        if pyqg is None:
+            raise ModuleNotFoundError(
+                'No module named \'pyqg\'\n'
+                'PYQG will not work without this optional package\n'
+                'To install via conda: conda install -c conda-forge pyqg\n'
+                'For more information: '
+                'https://pyqg.readthedocs.io/en/latest/installation.html'
+                )
+
         self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1,
                               U1=U1, U2=U2, twrite=twrite, ntd=ntd, nx=nx,
                               ny=ny, **kwargs)
