@@ -1,6 +1,7 @@
 """Load data from CPC ENSO index into data object"""
 
 from urllib import request
+import ssl
 import logging
 import warnings
 import jax.numpy as jnp
@@ -162,6 +163,9 @@ class ENSOIDX(base.Base):
             Tuple containing updated all_vals (dict) and all_years (dict).
         """
 
+        # For downloading
+        unverified_context = ssl._create_unverified_context()
+
         # The downloaded text files are all different, these dicts help parse
         # Number of blocks (each representing a variable) in file
         n_block = {'wnd': 3,
@@ -190,7 +194,8 @@ class ENSOIDX(base.Base):
         tmp = []
         for line in request.urlopen(
                 'https://www.cpc.ncep.noaa.gov/data/indices/' +
-                file_name):
+                file_name,
+                context=unverified_context):
             tmp.append(line)
         n_lines = len(tmp)
         # These variables share common file format
