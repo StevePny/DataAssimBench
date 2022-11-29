@@ -125,14 +125,14 @@ class ENSOIDX(base.Base):
         values = common_vals.T
         times = common_years
         self.names = names
-        logging.debug('ENSOIDXData.__init__: system dim x time dim: %s x %s',
+        logging.debug('ENSOIDX.__init__: system dim x time dim: %s x %s',
                       len(names), len(times))
 
         # Set system_dim
         if system_dim is None:
             system_dim = len(names)
         elif system_dim != len(names):
-            warnings.warn('ENSOIDXData.__init__: provided system_dim is '
+            warnings.warn('ENSOIDX.__init__: provided system_dim is '
                           '{}, but setting to len(names) = {}.'.format(
                               system_dim, len(names))
                           )
@@ -211,14 +211,14 @@ class ENSOIDX(base.Base):
                                                  (i+1) * block_size],
                                              n_header[var])
                 name = file_name + '_' + var_types[var][ni]
-                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                logging.debug('ENSOIDX.__init__: Opening %s', name)
                 all_vals[name] = vals
                 all_years[name] = years
         # eqsoi uses _get_eqsoi()
         elif var == 'eqsoi':
             vals, years = self._get_eqsoi(tmp,)
             name = file_name+'_'+var_types[var][0]
-            logging.debug('ENSOIDXData.__init__: Opening %s', name)
+            logging.debug('ENSOIDX.__init__: Opening %s', name)
             all_vals[name] = vals
             all_years[name] = years
         # These vars use _get_sst()
@@ -229,7 +229,7 @@ class ENSOIDX(base.Base):
             vals, years = self._get_sst(tmp, var_types_indices)
             for i in range(len(var_types[var])):
                 name = file_name+'_'+var_types[var][i]
-                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                logging.debug('ENSOIDX.__init__: Opening %s', name)
                 all_vals[name] = vals[i]
                 all_years[name] = years
         else:
