@@ -8,3 +8,14 @@ from .gcp import GCP
 from .pyqg import PYQG
 from .barotropic import Barotropic
 from .enso_idx import ENSOIDX
+
+__all__ = [
+    'Lorenz63',
+    'Lorenz96',
+    'SQGTurb',
+    'AWS',
+    'GCP',
+    'PYQG',
+    'Barotropic',
+    'ENSOIDX'
+    ]
