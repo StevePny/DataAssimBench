@@ -13,7 +13,7 @@ import xarray as xr
 from dabench.data import base
 
 
-class AWS(base.BaseData):
+class AWS(base.Base):
     """Class for loading ERA5 data from AWS Open Data
 
     Notes:

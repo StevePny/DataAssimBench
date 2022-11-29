@@ -24,7 +24,7 @@ except ImportError:
         )
 
 
-class PYQG(base.BaseData):
+class PYQG(base.Base):
     """ Class to set up quasi-geotropic model
 
     The PYQG class is simply a wrapper of a "optional" pyqg package.
@@ -75,7 +75,7 @@ class PYQG(base.BaseData):
                  values=None,
                  times=None,
                  **kwargs):
-        """ Initialize PYQG object, subclass of BaseData
+        """ Initialize PYQG object, subclass of Base
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """

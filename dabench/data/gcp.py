@@ -17,7 +17,7 @@ import xarray as xr
 from dabench.data import base
 
 
-class GCP(base.BaseData):
+class GCP(base.Base):
     """Class for loading ERA5 data from Google Cloud Platform
 
     Notes:
