@@ -394,9 +394,9 @@ class Base():
         # Set total_time
         if total_time is None:
             subclass_name = self.__class__.__name__
-            if subclass_name == 'DataLorenz63':
+            if subclass_name == 'Lorenz63':
                 total_time = int(15000*self.delta_t)
-            elif subclass_name == 'DataLorenz96':
+            elif subclass_name == 'Lorenz96':
                 total_time = int(50000*self.delta_t)
             else:
                 total_time = 100
