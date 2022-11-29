@@ -4,7 +4,6 @@ Does NOT include model-level-moisture because that runs
     quite slow"""
 
 from dabench.data import GCP
-import jax.numpy as jnp
 import pytest
 import numpy as np
 

@@ -1,7 +1,7 @@
 """Tests for Base class (dabench.data.base)"""
 
 from dabench.data import Base
-import jax.numpy as jnp
+import numpy as np
 import pytest
 import datetime
 
@@ -23,10 +23,10 @@ def test_set_values():
 
     test_data = Base()
 
-    x_test = jnp.arange(15).reshape(3, 5)
+    x_test = np.arange(15).reshape(3, 5)
     test_data.set_values(x_test)
 
-    assert jnp.array_equal(test_data.values, x_test)
+    assert np.array_equal(test_data.values, x_test)
 
 
 def test_to_original_dims():
@@ -34,14 +34,14 @@ def test_to_original_dims():
 
     test_data = Base(original_dim=(2, 3))
 
-    x_test = jnp.arange(18).reshape(3, 6)
-    x_original = jnp.arange(18).reshape(3, 2, 3)
+    x_test = np.arange(18).reshape(3, 6)
+    x_original = np.arange(18).reshape(3, 2, 3)
     test_data.set_values(x_test)
 
     values_original_dim = test_data.to_original_dim()
 
-    assert jnp.array_equal(x_original, values_original_dim)
-    assert jnp.array_equal(
+    assert np.array_equal(x_original, values_original_dim)
+    assert np.array_equal(
         test_data.values,
         values_original_dim.reshape(
             test_data.time_dim,
