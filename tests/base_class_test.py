@@ -1,9 +1,13 @@
 """Tests for Base class (dabench.data.base)"""
 
-from dabench.data import Base
-import numpy as np
-import pytest
 import datetime
+
+import pytest
+import numpy as np
+import jax.numpy as jnp
+import jaxlib
+
+from dabench.data import Base
 
 
 def test_data_init():
@@ -27,6 +31,18 @@ def test_set_values():
     test_data.set_values(x_test)
 
     assert np.array_equal(test_data.values, x_test)
+
+
+def test_set_values_jax():
+    """Tests storing values as jax array"""
+
+    test_data = Base(store_as_jax=True)
+
+    x_test = np.arange(15).reshape(3, 5)
+    test_data.set_values(x_test)
+
+    assert isinstance(test_data.values, jaxlib.xla_extension.DeviceArray)
+    assert jnp.array_equal(test_data.values, x_test)
 
 
 def test_to_original_dims():
