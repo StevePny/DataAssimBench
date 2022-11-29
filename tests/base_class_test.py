@@ -1,6 +1,6 @@
-"""Tests for data class (dabench.data.data)"""
+"""Tests for Base class (dabench.data.base)"""
 
-from dabench.data import data
+from dabench.data import Base
 import jax.numpy as jnp
 import pytest
 import datetime
@@ -12,7 +12,7 @@ def test_data_init():
     params = {'system_dim': 2,
               'time_dim': 8}
 
-    test_data = data.Data(**params)
+    test_data = Base(**params)
 
     assert test_data.system_dim == 2
     assert test_data.time_dim == 8
@@ -21,7 +21,7 @@ def test_data_init():
 def test_set_values():
     """Test manually setting data values"""
 
-    test_data = data.Data()
+    test_data = Base()
 
     x_test = jnp.arange(15).reshape(3, 5)
     test_data.set_values(x_test)
@@ -32,7 +32,7 @@ def test_set_values():
 def test_to_original_dims():
     """Test returning data to original dimensions"""
 
-    test_data = data.Data(original_dim=(2, 3))
+    test_data = Base(original_dim=(2, 3))
 
     x_test = jnp.arange(18).reshape(3, 6)
     x_original = jnp.arange(18).reshape(3, 2, 3)
@@ -51,7 +51,7 @@ def test_to_original_dims():
 
 def test_load_netcdf():
     """Tests loading default netcdf (ERA5 ECWMF SLP)"""
-    test_data = data.Data()
+    test_data = Base()
     test_data.load_netcdf()
     og_dim_data = test_data.to_original_dim()
 
@@ -62,7 +62,7 @@ def test_load_netcdf():
 
 def test_load_netcdf_years():
     """Tests loading netcdf with only subset of years"""
-    test_data = data.Data()
+    test_data = Base()
     test_data.load_netcdf(years_select=[2018, 2020])
     og_dim_data = test_data.to_original_dim()
 
@@ -78,7 +78,7 @@ def test_load_netcdf_years():
 
 def test_load_netcdf_dates():
     """Tests loading netcdf with only subset of dates"""
-    test_data = data.Data()
+    test_data = Base()
     test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 1),
                                         datetime.date(2018, 11, 1),
                                         datetime.date(2021, 5, 1)])

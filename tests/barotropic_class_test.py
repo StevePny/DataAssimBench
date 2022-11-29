@@ -1,25 +1,25 @@
-"""Tests for DataBarotropic class (dabench.data.barotropic)"""
+"""Tests for Barotropic class (dabench.data.barotropic)"""
 
-from dabench.data.barotropic import DataBarotropic
+from dabench.data import Barotropic
 import jax.numpy as jnp
 import pytest
 
 
 @pytest.fixture
 def barotropic():
-    """Defines class DataPYQ object for rest of tests."""
-    barotropic_obj = DataBarotropic()
+    """Defines class Barotropic object for rest of tests."""
+    barotropic_obj = Barotropic()
     barotropic_obj.generate(n_steps=1000)
     return barotropic_obj
 
 
 def test_initialization(barotropic):
-    """Tests the initialization size of class DataBarotropic after generation."""
+    """Tests the initialization size of class Barotropic after generation."""
     assert barotropic.x0.shape == (1, 256, 256)
 
 
 def test_variable_sizes(barotropic):
-    """Test the variable sizes of class DataBarotropic."""
+    """Test the variable sizes of class Barotropic."""
     assert barotropic.system_dim == 65536
     assert barotropic.time_dim == 1000
     assert barotropic.original_dim == (1, 256, 256)
@@ -32,7 +32,7 @@ def test_to_original_dim(barotropic):
 
 def test_trajectories_equal(barotropic):
     """Tests if two trajectories are the same with same initial conditions."""
-    barotropic2 = DataBarotropic()
+    barotropic2 = Barotropic()
     barotropic2.generate(n_steps=1000)
     assert jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
                         atol=0)
@@ -40,7 +40,7 @@ def test_trajectories_equal(barotropic):
 
 def test_trajectories_notequal_diffparams(barotropic):
     """Tests if two trajectories differ with different params."""
-    barotropic2 = DataBarotropic(rd=10000, H=250)
+    barotropic2 = Barotropic(rd=10000, H=250)
     barotropic2.generate(n_steps=1000)
     assert not jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
                             atol=0)
@@ -49,7 +49,7 @@ def test_trajectories_notequal_diffparams(barotropic):
 def test_trajectories_notequal_diffic(barotropic):
     """Tests if two trajectories differ with different initial conditions."""
     x0 = barotropic.x0 + 0.01
-    barotropic2 = DataBarotropic(x0=x0)
+    barotropic2 = Barotropic(x0=x0)
     barotropic2.generate(n_steps=1000)
     assert not jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
                             atol=0)
