@@ -85,22 +85,22 @@ def test_trajectories_notequal():
               }
     lorenz96_1 = Lorenz96(**params)
     lorenz96_2 = Lorenz96(x0=np.array([6.20995768, 6.24066944,
-                                        4.27604607, 4.25271592,
-                                        -3.11392061, 3.52697510]),
+                                       4.27604607, 4.25271592,
+                                       -3.11392061, 3.52697510]),
                           **params)
     runtime = 1
     lorenz96_1.generate(t_final=runtime)
     lorenz96_2.generate(t_final=runtime)
 
     assert not np.allclose(lorenz96_1.values, lorenz96_2.values, rtol=1e-5,
-                            atol=0)
+                           atol=0)
 
 
 def test_trajectory_changes(lorenz96):
     """Tests that last time step in trajectory is different from initial"""
     runtime = 1
     initial_conditions = np.array([7.97355787, 7.97897913, 8.00370696,
-                                    7.98444298, 7.97446945])
+                                   7.98444298, 7.97446945])
     lorenz96.generate(t_final=runtime)
 
     assert not np.allclose(lorenz96.values[-1], initial_conditions)
@@ -110,7 +110,7 @@ def test_generate_saved_results():
     """Tests the Lorenz96 data generation against below true array results."""
     # Set initial state to equilibrium with small perturbation to third value
     x0 = 8.0 * np.ones(5)
-    x0 = x0.at[2].set(x0[2]+0.01)
+    x0[2] = x0[2]+0.01
     params = {'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
