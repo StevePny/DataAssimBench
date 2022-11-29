@@ -20,6 +20,8 @@ class Base():
         values (ndarray): 2d array of data (time_dim, system_dim),
             set by generate() method
         times (ndarray): 1d array of times (time_dim), set by generate() method
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
         """
 
     def __init__(self,
@@ -29,14 +31,16 @@ class Base():
                  random_seed=37,
                  delta_t=0.01,
                  values=None,
+                 store_as_jax=False,
                  **kwargs):
         """Initializes the base data object"""
 
         self.system_dim = system_dim
         self.time_dim = time_dim
         self.random_seed = random_seed
-        self.values = values
         self.delta_t = delta_t
+        self.store_as_jax = store_as_jax
+        self.set_values(values)
 
         if original_dim is None:
             self.original_dim = (system_dim)
@@ -49,9 +53,15 @@ class Base():
         Args:
             values (ndarray): New values with shape (time_dim, system_dim).
         """
-        self.values = values
-        self.time_dim = values.shape[0]
-        self.system_dim = values.shape[1]
+        if values is None:
+            self.values = None
+        else:
+            if self.store_as_jax:
+                self.values = jnp.asarray(values)
+            else:
+                self.values = np.asarray(values)
+            self.time_dim = values.shape[0]
+            self.system_dim = values.shape[1]
 
     def set_times(self, times):
         """Sets times manually
@@ -165,7 +175,7 @@ class Base():
         # The generate method specifically stores data in the object,
         # as opposed to the forecast method, which does not.
         # Store values and times as part of data object
-        self.values = y[:, :self.system_dim]
+        self.set_values(y[:, :self.system_dim])
         self.times = t
         self.time_dim = len(t)
 

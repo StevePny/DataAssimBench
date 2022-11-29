@@ -20,6 +20,8 @@ class ENSOIDX(base.Base):
     Attributes:
         system_dim (int): system dimension
         time_dim (int): total time steps
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
         file_dict (dict): Lists of files to get. Dict keys are type of data:
                 'wnd': Wind
                 'slp': Sea level pressure
@@ -51,9 +53,13 @@ class ENSOIDX(base.Base):
     """
 
     def __init__(self, file_dict=None, var_types=None, system_dim=None,
-                 time_dim=None, **kwargs):
+                 time_dim=None, store_as_jax=False, **kwargs):
 
         """Initialize ENSOIDX object, subclass of Base"""
+
+        super().__init__(system_dim=system_dim, time_dim=time_dim,
+                         values=None, delta_t=None, **kwargs,
+                         store_as_jax=store_as_jax)
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml
@@ -121,25 +127,23 @@ class ENSOIDX(base.Base):
         # Combine all variable values and years
         common_vals, common_years, names = self._combine_vals_years(
             all_vals, all_years)
+
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
-        values = common_vals.T
-        times = common_years
+        self.set_values(common_vals.T)
+        self.times = common_years
         self.names = names
         logging.debug('ENSOIDX.__init__: system dim x time dim: %s x %s',
-                      len(names), len(times))
+                      len(names), len(self.times))
 
         # Set system_dim
         if system_dim is None:
-            system_dim = len(names)
+            self.system_dim = len(names)
         elif system_dim != len(names):
             warnings.warn('ENSOIDX.__init__: provided system_dim is '
                           '{}, but setting to len(names) = {}.'.format(
                               system_dim, len(names))
                           )
-            system_dim = len(names)
-
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=None, **kwargs)
+            self.system_dim = len(names)
 
     def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
                            all_vals, all_years):
