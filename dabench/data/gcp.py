@@ -49,6 +49,8 @@ class GCP(base.Base):
         max_lat (float): Max latitude for bounding box (see min_lat for info).
         min_lon (float): Min latitude for bounding box (see min_lat for info).
         max_lon (float): Max latitude for bounding box (see min_lat for info).
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(
             self,
@@ -63,6 +65,7 @@ class GCP(base.Base):
             max_lon=-74.1780248685,
             system_dim=None,
             time_dim=None,
+            store_as_jax=False,
             **kwargs
             ):
 
@@ -86,7 +89,8 @@ class GCP(base.Base):
         self.max_lon = max_lon
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=None, delta_t=None, **kwargs)
+                         values=None, delta_t=None, store_as_jax=store_as_jax,
+                         **kwargs)
 
     def _build_url(self):
         file_pattern = 'http://storage.googleapis.com/gcp-public-data-arco-era5/co/{data_type}.zarr'

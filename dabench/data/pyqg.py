@@ -35,7 +35,6 @@ class PYQG(base.Base):
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
     Attributes:
-        system_dim (int): system dimension
         beta (float): Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1
         rek (float): Linear drag in lower layer. Units: seconds^-1
@@ -56,6 +55,8 @@ class PYQG(base.Base):
             Units: seconds.
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(self,
                  beta=1.5e-11,
@@ -74,6 +75,7 @@ class PYQG(base.Base):
                  time_dim=None,
                  values=None,
                  times=None,
+                 store_as_jax=False,
                  **kwargs):
         """ Initialize PYQG object, subclass of Base
 
@@ -96,6 +98,7 @@ class PYQG(base.Base):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
+                         store_as_jax=store_as_jax,
                          **kwargs)
 
         self.x0 = x0
@@ -175,7 +178,7 @@ class PYQG(base.Base):
         # Save values
         self.original_dim = qs.shape[1:]
         self.time_dim = qs.shape[0]
-        self.values = jnp.array(qs.reshape((self.time_dim, -1)))
+        self.set_values(qs.reshape((self.time_dim, -1)))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""

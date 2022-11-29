@@ -27,6 +27,8 @@ class Lorenz63(base.Base):
         system_dim (int): system dimension. Must be 3 for Lorenz63.
         time_dim (int): total time steps
         delta_t (float): length of one time step
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
 
     def __init__(self,
@@ -38,6 +40,7 @@ class Lorenz63(base.Base):
                  system_dim=3,
                  time_dim=None,
                  values=None,
+                 store_as_jax=False,
                  **kwargs):
         """Initialize Lorenz63 object, subclass of Base"""
 
@@ -51,7 +54,8 @@ class Lorenz63(base.Base):
             system_dim = 3
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=delta_t, **kwargs)
+                         values=values, delta_t=delta_t,
+                         store_as_jax=store_as_jax, **kwargs)
 
         # Model constants
         self.sigma = sigma

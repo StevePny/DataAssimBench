@@ -72,6 +72,8 @@ class SQGTurb(base.Base):
         dealias (bool): if True, dealiasing applied using 2/3 rule
         precision (char): 'single' or 'double'. Default is 'single'
         tstart (float): initialize time counter
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
 
     def __init__(self,
@@ -96,13 +98,14 @@ class SQGTurb(base.Base):
                  values=None,
                  times=None,
                  delta_t=900,
+                 store_as_jax=False,
                  **kwargs,
                  ):
 
         super().__init__(system_dim=system_dim, input_dim=input_dim,
                          output_dim=output_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
-                         **kwargs)
+                         store_as_jax=store_as_jax, **kwargs)
 
         # Fall back on default if no pv
         if pv is None:

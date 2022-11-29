@@ -60,6 +60,8 @@ class Barotropic(base.Base):
             when delta_t = 0.001)
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(self,
                  beta=0.,
@@ -76,6 +78,7 @@ class Barotropic(base.Base):
                  time_dim=None,
                  values=None,
                  times=None,
+                 store_as_jax=False,
                  **kwargs):
         """ Initializes Barotropic object, subclass of Base
 
@@ -99,6 +102,7 @@ class Barotropic(base.Base):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
+                         store_as_jax=store_as_jax,
                          **kwargs)
 
         self.x0 = x0
@@ -178,7 +182,7 @@ class Barotropic(base.Base):
 
         # Save values
         self.time_dim = qs.shape[0]
-        self.values = jnp.array(qs.reshape((self.time_dim, -1)))
+        self.set_values(qs.reshape((self.time_dim, -1)))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""
