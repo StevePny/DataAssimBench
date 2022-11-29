@@ -1,7 +1,6 @@
 """Tests for AWS class (dabench.data.aws)"""
 
 from dabench.data import AWS
-import jax.numpy as jnp
 import pytest
 import numpy as np
 

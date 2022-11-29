@@ -1,8 +1,9 @@
 """Tests for Lorenz63 class (dabench.data.lorenz63)"""
 
-from dabench.data import Lorenz63
-import jax.numpy as jnp
+import numpy as np
 import pytest
+
+from dabench.data import Lorenz63
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def test_trajectories_equal(lorenz):
     lorenz.generate(t_final=runtime)
     lorenz2.generate(t_final=runtime)
 
-    assert jnp.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
+    assert np.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
 
 
 def test_trajectories_notequal(lorenz):
@@ -52,18 +53,18 @@ def test_trajectories_notequal(lorenz):
     runtime = 1
     lorenz.generate(t_final=runtime)
     lorenz2.generate(t_final=runtime,
-                     x0=jnp.array([-2.2, -2.2, 19.1]))
+                     x0=np.array([-2.2, -2.2, 19.1]))
 
-    assert not jnp.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
+    assert not np.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
 
 
 def test_trajectory_changes(lorenz):
     """Tests that last time step in trajectory is different from initial state"""
     runtime = 1
     lorenz.generate(t_final=runtime,
-                    x0=jnp.array([-2.2, -2.2, 19.1]))
+                    x0=np.array([-2.2, -2.2, 19.1]))
 
-    assert not jnp.allclose(lorenz.values[-1],  jnp.array([-2.2, -2.2, 19.1]))
+    assert not np.allclose(lorenz.values[-1],  np.array([-2.2, -2.2, 19.1]))
 
 
 def test_trajectory_shape(lorenz):
@@ -93,7 +94,7 @@ def test_lyapunov_exponents_series(lorenz, lorenz_lyaps):
     """Tests shape of lyapunov exponents series and value of last timestep"""
     LE = lorenz.calc_lyapunov_exponents_final()
     assert lorenz_lyaps.shape == (150 - 1, lorenz.system_dim)
-    assert jnp.all(LE == lorenz_lyaps[-1])
+    assert np.all(LE == lorenz_lyaps[-1])
 
 
 def test_lyapunov_exponents_values(lorenz_lyaps):
@@ -103,6 +104,6 @@ def test_lyapunov_exponents_values(lorenz_lyaps):
         Values from https://sprott.physics.wisc.edu/chaos/lorenzle.htm
     """
     LE = lorenz_lyaps[-1]
-    known_LE = jnp.array([0.906, 0, -14.572])
-    assert jnp.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
+    known_LE = np.array([0.906, 0, -14.572])
+    assert np.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
 

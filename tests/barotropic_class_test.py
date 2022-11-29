@@ -1,7 +1,7 @@
 """Tests for Barotropic class (dabench.data.barotropic)"""
 
 from dabench.data import Barotropic
-import jax.numpy as jnp
+import numpy as np
 import pytest
 
 
@@ -34,16 +34,16 @@ def test_trajectories_equal(barotropic):
     """Tests if two trajectories are the same with same initial conditions."""
     barotropic2 = Barotropic()
     barotropic2.generate(n_steps=1000)
-    assert jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
-                        atol=0)
+    assert np.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
+                       atol=0)
 
 
 def test_trajectories_notequal_diffparams(barotropic):
     """Tests if two trajectories differ with different params."""
     barotropic2 = Barotropic(rd=10000, H=250)
     barotropic2.generate(n_steps=1000)
-    assert not jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
-                            atol=0)
+    assert not np.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
+                           atol=0)
 
 
 def test_trajectories_notequal_diffic(barotropic):
@@ -51,14 +51,14 @@ def test_trajectories_notequal_diffic(barotropic):
     x0 = barotropic.x0 + 0.01
     barotropic2 = Barotropic(x0=x0)
     barotropic2.generate(n_steps=1000)
-    assert not jnp.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
-                            atol=0)
+    assert not np.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
+                           atol=0)
 
 
 def test_trajectory_changes(barotropic):
     """Tests that last time step in trajectory is different from initial state"""
-    assert not jnp.allclose(barotropic.to_original_dim()[-1],
-                            barotropic.x0)
+    assert not np.allclose(barotropic.to_original_dim()[-1],
+                           barotropic.x0)
 
 
 def test_trajectory_shape(barotropic):

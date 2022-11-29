@@ -1,7 +1,6 @@
 """Tests for ENSOIDX class (dabench.data.enso_idx)"""
 
 from dabench.data import ENSOIDX
-import jax.numpy as jnp
 import pytest
 
 

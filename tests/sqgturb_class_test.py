@@ -1,10 +1,12 @@
 
 """Tests for SQGTurb class (dabench.data.sqgturb)"""
 
-from dabench.data.sqgturb import SQGTurb
 import jax.numpy as jnp
 import jax.random as jrand
 import pytest
+
+from dabench.data import SQGTurb
+
 
 key = jrand.PRNGKey(42)
 

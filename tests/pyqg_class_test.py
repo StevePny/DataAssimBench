@@ -1,8 +1,9 @@
 """Tests for PYQG class (dabench.data.pyqg)"""
 
-from dabench.data import PYQG
-import jax.numpy as jnp
+import numpy as np
 import pytest
+
+from dabench.data import PYQG
 
 
 @pytest.fixture
@@ -33,14 +34,14 @@ def test_trajectories_equal(pyqg):
     """Tests if two trajectories are the same with same initial conditions."""
     pyqg2 = PYQG()
     pyqg2.generate(n_steps=1000)
-    assert jnp.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
+    assert np.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
 
 
 def test_trajectories_notequal_diffparams(pyqg):
     """Tests if two trajectories differ with different params."""
     pyqg2 = PYQG(rd=10000, H1=250)
     pyqg2.generate(n_steps=1000)
-    assert not jnp.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
+    assert not np.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
 
 
 def test_trajectories_notequal_diffic(pyqg):
@@ -48,12 +49,12 @@ def test_trajectories_notequal_diffic(pyqg):
     x0 = pyqg.x0 + 0.01
     pyqg2 = PYQG(x0=x0)
     pyqg2.generate(n_steps=1000)
-    assert not jnp.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
+    assert not np.allclose(pyqg.values, pyqg2.values, rtol=1e-5, atol=0)
 
 
 def test_trajectory_changes(pyqg):
     """Tests that last time step in trajectory is different from initial state"""
-    assert not jnp.allclose(pyqg.to_original_dim()[-1],
+    assert not np.allclose(pyqg.to_original_dim()[-1],
                             pyqg.x0)
 
 
