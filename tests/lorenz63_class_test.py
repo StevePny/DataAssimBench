@@ -1,15 +1,15 @@
-"""Tests for DataLorenz63 class (dabench.data.lorenz63)"""
+"""Tests for Lorenz63 class (dabench.data.lorenz63)"""
 
-from dabench.data.lorenz63 import DataLorenz63
+from dabench.data import Lorenz63
 import jax.numpy as jnp
 import pytest
 
 
 @pytest.fixture
 def lorenz():
-    """Defines class DataLorenz63 object for rest of tests."""
+    """Defines class Lorenz63 object for rest of tests."""
     params = {'system_dimension': 3}
-    return DataLorenz63(**params)
+    return Lorenz63(**params)
 
 
 @pytest.fixture
@@ -19,14 +19,14 @@ def lorenz_lyaps(lorenz):
 
 
 def test_initialization(lorenz):
-    """Tests the initialization size of class DataLorenz63 after generation."""
+    """Tests the initialization size of class Lorenz63 after generation."""
     lorenz.generate(t_final=1)
 
     assert len(lorenz.x0) == 3
 
 
 def test_variable_sizes(lorenz):
-    """Test the variable sizes of class DataLorenz63."""
+    """Test the variable sizes of class Lorenz63."""
     runtime = 1
     lorenz.generate(t_final=runtime)
 
@@ -37,7 +37,7 @@ def test_variable_sizes(lorenz):
 def test_trajectories_equal(lorenz):
     """Tests if two trajectories are the same with same initial conditions."""
     params = {'system_dimension': 3}
-    lorenz2 = DataLorenz63(**params)
+    lorenz2 = Lorenz63(**params)
     runtime = 1
     lorenz.generate(t_final=runtime)
     lorenz2.generate(t_final=runtime)
@@ -48,7 +48,7 @@ def test_trajectories_equal(lorenz):
 def test_trajectories_notequal(lorenz):
     """Tests if two trajectories differ with different initial conditions."""
     params = {'system_dimension': 3}
-    lorenz2 = DataLorenz63(**params)
+    lorenz2 = Lorenz63(**params)
     runtime = 1
     lorenz.generate(t_final=runtime)
     lorenz2.generate(t_final=runtime,

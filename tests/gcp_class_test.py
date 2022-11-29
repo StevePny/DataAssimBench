@@ -1,9 +1,9 @@
-"""Tests for DataGCP class (dabench.data.gcp)
+"""Tests for GCP class (dabench.data.gcp)
 
 Does NOT include model-level-moisture because that runs
     quite slow"""
 
-from dabench.data.gcp import DataGCP
+from dabench.data import GCP
 import jax.numpy as jnp
 import pytest
 import numpy as np
@@ -12,8 +12,8 @@ import numpy as np
 @pytest.fixture
 def gcp_small():
     """Defines gcp object for rest of tests"""
-    gcp_obj = DataGCP(data_type='single-level-reanalysis',
-                      date_start='2010-06-05', date_end='2010-06-07')
+    gcp_obj = GCP(data_type='single-level-reanalysis',
+                  date_start='2010-06-05', date_end='2010-06-07')
     gcp_obj.load()
 
     return gcp_obj
@@ -22,9 +22,9 @@ def gcp_small():
 @pytest.fixture
 def gcp_multivar():
     """Defines gcp object for rest of tests"""
-    gcp_obj = DataGCP(data_type='single-level-forecast',
-                      variables=['cp', 'ssrd'],
-                      date_start='1999-12-31', date_end='2000-01-01')
+    gcp_obj = GCP(data_type='single-level-forecast',
+                  variables=['cp', 'ssrd'],
+                  date_start='1999-12-31', date_end='2000-01-01')
     gcp_obj.load()
 
     return gcp_obj

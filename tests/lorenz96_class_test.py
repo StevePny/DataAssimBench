@@ -1,19 +1,19 @@
-"""Tests for DataLorenz96 class (dabench.data.lorenz96.DataLorenz96)"""
+"""Tests for Lorenz96 class (from dabench.data.lorenz96)"""
 
-from dabench.data.lorenz96 import DataLorenz96
+from dabench.data import Lorenz96
 import jax.numpy as jnp
 import pytest
 
 
 @pytest.fixture
 def lorenz96():
-    """Defines class DataLorenz96 object for rest of tests."""
+    """Defines class Lorenz96 object for rest of tests."""
     params = {'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
-    return DataLorenz96(**params)
+    return Lorenz96(**params)
 
 
 @pytest.fixture
@@ -23,19 +23,19 @@ def lorenz96_lyaps(lorenz96):
 
 
 def test_initialization():
-    """Tests the initialized size of class DataLorenz96 after generation."""
+    """Tests the initialized size of class Lorenz96 after generation."""
     for i in range(1, 10):
         params = {'system_dim': 5*i,
                   'time_dim': 200*i
                   }
-        lorenz96_1 = DataLorenz96(**params)
+        lorenz96_1 = Lorenz96(**params)
 
         assert lorenz96_1.system_dim == 5*i
         assert lorenz96_1.time_dim == 200*i
 
 
 def test_variable_sizes(lorenz96):
-    """Test the variable sizes of class DataLorenz96."""
+    """Test the variable sizes of class Lorenz96."""
     runtime = 1
     lorenz96.generate(t_final=runtime)
 
@@ -50,7 +50,7 @@ def test_trajectory_shape():
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
-    lorenz96_1 = DataLorenz96(**params)
+    lorenz96_1 = Lorenz96(**params)
     runtime = 1
     lorenz96_1.generate(t_final=runtime)
 
@@ -65,8 +65,8 @@ def test_trajectories_equal():
               'forcing_term': 10.0,
               'delta_t': 0.001
               }
-    lorenz96_1 = DataLorenz96(**params)
-    lorenz96_2 = DataLorenz96(**params)
+    lorenz96_1 = Lorenz96(**params)
+    lorenz96_2 = Lorenz96(**params)
     runtime = 1
     lorenz96_1.generate(t_final=runtime)
     lorenz96_2.generate(t_final=runtime)
@@ -82,11 +82,11 @@ def test_trajectories_notequal():
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
-    lorenz96_1 = DataLorenz96(**params)
-    lorenz96_2 = DataLorenz96(x0=jnp.array([6.20995768, 6.24066944,
-                                            4.27604607, 4.25271592,
-                                            -3.11392061, 3.52697510]),
-                              **params)
+    lorenz96_1 = Lorenz96(**params)
+    lorenz96_2 = Lorenz96(x0=jnp.array([6.20995768, 6.24066944,
+                                        4.27604607, 4.25271592,
+                                        -3.11392061, 3.52697510]),
+                          **params)
     runtime = 1
     lorenz96_1.generate(t_final=runtime)
     lorenz96_2.generate(t_final=runtime)
@@ -118,7 +118,7 @@ def test_generate_saved_results():
               }
 
     # Generate data
-    lorenz96_1 = DataLorenz96(**params)
+    lorenz96_1 = Lorenz96(**params)
     lorenz96_1.generate(t_final=10, x0=x0)
 
     # Previously generated results with these params and initial conditions
@@ -132,7 +132,7 @@ def test_generate_saved_results():
              [ 4.26726853,  6.23099434, -1.22264959,  2.29152838,  2.84244614],
              [-0.25361909,  0.92942401,  8.63986765, -1.45411412, -0.89528154],
              [-5.27402622, -1.10262156, -0.53270967,  7.58069989,  2.84768712],
-             [ 4.73878926,  6.27758562, -2.10858776,  3.26147038,  3.168998  ]])  
+             [ 4.73878926,  6.27758562, -2.10858776,  3.26147038,  3.168998  ]])
 
     y_simulated = lorenz96_1.values[::1000]
     assert y_simulated.shape == y_true.shape
