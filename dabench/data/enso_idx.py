@@ -10,7 +10,7 @@ import textwrap
 from dabench.data import base
 
 
-class ENSOIDX(base.BaseData):
+class ENSOIDX(base.Base):
     """Class to get ENSO index from CPC website
 
     Notes:
@@ -52,7 +52,7 @@ class ENSOIDX(base.BaseData):
     def __init__(self, file_dict=None, var_types=None, system_dim=None,
                  time_dim=None, **kwargs):
 
-        """Initialize ENSOIDX object, subclass of BaseData"""
+        """Initialize ENSOIDX object, subclass of Base"""
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml

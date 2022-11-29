@@ -7,7 +7,7 @@ from dabench.data import base
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class Lorenz96(base.BaseData):
+class Lorenz96(base.Base):
     """Class to set up Lorenz 96 model data.
 
     Notes:
@@ -41,7 +41,7 @@ class Lorenz96(base.BaseData):
                  time_dim=None,
                  values=None,
                  **kwargs):
-        """Initialize Lorenz96 object, subclass of BaseData"""
+        """Initialize Lorenz96 object, subclass of Base"""
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, delta_t=delta_t, **kwargs)

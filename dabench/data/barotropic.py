@@ -24,7 +24,7 @@ except ImportError:
         )
 
 
-class Barotropic(base.BaseData):
+class Barotropic(base.Base):
     """ Class to set up barotropic model
 
     The data class is a wrapper of a "optional" pyqg package.
@@ -77,7 +77,7 @@ class Barotropic(base.BaseData):
                  values=None,
                  times=None,
                  **kwargs):
-        """ Initializes Barotropic object, subclass of BaseData
+        """ Initializes Barotropic object, subclass of Base
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """

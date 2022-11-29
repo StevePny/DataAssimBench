@@ -8,7 +8,7 @@ from dabench.data import base
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class Lorenz63(base.BaseData):
+class Lorenz63(base.Base):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
@@ -39,7 +39,7 @@ class Lorenz63(base.BaseData):
                  time_dim=None,
                  values=None,
                  **kwargs):
-        """Initialize Lorenz63 object, subclass of BaseData"""
+        """Initialize Lorenz63 object, subclass of Base"""
 
         # Lorenz63 requires system dim to be 3
         if system_dim is None:

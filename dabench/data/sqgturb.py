@@ -45,7 +45,7 @@ from dabench.data import base
 config.update('jax_enable_x64', True)
 
 
-class SQGTurb(base.BaseData):
+class SQGTurb(base.Base):
     """Class to set up SQGTurb model and manage data.
 
     Attributes:
@@ -410,7 +410,7 @@ class SQGTurb(base.BaseData):
 
         Args:
             f (function): right hand side (rhs) of the ODE. Not used, but
-                needed to function with generate() from base.BaseData().
+                needed to function with generate() from base.Base().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """
