@@ -40,28 +40,32 @@ class Base():
         self.random_seed = random_seed
         self.delta_t = delta_t
         self.store_as_jax = store_as_jax
-        self.set_values(values)
+        # values att is a property to better convert between jax/numpy
+        self._values = values
 
         if original_dim is None:
             self.original_dim = (system_dim)
         else:
             self.original_dim = original_dim
 
-    def set_values(self, values):
-        """Sets values manually
+    @property
+    def values(self):
+        return self._values
 
-        Args:
-            values (ndarray): New values with shape (time_dim, system_dim).
-        """
-        if values is None:
-            self.values = None
+    @values.setter
+    def values(self, vals):
+        if vals is None:
+            self._values = None
         else:
             if self.store_as_jax:
-                self.values = jnp.asarray(values)
+                self._values = jnp.asarray(vals)
             else:
-                self.values = np.asarray(values)
-            self.time_dim = values.shape[0]
-            self.system_dim = values.shape[1]
+                self._values = np.asarray(vals)
+
+    @values.deleter
+    def values(self):
+        del self._values
+
 
     def set_times(self, times):
         """Sets times manually
@@ -175,7 +179,7 @@ class Base():
         # The generate method specifically stores data in the object,
         # as opposed to the forecast method, which does not.
         # Store values and times as part of data object
-        self.set_values(y[:, :self.system_dim])
+        self.values = y[:, :self.system_dim]
         self.times = t
         self.time_dim = len(t)
 
@@ -274,8 +278,10 @@ class Base():
             names_list.append(data_var)
 
         self.var_names = np.array(names_list)
-        self.set_values(np.stack(vars_list, axis=-1).reshape(
-            vars_list[0].shape[0], -1))
+        self.values = np.stack(vars_list, axis=-1).reshape(
+                vars_list[0].shape[0], -1)
+        self.time_dim = self.values.shape[0]
+        self.system_dim = self.values.shape[1]
 
 
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):

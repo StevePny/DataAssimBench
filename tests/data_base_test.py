@@ -28,7 +28,7 @@ def test_set_values():
     test_data = Base()
 
     x_test = np.arange(15).reshape(3, 5)
-    test_data.set_values(x_test)
+    test_data.values = x_test
 
     assert np.array_equal(test_data.values, x_test)
 
@@ -39,7 +39,7 @@ def test_set_values_jax():
     test_data = Base(store_as_jax=True)
 
     x_test = np.arange(15).reshape(3, 5)
-    test_data.set_values(x_test)
+    test_data.values = x_test
 
     assert isinstance(test_data.values, jaxlib.xla_extension.DeviceArray)
     assert jnp.array_equal(test_data.values, x_test)
@@ -52,7 +52,9 @@ def test_to_original_dims():
 
     x_test = np.arange(18).reshape(3, 6)
     x_original = np.arange(18).reshape(3, 2, 3)
-    test_data.set_values(x_test)
+    test_data.values = x_test
+    test_data.time_dim = x_test.shape[0]
+    test_data.system_dim = x_test.shape[1]
 
     values_original_dim = test_data.to_original_dim()
 
