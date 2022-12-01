@@ -5,7 +5,7 @@ from .lorenz96 import Lorenz96
 from .sqgturb import SQGTurb
 from .aws import AWS
 from .gcp import GCP
-from .pyqg import PYQG
+from .pyqg import PyQG
 from .barotropic import Barotropic
 from .enso_idx import ENSOIDX
 
@@ -15,7 +15,7 @@ __all__ = [
     'SQGTurb',
     'AWS',
     'GCP',
-    'PYQG',
+    'PyQG',
     'Barotropic',
     'ENSOIDX'
     ]

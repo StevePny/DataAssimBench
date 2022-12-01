@@ -18,16 +18,16 @@ except ImportError:
     pyqg = None
     logging.warning(
         'Package: pyqg not found!\n'
-        'PYQG will not work without this optional package\n'
+        'PyQG will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
 
 
-class PYQG(base.Base):
+class PyQG(base.Base):
     """ Class to set up quasi-geotropic model
 
-    The PYQG class is simply a wrapper of a "optional" pyqg package.
+    The PyQG class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:
@@ -77,7 +77,7 @@ class PYQG(base.Base):
                  times=None,
                  store_as_jax=False,
                  **kwargs):
-        """ Initialize PYQG object, subclass of Base
+        """ Initialize PyQG object, subclass of Base
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
@@ -85,7 +85,7 @@ class PYQG(base.Base):
         if pyqg is None:
             raise ModuleNotFoundError(
                 'No module named \'pyqg\'\n'
-                'PYQG will not work without this optional package\n'
+                'PyQG will not work without this optional package\n'
                 'To install via conda: conda install -c conda-forge pyqg\n'
                 'For more information: '
                 'https://pyqg.readthedocs.io/en/latest/installation.html'
