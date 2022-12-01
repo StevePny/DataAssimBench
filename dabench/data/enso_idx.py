@@ -129,7 +129,7 @@ class ENSOIDX(base.Base):
             all_vals, all_years)
 
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
-        self.set_values(common_vals.T)
+        self.values = common_vals.T
         self.times = common_years
         self.names = names
         logging.debug('ENSOIDX.__init__: system dim x time dim: %s x %s',

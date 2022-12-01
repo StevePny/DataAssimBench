@@ -182,7 +182,7 @@ class Barotropic(base.Base):
 
         # Save values
         self.time_dim = qs.shape[0]
-        self.set_values(qs.reshape((self.time_dim, -1)))
+        self.values = qs.reshape((self.time_dim, -1))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""
