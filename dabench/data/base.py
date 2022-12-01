@@ -66,16 +66,6 @@ class Base():
     def values(self):
         del self._values
 
-
-    def set_times(self, times):
-        """Sets times manually
-
-        Args:
-            times (ndarray): New times with shape (time_dim,).
-        """
-        self.times = times
-        self.time_dim = times.shape[0]
-
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
 
@@ -245,7 +235,8 @@ class Base():
         elif 'time0' in dims_keys:
             time_key = 'time0'
         if time_key is not None:
-            self.set_times(ds[time_key].values)
+            self.times = ds[time_key].values
+            self.time_dim = self.times.shape[0]
 
         # Set x and y
         og_dims = []
