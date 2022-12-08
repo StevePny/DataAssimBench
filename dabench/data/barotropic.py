@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import base
+from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -24,7 +24,7 @@ except ImportError:
         )
 
 
-class Barotropic(base.Base):
+class Barotropic(_data.Data):
     """ Class to set up barotropic model
 
     The data class is a wrapper of a "optional" pyqg package.
@@ -80,7 +80,7 @@ class Barotropic(base.Base):
                  times=None,
                  store_as_jax=False,
                  **kwargs):
-        """ Initializes Barotropic object, subclass of Base
+        """ Initializes Barotropic object, subclass of Data
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """

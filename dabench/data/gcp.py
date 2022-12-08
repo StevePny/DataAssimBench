@@ -14,10 +14,10 @@ Note:
 
 import warnings
 import xarray as xr
-from dabench.data import base
+from dabench._data import Data
 
 
-class GCP(base.Base):
+class GCP(_data.Data):
     """Class for loading ERA5 data from Google Cloud Platform
 
     Notes:

@@ -8,10 +8,10 @@ import jax.numpy as jnp
 import numpy as np
 import textwrap
 
-from dabench.data import base
+from dabench._data import Data
 
 
-class ENSOIDX(base.Base):
+class ENSOIDX(_data.Data):
     """Class to get ENSO index from CPC website
 
     Notes:

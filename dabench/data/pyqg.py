@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import base
+from dabench._data import Data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -24,7 +24,7 @@ except ImportError:
         )
 
 
-class PyQG(base.Base):
+class PyQG(_data.Data):
     """ Class to set up quasi-geotropic model
 
     The PyQG class is simply a wrapper of a "optional" pyqg package.
