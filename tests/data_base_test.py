@@ -1,4 +1,4 @@
-"""Tests for Data class (dabench.data._data)"""
+"""Tests for base Data class (dabench.data._data)"""
 
 import datetime
 
