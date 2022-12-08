@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import textwrap
 
-from dabench._data import Data
+from dabench.data import _data
 
 
 class ENSOIDX(_data.Data):
