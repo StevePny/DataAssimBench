@@ -2,12 +2,12 @@
 import logging
 import jax.numpy as jnp
 
-from dabench.data import base
+from dabench._data import Data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class Lorenz96(base.Base):
+class Lorenz96(_data.Data):
     """Class to set up Lorenz 96 model data.
 
     Notes:

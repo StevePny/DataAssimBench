@@ -10,10 +10,10 @@ For list of variables, see:
 
 import warnings
 import xarray as xr
-from dabench.data import base
+from dabench.data import _data
 
 
-class AWS(base.Base):
+class AWS(_data.Data):
     """Class for loading ERA5 data from AWS Open Data
 
     Notes:

@@ -39,13 +39,13 @@ from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
 from functools import partial
 
-from dabench.data import base
+from dabench._data import Data
 
 # Set to enable 64bit floats in Jax
 config.update('jax_enable_x64', True)
 
 
-class SQGTurb(base.Base):
+class SQGTurb(_data.Data):
     """Class to set up SQGTurb model and manage data.
 
     Attributes:
@@ -413,7 +413,7 @@ class SQGTurb(base.Base):
 
         Args:
             f (function): right hand side (rhs) of the ODE. Not used, but
-                needed to function with generate() from base.Base().
+                needed to function with generate() from _data.Data().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """
