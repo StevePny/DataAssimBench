@@ -14,7 +14,7 @@ Note:
 
 import warnings
 import xarray as xr
-from dabench._data import Data
+from dabench.data import _data
 
 
 class GCP(_data.Data):

@@ -39,7 +39,7 @@ from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
 from functools import partial
 
-from dabench._data import Data
+from dabench.data import _data
 
 # Set to enable 64bit floats in Jax
 config.update('jax_enable_x64', True)
