@@ -1,7 +1,7 @@
 """Base class for data generator objects"""
 import numpy as np
 import jax.numpy as jnp
-from dabench.support.utils import integrate
+from dabench.data._utils import integrate
 import xarray as xr
 import warnings
 
