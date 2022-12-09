@@ -1,6 +1,6 @@
-"""Tests for ENSOIDX class (dabench.data.enso_idx)"""
+"""Tests for ENSOIndices class (dabench.data.enso_indices)"""
 
-from dabench.data import ENSOIDX
+from dabench.data import ENSOIndices
 import pytest
 
 
@@ -11,7 +11,7 @@ def test_initialization():
     var_types = {'wnd': ['ori'],
                  'slp': ['ori', 'std']}
 
-    idx = ENSOIDX(file_dict, var_types)
+    idx = ENSOIndices(file_dict, var_types)
 
     assert idx.values.shape[1] == 3
 
@@ -23,7 +23,7 @@ def test_values_wnd_slp():
     var_types = {'wnd': ['ori'],
                  'slp': ['ori']}
 
-    idx = ENSOIDX(file_dict, var_types)
+    idx = ENSOIndices(file_dict, var_types)
 
     assert idx.values[0, 0] == 15.5
     assert idx.values[13, 0] == 7.9
@@ -37,7 +37,7 @@ def test_values_eqsoi():
     file_dict = {'eqsoi': ['rindo_slpa.for', 'reqsoi.3m.for']}
     var_types = {'eqsoi': ['std']}
 
-    idx = ENSOIDX(file_dict, var_types)
+    idx = ENSOIndices(file_dict, var_types)
 
     assert idx.values.shape[1] == 2
     assert idx.values[0, 0] == -0.5
@@ -53,7 +53,7 @@ def test_values_sst_rsst():
     var_types = {'rsst': ['tr_ano', 'sa'],
                  'sst': ['nino12', 'nino34_ano']}
 
-    idx = ENSOIDX(file_dict, var_types)
+    idx = ENSOIndices(file_dict, var_types)
 
     assert idx.values.shape[1] == 4
     assert idx.values[0, 0] == -0.20
@@ -92,7 +92,7 @@ def test_shape_all():
                       'olr': ['ori', 'ano', 'std'],
                       'cpolr': ['ano']}
 
-    idx = ENSOIDX(file_dict_full, var_types_full)
+    idx = ENSOIndices(file_dict_full, var_types_full)
 
     assert idx.values.shape[1] == 60
 
