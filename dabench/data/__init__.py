@@ -10,6 +10,7 @@ from .barotropic import Barotropic
 from .enso_indices import ENSOIndices
 
 __all__ = [
+    'Data',
     'Lorenz63',
     'Lorenz96',
     'SQGTurb',
