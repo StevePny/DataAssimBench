@@ -1,4 +1,4 @@
-"""Load data from CPC ENSO index into data object"""
+"""Load data from CPC ENSO indices into data object"""
 
 from urllib import request
 import ssl
@@ -11,8 +11,8 @@ import textwrap
 from dabench.data import _data
 
 
-class ENSOIDX(_data.Data):
-    """Class to get ENSO index from CPC website
+class ENSOIndices(_data.Data):
+    """Class to get ENSO indices from CPC website
 
     Notes:
         Source: https://www.cpc.ncep.noaa.gov/data/indices/
@@ -55,7 +55,7 @@ class ENSOIDX(_data.Data):
     def __init__(self, file_dict=None, var_types=None, system_dim=None,
                  time_dim=None, store_as_jax=False, **kwargs):
 
-        """Initialize ENSOIDX object, subclass of Base"""
+        """Initialize ENSOIndices object, subclass of Base"""
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=None, delta_t=None, **kwargs,
@@ -132,14 +132,14 @@ class ENSOIDX(_data.Data):
         self.values = common_vals.T
         self.times = common_years
         self.names = names
-        logging.debug('ENSOIDX.__init__: system dim x time dim: %s x %s',
+        logging.debug('ENSOIndices.__init__: system dim x time dim: %s x %s',
                       len(names), len(self.times))
 
         # Set system_dim
         if system_dim is None:
             self.system_dim = len(names)
         elif system_dim != len(names):
-            warnings.warn('ENSOIDX.__init__: provided system_dim is '
+            warnings.warn('ENSOIndices.__init__: provided system_dim is '
                           '{}, but setting to len(names) = {}.'.format(
                               system_dim, len(names))
                           )
@@ -215,14 +215,14 @@ class ENSOIDX(_data.Data):
                                                  (i+1) * block_size],
                                              n_header[var])
                 name = file_name + '_' + var_types[var][ni]
-                logging.debug('ENSOIDX.__init__: Opening %s', name)
+                logging.debug('ENSOIndices.__init__: Opening %s', name)
                 all_vals[name] = vals
                 all_years[name] = years
         # eqsoi uses _get_eqsoi()
         elif var == 'eqsoi':
             vals, years = self._get_eqsoi(tmp,)
             name = file_name+'_'+var_types[var][0]
-            logging.debug('ENSOIDX.__init__: Opening %s', name)
+            logging.debug('ENSOIndices.__init__: Opening %s', name)
             all_vals[name] = vals
             all_years[name] = years
         # These vars use _get_sst()
@@ -233,7 +233,7 @@ class ENSOIDX(_data.Data):
             vals, years = self._get_sst(tmp, var_types_indices)
             for i in range(len(var_types[var])):
                 name = file_name+'_'+var_types[var][i]
-                logging.debug('ENSOIDX.__init__: Opening %s', name)
+                logging.debug('ENSOIndices.__init__: Opening %s', name)
                 all_vals[name] = vals[i]
                 all_years[name] = years
         else:

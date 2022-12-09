@@ -7,7 +7,7 @@ from .aws import AWS
 from .gcp import GCP
 from .pyqg import PyQG
 from .barotropic import Barotropic
-from .enso_idx import ENSOIDX
+from .enso_indices import ENSOIndices
 
 __all__ = [
     'Lorenz63',
@@ -17,5 +17,5 @@ __all__ = [
     'GCP',
     'PyQG',
     'Barotropic',
-    'ENSOIDX'
+    'ENSOIndices'
     ]
