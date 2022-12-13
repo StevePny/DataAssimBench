@@ -1,9 +1,12 @@
 """Base class for data generator objects"""
 import numpy as np
 import jax.numpy as jnp
-from dabench.data._utils import integrate
 import xarray as xr
 import warnings
+from importlib import resources
+
+from dabench.data._utils import integrate
+from dabench import _suppl_data
 
 
 class Data():
@@ -274,7 +277,6 @@ class Data():
         self.time_dim = self.values.shape[0]
         self.system_dim = self.values.shape[1]
 
-
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
 
@@ -291,12 +293,16 @@ class Data():
                 None, loads all timesteps.
         """
         if filepath is None:
-            filepath = 'dabench/suppl_data/era5_japan_slp.nc'
-
-        with xr.open_dataset(filepath) as ds:
-            self._import_xarray_ds(ds, years_select=years_select,
-                                   dates_select=dates_select)
-
+            # Use importlib.resources to get the default netCDF from dabench
+            with resources.open_binary(
+                    _suppl_data, 'era5_japan_slp.nc') as nc_file:
+                with xr.open_dataset(nc_file) as ds:
+                    self._import_xarray_ds(ds, years_select=years_select,
+                                           dates_select=dates_select)
+        else:
+            with xr.open_dataset(filepath) as ds:
+                self._import_xarray_ds(ds, years_select=years_select,
+                                       dates_select=dates_select)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
