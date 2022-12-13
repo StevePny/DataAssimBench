@@ -114,6 +114,7 @@ class SQGTurb(_data.Data):
             with resources.open_binary(
                     _suppl_data, 'sqgturb_57600steps.npy') as npy_file:
                 pv = np.load(npy_file)
+        self.original_dim = pv.shape
 
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
