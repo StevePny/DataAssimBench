@@ -32,14 +32,16 @@ Uses the FFT spectral collocation method with 4th order Runge Kutta time
     stepping (dealiasing with 2/3 rule, hyperdiffusion treated implicitly).
 """
 
-import jax
 import numpy as np
+import jax
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
 from functools import partial
+from importlib import resources
 
 from dabench.data import _data
+from dabench import _suppl_data
 
 # Set to enable 64bit floats in Jax
 config.update('jax_enable_x64', True)
@@ -109,7 +111,9 @@ class SQGTurb(_data.Data):
 
         # Fall back on default if no pv
         if pv is None:
-            pv = np.load('dabench/suppl_data/sqgturb_57600steps.npy')
+            with resources.open_binary(
+                    _suppl_data, 'sqgturb_57600steps.npy') as npy_file:
+                pv = np.load(npy_file)
 
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
