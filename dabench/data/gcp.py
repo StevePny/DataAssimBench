@@ -14,10 +14,10 @@ Note:
 
 import warnings
 import xarray as xr
-from dabench.data import data
+from dabench.data import _data
 
 
-class DataGCP(data.Data):
+class GCP(_data.Data):
     """Class for loading ERA5 data from Google Cloud Platform
 
     Notes:
@@ -49,6 +49,8 @@ class DataGCP(data.Data):
         max_lat (float): Max latitude for bounding box (see min_lat for info).
         min_lon (float): Min latitude for bounding box (see min_lat for info).
         max_lon (float): Max latitude for bounding box (see min_lat for info).
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(
             self,
@@ -63,6 +65,7 @@ class DataGCP(data.Data):
             max_lon=-74.1780248685,
             system_dim=None,
             time_dim=None,
+            store_as_jax=False,
             **kwargs
             ):
 
@@ -86,7 +89,8 @@ class DataGCP(data.Data):
         self.max_lon = max_lon
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=None, delta_t=None, **kwargs)
+                         values=None, delta_t=None, store_as_jax=store_as_jax,
+                         **kwargs)
 
     def _build_url(self):
         file_pattern = 'http://storage.googleapis.com/gcp-public-data-arco-era5/co/{data_type}.zarr'
@@ -145,7 +149,7 @@ class DataGCP(data.Data):
 
     def generate(self):
         """Alias for _load_gcp_era5"""
-        warnings.warn('DataGCP.generate() is an alias for the load() method. '
+        warnings.warn('GCP.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from GCP...')
         self._load_gcp_era5()
 

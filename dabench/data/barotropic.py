@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -18,13 +18,13 @@ except ImportError:
     pyqg = None
     logging.warning(
         'Package: pyqg not found!\n'
-        'DataBarotropic will not work without this optional package\n'
+        'Barotropic will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
 
 
-class DataBarotropic(data.Data):
+class Barotropic(_data.Data):
     """ Class to set up barotropic model
 
     The data class is a wrapper of a "optional" pyqg package.
@@ -60,6 +60,8 @@ class DataBarotropic(data.Data):
             when delta_t = 0.001)
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(self,
                  beta=0.,
@@ -76,11 +78,20 @@ class DataBarotropic(data.Data):
                  time_dim=None,
                  values=None,
                  times=None,
+                 store_as_jax=False,
                  **kwargs):
-        """ Initializes DataBarotropic object, subclass of Data
+        """ Initializes Barotropic object, subclass of Data
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
+        if pyqg is None:
+            raise ModuleNotFoundError(
+                'No module named \'pyqg\'\n'
+                'Barotropic will not work without this optional package\n'
+                'To install via conda: conda install -c conda-forge pyqg\n'
+                'For more information: '
+                'https://pyqg.readthedocs.io/en/latest/installation.html'
+                )
 
         if ny is None:
             ny = nx
@@ -91,6 +102,7 @@ class DataBarotropic(data.Data):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
+                         store_as_jax=store_as_jax,
                          **kwargs)
 
         self.x0 = x0
@@ -170,7 +182,7 @@ class DataBarotropic(data.Data):
 
         # Save values
         self.time_dim = qs.shape[0]
-        self.values = jnp.array(qs.reshape((self.time_dim, -1)))
+        self.values = qs.reshape((self.time_dim, -1))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""

@@ -10,10 +10,10 @@ For list of variables, see:
 
 import warnings
 import xarray as xr
-from dabench.data import data
+from dabench.data import _data
 
 
-class DataAWS(data.Data):
+class AWS(_data.Data):
     """Class for loading ERA5 data from AWS Open Data
 
     Notes:
@@ -38,6 +38,8 @@ class DataAWS(data.Data):
         max_lat (float): Max latitude for bounding box (see min_lat for info).
         min_lon (float): Min latitude for bounding box (see min_lat for info).
         max_lon (float): Max latitude for bounding box (see min_lat for info).
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(
             self,
@@ -52,6 +54,7 @@ class DataAWS(data.Data):
             max_lon=-74.1780248685,
             system_dim=None,
             time_dim=None,
+            store_as_jax=False,
             **kwargs
             ):
         self.variables = variables
@@ -63,7 +66,8 @@ class DataAWS(data.Data):
         self.max_lon = max_lon
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=None, delta_t=None, **kwargs)
+                         values=None, delta_t=None, store_as_jax=store_as_jax,
+                         **kwargs)
 
     def _build_urls(self):
         file_pattern = 'http://era5-pds.s3.amazonaws.com/zarr/{year}/{month}/data/{variable}.zarr'
@@ -102,7 +106,7 @@ class DataAWS(data.Data):
 
     def generate(self):
         """Alias for _load_aws_era5"""
-        warnings.warn('DataAWS.generate() is an alias for the load() method. '
+        warnings.warn('AWS.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from AWS...')
         self._load_aws_era5()
 

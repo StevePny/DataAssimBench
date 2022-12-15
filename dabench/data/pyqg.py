@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -18,16 +18,16 @@ except ImportError:
     pyqg = None
     logging.warning(
         'Package: pyqg not found!\n'
-        'DataPYQG will not work without this optional package\n'
+        'PyQG will not work without this optional package\n'
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
 
 
-class DataPYQG(data.Data):
+class PyQG(_data.Data):
     """ Class to set up quasi-geotropic model
 
-    The data class is simply a wrapper of a "optional" pyqg package.
+    The PyQG class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:
@@ -35,7 +35,6 @@ class DataPYQG(data.Data):
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
     Attributes:
-        system_dim (int): system dimension
         beta (float): Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1
         rek (float): Linear drag in lower layer. Units: seconds^-1
@@ -56,6 +55,8 @@ class DataPYQG(data.Data):
             Units: seconds.
         ntd (int): Number of threads to use. Should not exceed the number of
             cores on your machine.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
     def __init__(self,
                  beta=1.5e-11,
@@ -74,11 +75,21 @@ class DataPYQG(data.Data):
                  time_dim=None,
                  values=None,
                  times=None,
+                 store_as_jax=False,
                  **kwargs):
-        """ Initialize DataPYQG object, subclass of Data
+        """ Initialize PyQG object, subclass of Base
 
         See https://pyqg.readthedocs.io/en/latest/api.html for more details.
         """
+
+        if pyqg is None:
+            raise ModuleNotFoundError(
+                'No module named \'pyqg\'\n'
+                'PyQG will not work without this optional package\n'
+                'To install via conda: conda install -c conda-forge pyqg\n'
+                'For more information: '
+                'https://pyqg.readthedocs.io/en/latest/installation.html'
+                )
 
         self.m = pyqg.QGModel(beta=beta, rd=rd, delta=delta, H1=H1,
                               U1=U1, U2=U2, twrite=twrite, ntd=ntd, nx=nx,
@@ -87,6 +98,7 @@ class DataPYQG(data.Data):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
+                         store_as_jax=store_as_jax,
                          **kwargs)
 
         self.x0 = x0
@@ -166,7 +178,7 @@ class DataPYQG(data.Data):
         # Save values
         self.original_dim = qs.shape[1:]
         self.time_dim = qs.shape[0]
-        self.values = jnp.array(qs.reshape((self.time_dim, -1)))
+        self.values = qs.reshape((self.time_dim, -1))
 
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""

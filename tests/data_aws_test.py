@@ -1,7 +1,6 @@
-"""Tests for DataAWS class (dabench.data.aws)"""
+"""Tests for AWS class (dabench.data.aws)"""
 
-from dabench.data.aws import DataAWS
-import jax.numpy as jnp
+from dabench.data import AWS
 import pytest
 import numpy as np
 
@@ -9,7 +8,7 @@ import numpy as np
 @pytest.fixture
 def aws_small():
     """Defines aws object for rest of tests"""
-    aws_obj = DataAWS(months=['01', '02'])
+    aws_obj = AWS(months=['01', '02'])
     aws_obj.load()
 
     return aws_obj
@@ -18,9 +17,9 @@ def aws_small():
 @pytest.fixture
 def aws_multivar():
     """Defines aws object for rest of tests"""
-    aws_obj = DataAWS(variables=['air_temperature_at_2_metres',
-                                 'air_pressure_at_mean_sea_level'],
-                      months=['01'])
+    aws_obj = AWS(variables=['air_temperature_at_2_metres',
+                             'air_pressure_at_mean_sea_level'],
+                  months=['01'])
     aws_obj.load()
 
     return aws_obj

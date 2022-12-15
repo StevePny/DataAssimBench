@@ -32,20 +32,23 @@ Uses the FFT spectral collocation method with 4th order Runge Kutta time
     stepping (dealiasing with 2/3 rule, hyperdiffusion treated implicitly).
 """
 
-from dabench.data import data
-import jax
 import numpy as np
+import jax
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
 from jax.config import config
 from functools import partial
+from importlib import resources
+
+from dabench.data import _data
+from dabench import _suppl_data
 
 # Set to enable 64bit floats in Jax
 config.update('jax_enable_x64', True)
 
 
-class DataSQGturb(data.Data):
-    """Class to set up SQGturb model and manage data.
+class SQGTurb(_data.Data):
+    """Class to set up SQGTurb model and manage data.
 
     Attributes:
         pv (ndarray): Potential vorticity array. If None (default),
@@ -71,6 +74,8 @@ class DataSQGturb(data.Data):
         dealias (bool): if True, dealiasing applied using 2/3 rule
         precision (char): 'single' or 'double'. Default is 'single'
         tstart (float): initialize time counter
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
 
     def __init__(self,
@@ -95,17 +100,21 @@ class DataSQGturb(data.Data):
                  values=None,
                  times=None,
                  delta_t=900,
+                 store_as_jax=False,
                  **kwargs,
                  ):
 
         super().__init__(system_dim=system_dim, input_dim=input_dim,
                          output_dim=output_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
-                         **kwargs)
+                         store_as_jax=store_as_jax, **kwargs)
 
         # Fall back on default if no pv
         if pv is None:
-            pv = np.load('dabench/suppl_data/sqgturb_57600steps.npy')
+            with resources.open_binary(
+                    _suppl_data, 'sqgturb_57600steps.npy') as npy_file:
+                pv = np.load(npy_file)
+        self.original_dim = pv.shape
 
         # Set the initial state and dimensions
         pvspec = rfft2(pv)
@@ -409,7 +418,7 @@ class DataSQGturb(data.Data):
 
         Args:
             f (function): right hand side (rhs) of the ODE. Not used, but
-                needed to function with generate() from data.Data().
+                needed to function with generate() from _data.Data().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """

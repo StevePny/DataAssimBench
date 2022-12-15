@@ -1,17 +1,18 @@
-"""Load data from CPC ENSO index into data object"""
+"""Load data from CPC ENSO indices into data object"""
 
 from urllib import request
+import ssl
 import logging
 import warnings
 import jax.numpy as jnp
 import numpy as np
 import textwrap
 
-from dabench.data import data
+from dabench.data import _data
 
 
-class DataENSOIDX(data.Data):
-    """Class to get ENSO index from CPC website
+class ENSOIndices(_data.Data):
+    """Class to get ENSO indices from CPC website
 
     Notes:
         Source: https://www.cpc.ncep.noaa.gov/data/indices/
@@ -19,6 +20,8 @@ class DataENSOIDX(data.Data):
     Attributes:
         system_dim (int): system dimension
         time_dim (int): total time steps
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
         file_dict (dict): Lists of files to get. Dict keys are type of data:
                 'wnd': Wind
                 'slp': Sea level pressure
@@ -50,9 +53,13 @@ class DataENSOIDX(data.Data):
     """
 
     def __init__(self, file_dict=None, var_types=None, system_dim=None,
-                 time_dim=None, **kwargs):
+                 time_dim=None, store_as_jax=False, **kwargs):
 
-        """Initialize DataENSOIDX object, subclass of Data"""
+        """Initialize ENSOIndices object, subclass of Base"""
+
+        super().__init__(system_dim=system_dim, time_dim=time_dim,
+                         values=None, delta_t=None, **kwargs,
+                         store_as_jax=store_as_jax)
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml
@@ -120,25 +127,23 @@ class DataENSOIDX(data.Data):
         # Combine all variable values and years
         common_vals, common_years, names = self._combine_vals_years(
             all_vals, all_years)
+
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
-        values = common_vals.T
-        times = common_years
+        self.values = common_vals.T
+        self.times = common_years
         self.names = names
-        logging.debug('ENSOIDXData.__init__: system dim x time dim: %s x %s',
-                      len(names), len(times))
+        logging.debug('ENSOIndices.__init__: system dim x time dim: %s x %s',
+                      len(names), len(self.times))
 
         # Set system_dim
         if system_dim is None:
-            system_dim = len(names)
+            self.system_dim = len(names)
         elif system_dim != len(names):
-            warnings.warn('ENSOIDXData.__init__: provided system_dim is '
+            warnings.warn('ENSOIndices.__init__: provided system_dim is '
                           '{}, but setting to len(names) = {}.'.format(
                               system_dim, len(names))
                           )
-            system_dim = len(names)
-
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=None, **kwargs)
+            self.system_dim = len(names)
 
     def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
                            all_vals, all_years):
@@ -161,6 +166,9 @@ class DataENSOIDX(data.Data):
         Returns:
             Tuple containing updated all_vals (dict) and all_years (dict).
         """
+
+        # For downloading
+        unverified_context = ssl._create_unverified_context()
 
         # The downloaded text files are all different, these dicts help parse
         # Number of blocks (each representing a variable) in file
@@ -190,7 +198,8 @@ class DataENSOIDX(data.Data):
         tmp = []
         for line in request.urlopen(
                 'https://www.cpc.ncep.noaa.gov/data/indices/' +
-                file_name):
+                file_name,
+                context=unverified_context):
             tmp.append(line)
         n_lines = len(tmp)
         # These variables share common file format
@@ -206,14 +215,14 @@ class DataENSOIDX(data.Data):
                                                  (i+1) * block_size],
                                              n_header[var])
                 name = file_name + '_' + var_types[var][ni]
-                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                logging.debug('ENSOIndices.__init__: Opening %s', name)
                 all_vals[name] = vals
                 all_years[name] = years
         # eqsoi uses _get_eqsoi()
         elif var == 'eqsoi':
             vals, years = self._get_eqsoi(tmp,)
             name = file_name+'_'+var_types[var][0]
-            logging.debug('ENSOIDXData.__init__: Opening %s', name)
+            logging.debug('ENSOIndices.__init__: Opening %s', name)
             all_vals[name] = vals
             all_years[name] = years
         # These vars use _get_sst()
@@ -224,7 +233,7 @@ class DataENSOIDX(data.Data):
             vals, years = self._get_sst(tmp, var_types_indices)
             for i in range(len(var_types[var])):
                 name = file_name+'_'+var_types[var][i]
-                logging.debug('ENSOIDXData.__init__: Opening %s', name)
+                logging.debug('ENSOIndices.__init__: Opening %s', name)
                 all_vals[name] = vals[i]
                 all_years[name] = years
         else:

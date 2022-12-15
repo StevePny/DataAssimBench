@@ -1,17 +1,19 @@
 
-"""Tests for DataSQGturb class (dabench.data.sqgturb)"""
+"""Tests for SQGTurb class (dabench.data.sqgturb)"""
 
-from dabench.data.sqgturb import DataSQGturb
 import jax.numpy as jnp
 import jax.random as jrand
 import pytest
+
+from dabench.data import SQGTurb
+
 
 key = jrand.PRNGKey(42)
 
 
 @pytest.fixture
 def sqgturb():
-    """Defines class DataSQGturb object for rest of tests."""
+    """Defines class SQGTurb object for rest of tests."""
     N = 96
 
     # create random noise
@@ -29,7 +31,7 @@ def sqgturb():
         pv = pv.at[k].set(pv[k] - pv[k].mean())
 
     # initialize qg model instance
-    return DataSQGturb(pv=pv)
+    return SQGTurb(pv=pv)
 
 
 def test_variable_sizes(sqgturb):

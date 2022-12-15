@@ -1,9 +1,12 @@
 """Base class for data generator objects"""
 import numpy as np
 import jax.numpy as jnp
-from dabench.support.utils import integrate
 import xarray as xr
 import warnings
+from importlib import resources
+
+from dabench.data._utils import integrate
+from dabench import _suppl_data
 
 
 class Data():
@@ -20,6 +23,8 @@ class Data():
         values (ndarray): 2d array of data (time_dim, system_dim),
             set by generate() method
         times (ndarray): 1d array of times (time_dim), set by generate() method
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
         """
 
     def __init__(self,
@@ -29,38 +34,40 @@ class Data():
                  random_seed=37,
                  delta_t=0.01,
                  values=None,
+                 store_as_jax=False,
                  **kwargs):
         """Initializes the base data object"""
 
         self.system_dim = system_dim
         self.time_dim = time_dim
         self.random_seed = random_seed
-        self.values = values
         self.delta_t = delta_t
+        self.store_as_jax = store_as_jax
+        # values att is a property to better convert between jax/numpy
+        self._values = values
 
         if original_dim is None:
             self.original_dim = (system_dim)
         else:
             self.original_dim = original_dim
 
-    def set_values(self, values):
-        """Sets values manually
+    @property
+    def values(self):
+        return self._values
 
-        Args:
-            values (ndarray): New values with shape (time_dim, system_dim).
-        """
-        self.values = values
-        self.time_dim = values.shape[0]
-        self.system_dim = values.shape[1]
+    @values.setter
+    def values(self, vals):
+        if vals is None:
+            self._values = None
+        else:
+            if self.store_as_jax:
+                self._values = jnp.asarray(vals)
+            else:
+                self._values = np.asarray(vals)
 
-    def set_times(self, times):
-        """Sets times manually
-
-        Args:
-            times (ndarray): New times with shape (time_dim,).
-        """
-        self.times = times
-        self.time_dim = times.shape[0]
+    @values.deleter
+    def values(self):
+        del self._values
 
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
@@ -231,7 +238,8 @@ class Data():
         elif 'time0' in dims_keys:
             time_key = 'time0'
         if time_key is not None:
-            self.set_times(ds[time_key].values)
+            self.times = ds[time_key].values
+            self.time_dim = self.times.shape[0]
 
         # Set x and y
         og_dims = []
@@ -264,9 +272,10 @@ class Data():
             names_list.append(data_var)
 
         self.var_names = np.array(names_list)
-        self.set_values(np.stack(vars_list, axis=-1).reshape(
-            vars_list[0].shape[0], -1))
-
+        self.values = np.stack(vars_list, axis=-1).reshape(
+                vars_list[0].shape[0], -1)
+        self.time_dim = self.values.shape[0]
+        self.system_dim = self.values.shape[1]
 
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
@@ -284,12 +293,16 @@ class Data():
                 None, loads all timesteps.
         """
         if filepath is None:
-            filepath = 'dabench/suppl_data/era5_japan_slp.nc'
-
-        with xr.open_dataset(filepath) as ds:
-            self._import_xarray_ds(ds, years_select=years_select,
-                                   dates_select=dates_select)
-
+            # Use importlib.resources to get the default netCDF from dabench
+            with resources.open_binary(
+                    _suppl_data, 'era5_japan_slp.nc') as nc_file:
+                with xr.open_dataset(nc_file) as ds:
+                    self._import_xarray_ds(ds, years_select=years_select,
+                                           dates_select=dates_select)
+        else:
+            with xr.open_dataset(filepath) as ds:
+                self._import_xarray_ds(ds, years_select=years_select,
+                                       dates_select=dates_select)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
@@ -394,9 +407,9 @@ class Data():
         # Set total_time
         if total_time is None:
             subclass_name = self.__class__.__name__
-            if subclass_name == 'DataLorenz63':
+            if subclass_name == 'Lorenz63':
                 total_time = int(15000*self.delta_t)
-            elif subclass_name == 'DataLorenz96':
+            elif subclass_name == 'Lorenz96':
                 total_time = int(50000*self.delta_t)
             else:
                 total_time = 100

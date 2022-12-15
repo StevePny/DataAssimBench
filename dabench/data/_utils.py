@@ -1,4 +1,4 @@
-"""Utils for integration"""
+"""Utils for data generator integration"""
 
 import logging
 import jax.numpy as jnp

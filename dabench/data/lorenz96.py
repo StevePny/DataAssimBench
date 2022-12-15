@@ -2,12 +2,12 @@
 import logging
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class DataLorenz96(data.Data):
+class Lorenz96(_data.Data):
     """Class to set up Lorenz 96 model data.
 
     Notes:
@@ -31,6 +31,8 @@ class DataLorenz96(data.Data):
         time_dim (int): Total time steps
         delta_t (float): Length of one time step. Default is 0.05 from
             Lorenz, 1996, but on  modern computers 0.01 is often used.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
 
     def __init__(self,
@@ -40,11 +42,13 @@ class DataLorenz96(data.Data):
                  system_dim=36,
                  time_dim=None,
                  values=None,
+                 store_as_jax=False,
                  **kwargs):
-        """Initialize DataLorenz96 object, subclass of Data"""
+        """Initialize Lorenz96 object, subclass of Base"""
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=delta_t, **kwargs)
+                         values=values, delta_t=delta_t,
+                         store_as_jax=store_as_jax, **kwargs)
 
         # Check system_dim >= 4
         if system_dim < 4:

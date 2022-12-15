@@ -3,12 +3,12 @@
 import logging
 import jax.numpy as jnp
 
-from dabench.data import data
+from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
-class DataLorenz63(data.Data):
+class Lorenz63(_data.Data):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
@@ -24,9 +24,11 @@ class DataLorenz63(data.Data):
             is the system state after a 6000 step spinup with delta_t=0.01
             and initial conditions [0., 1., 0.], a spinup which replicates
             the simulation described in Lorenz, 1963.
-        system_dim (int): system dimension. Must be 3 for DataLorenz63.
+        system_dim (int): system dimension. Must be 3 for Lorenz63.
         time_dim (int): total time steps
         delta_t (float): length of one time step
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
     """
 
     def __init__(self,
@@ -38,20 +40,22 @@ class DataLorenz63(data.Data):
                  system_dim=3,
                  time_dim=None,
                  values=None,
+                 store_as_jax=False,
                  **kwargs):
-        """Initialize Lorenz63Data object, subclass of Data"""
+        """Initialize Lorenz63 object, subclass of Base"""
 
         # Lorenz63 requires system dim to be 3
         if system_dim is None:
             system_dim = 3
         elif system_dim != 3:
             print('WARNING: input system_dim is {}, '
-                  'DataLorenz63 requires system_dim=3.'.format(system_dim))
+                  'Lorenz63 requires system_dim=3.'.format(system_dim))
             print('Assigning system_dim to 3.')
             system_dim = 3
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=delta_t, **kwargs)
+                         values=values, delta_t=delta_t,
+                         store_as_jax=store_as_jax, **kwargs)
 
         # Model constants
         self.sigma = sigma
