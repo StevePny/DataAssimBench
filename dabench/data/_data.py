@@ -259,23 +259,24 @@ class Data():
                           'in dataset. Setting original_dim to system_dim: '
                           '{}'.format(len(ds.data_vars)))
 
-        if len(ds.data_vars) > 1:
-            og_dims += [len(ds.data_vars)]
-
-        self.original_dim = tuple(og_dims)
-
         # Gather values
         vars_list = []
         names_list = []
         for data_var in ds.data_vars:
-            vars_list.append(ds[data_var].values)
-            names_list.append(data_var)
+            if data_var not in ['lon_bnds', 'lat_bnds', 'time_bnds']:
+                vars_list.append(ds[data_var].values)
+                names_list.append(data_var)
 
         self.var_names = np.array(names_list)
         self.values = np.stack(vars_list, axis=-1).reshape(
                 vars_list[0].shape[0], -1)
         self.time_dim = self.values.shape[0]
         self.system_dim = self.values.shape[1]
+
+        if len(names_list) > 1:
+            og_dims += [len(names_list)]
+
+        self.original_dim = tuple(og_dims)
 
     def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
