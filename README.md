@@ -30,6 +30,8 @@ pip install .
 
 ## Quick Start
 
+For more detailed examples, go to the [DataAssimBench-Examples](https://github.com/StevePny/DataAssimBench-Examples) repo.
+
 #### Importing data generators
 
 ```python
