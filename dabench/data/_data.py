@@ -35,6 +35,7 @@ class Data():
                  delta_t=0.01,
                  values=None,
                  store_as_jax=False,
+                 x0=None,
                  **kwargs):
         """Initializes the base data object"""
 
@@ -43,13 +44,17 @@ class Data():
         self.random_seed = random_seed
         self.delta_t = delta_t
         self.store_as_jax = store_as_jax
-        # values att is a property to better convert between jax/numpy
+        # values and x0 atts are properties to better convert between jax/numpy
         self._values = values
+        self._x0 = x0
 
         if original_dim is None:
             self.original_dim = (system_dim)
         else:
             self.original_dim = original_dim
+
+        self._values_gridded = None
+        self._x0_gridded = None
 
     @property
     def values(self):
@@ -68,6 +73,56 @@ class Data():
     @values.deleter
     def values(self):
         del self._values
+
+    @property
+    def x0(self):
+        return self._x0
+
+    @x0.setter
+    def x0(self, x0_vals):
+        if x0_vals is None:
+            self._x0 = None
+        else:
+            if self.store_as_jax:
+                self._x0 = jnp.asarray(x0_vals)
+            else:
+                self._x0 = np.asarray(x0_vals)
+
+    @x0.deleter
+    def x0(self):
+        del self._x0
+
+    @property
+    def values_gridded(self):
+        if self._values is None:
+            self._values_gridded = None
+        else:
+            self._values_gridded = self.to_original_dim()
+        return self._values_gridded
+
+    @values_gridded.setter
+    def values_gridded(self, vals_gridded):
+        self._values_gridded = vals_gridded
+
+    @values_gridded.deleter
+    def values_gridded(self):
+        del self._values_gridded
+
+    @property
+    def x0_gridded(self):
+        if self._x0 is None:
+            self._x0_gridded = None
+        else:
+            self._x0_gridded = self._x0.reshape(self.original_dim)
+        return self._x0_gridded
+
+    @x0_gridded.setter
+    def x0_gridded(self, x0_vals_gridded):
+        self._x0_gridded = x0_vals_gridded
+
+    @x0_gridded.deleter
+    def x0_gridded(self):
+        del self._x0_gridded
 
     def to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
@@ -274,6 +329,8 @@ class Data():
         self.var_names = np.array(names_list)
         self.values = np.stack(vars_list, axis=-1).reshape(
                 vars_list[0].shape[0], -1)
+        if self.x0 is None:
+            self.x0 = self.values[0]
         self.time_dim = self.values.shape[0]
         self.system_dim = self.values.shape[1]
 
