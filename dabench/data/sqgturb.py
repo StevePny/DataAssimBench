@@ -498,7 +498,7 @@ class SQGTurb(_data.Data):
         self.v = psix
         return dpvspecdt
 
-    def to_original_dim(self):
+    def _to_original_dim(self):
         """Going back to 2D is a bit trickier for sqgturb"""
         gridded_vals = np.zeros((self.time_dim, self.Nv, self.Nx, self.Nx))
 

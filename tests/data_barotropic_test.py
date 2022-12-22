@@ -15,7 +15,8 @@ def barotropic():
 
 def test_initialization(barotropic):
     """Tests the initialization size of class Barotropic after generation."""
-    assert barotropic.x0.shape == (1, 256, 256)
+    assert barotropic.x0.shape == (65536,)
+    assert barotropic.x0_gridded.shape == (1, 256, 256)
 
 
 def test_variable_sizes(barotropic):
@@ -26,7 +27,7 @@ def test_variable_sizes(barotropic):
 
 
 def test_to_original_dim(barotropic):
-    assert (barotropic.to_original_dim().shape ==
+    assert (barotropic._to_original_dim().shape ==
             (barotropic.time_dim,) + barotropic.original_dim)
 
 
@@ -48,8 +49,8 @@ def test_trajectories_notequal_diffparams(barotropic):
 
 def test_trajectories_notequal_diffic(barotropic):
     """Tests if two trajectories differ with different initial conditions."""
-    x0 = barotropic.x0 + 0.01
-    barotropic2 = Barotropic(x0=x0)
+    new_x0 = barotropic.x0_gridded + 0.01
+    barotropic2 = Barotropic(x0=new_x0)
     barotropic2.generate(n_steps=1000)
     assert not np.allclose(barotropic.values, barotropic2.values, rtol=1e-5,
                            atol=0)
@@ -57,8 +58,8 @@ def test_trajectories_notequal_diffic(barotropic):
 
 def test_trajectory_changes(barotropic):
     """Tests that last time step in trajectory is different from initial state"""
-    assert not np.allclose(barotropic.to_original_dim()[-1],
-                           barotropic.x0)
+    assert not np.allclose(barotropic.values_gridded[-1],
+                           barotropic.x0_gridded)
 
 
 def test_trajectory_shape(barotropic):

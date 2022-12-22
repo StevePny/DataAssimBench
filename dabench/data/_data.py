@@ -97,7 +97,7 @@ class Data():
         if self._values is None:
             return None
         else:
-            return self.to_original_dim()
+            return self._to_original_dim()
 
     @values_gridded.setter
     def values_gridded(self, vals_gridded):
@@ -122,7 +122,7 @@ class Data():
     def x0_gridded(self):
         del self._x0_gridded
 
-    def to_original_dim(self):
+    def _to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
 
         Returns:
@@ -142,7 +142,7 @@ class Data():
         """
         tupled_targets = tuple(tuple(targets[:, i]) for
                                i in range(len(self.original_dim) + 1))
-        return self.to_original_dim()[tupled_targets]
+        return self._to_original_dim()[tupled_targets]
 
     def generate(self, n_steps=None, t_final=None, x0=None, M0=None,
                  return_tlm=False, stride=None, **kwargs):
