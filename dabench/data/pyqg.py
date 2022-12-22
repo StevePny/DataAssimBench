@@ -162,7 +162,7 @@ class PyQG(_data.Data):
 
                 pih = (Pi_hat/np.sqrt(KEaux))
                 qih = -self.m.wv2*pih
-                x0 = self.m.ifft(qih).flatten()
+                x0 = self.m.ifft(qih)
                 self.m.set_q1q2(x0[0], x0[1])
                 self.x0 = x0.flatten()
         else:
