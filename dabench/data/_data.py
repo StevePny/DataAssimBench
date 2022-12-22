@@ -99,28 +99,12 @@ class Data():
         else:
             return self._to_original_dim()
 
-    @values_gridded.setter
-    def values_gridded(self, vals_gridded):
-        self._values_gridded = vals_gridded
-
-    @values_gridded.deleter
-    def values_gridded(self):
-        del self._values_gridded
-
     @property
     def x0_gridded(self):
         if self._x0 is None:
             return None
         else:
             return self._x0.reshape(self.original_dim)
-
-    @x0_gridded.setter
-    def x0_gridded(self, x0_vals_gridded):
-        self._x0_gridded = x0_vals_gridded
-
-    @x0_gridded.deleter
-    def x0_gridded(self):
-        del self._x0_gridded
 
     def _to_original_dim(self):
         """Converts 1D representation of system back to original dimensions.
