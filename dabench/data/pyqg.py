@@ -98,10 +98,8 @@ class PyQG(_data.Data):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
-                         store_as_jax=store_as_jax,
+                         store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
-
-        self.x0 = x0
 
     def generate(self, n_steps=None, t_final=None, x0=None):
         """Generates values and times, saves them to the data object
@@ -135,6 +133,7 @@ class PyQG(_data.Data):
                             'input argument.')
 
         # Check that x0 initial conditions is supplied
+        # TODO: Rework so that x0 can be supplied in 1, 2, or 3D
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
@@ -143,6 +142,7 @@ class PyQG(_data.Data):
                         'Initial condition x0 must be 3D array and the last '
                         'dimension must to 2 for this 2-layer QG model')
                 self.m.set_q1q2(x0[0], x0[1])
+                self.x0 = x0.flatten()
             else:
                 print('Initial condition not set. Start with random IC.')
                 fk = self.m.wv != 0
@@ -162,10 +162,11 @@ class PyQG(_data.Data):
 
                 pih = (Pi_hat/np.sqrt(KEaux))
                 qih = -self.m.wv2*pih
-                self.x0 = self.m.ifft(qih)
-                self.m.set_q1q2(self.x0[0], self.x0[1])
+                x0 = self.m.ifft(qih).flatten()
+                self.m.set_q1q2(x0[0], x0[1])
+                self.x0 = x0.flatten()
         else:
-            self.x0 = x0
+            self.x0 = x0.flatten()
 
         # Integrate and store values and times
         self.m.dt = self.delta_t

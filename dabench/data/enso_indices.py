@@ -130,6 +130,7 @@ class ENSOIndices(_data.Data):
 
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
         self.values = common_vals.T
+        self.x0 = self.values[0]
         self.times = common_years
         self.names = names
         logging.debug('ENSOIndices.__init__: system dim x time dim: %s x %s',
@@ -144,6 +145,8 @@ class ENSOIndices(_data.Data):
                               system_dim, len(names))
                           )
             self.system_dim = len(names)
+        self.time_dim = self.times.shape[0]
+        self.original_dim = (self.system_dim,)
 
     def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
                            all_vals, all_years):
