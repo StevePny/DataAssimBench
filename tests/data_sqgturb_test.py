@@ -35,7 +35,7 @@ def sqgturb():
 
 
 def test_variable_sizes(sqgturb):
-    """Test the variable sizes of class DataLorenz63."""
+    """Test the variable sizes of class SQGTurb."""
     n_steps = 10
     sqgturb.generate(n_steps=n_steps)
 
