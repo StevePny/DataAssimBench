@@ -56,7 +56,7 @@ def test_to_original_dims():
     test_data.time_dim = x_test.shape[0]
     test_data.system_dim = x_test.shape[1]
 
-    values_original_dim = test_data.to_original_dim()
+    values_original_dim = test_data._to_original_dim()
 
     assert np.array_equal(x_original, values_original_dim)
     assert np.array_equal(
@@ -71,7 +71,7 @@ def test_load_netcdf():
     """Tests loading default netcdf (ERA5 ECWMF SLP)"""
     test_data = Data()
     test_data.load_netcdf()
-    og_dim_data = test_data.to_original_dim()
+    og_dim_data = test_data._to_original_dim()
 
     assert test_data.values.shape == (48, 3835)
     assert og_dim_data.shape == (48, 59, 65)
@@ -82,7 +82,7 @@ def test_load_netcdf_years():
     """Tests loading netcdf with only subset of years"""
     test_data = Data()
     test_data.load_netcdf(years_select=[2018, 2020])
-    og_dim_data = test_data.to_original_dim()
+    og_dim_data = test_data._to_original_dim()
 
     assert test_data.values.shape == (24, 3835)
     assert og_dim_data.shape == (24, 59, 65)
@@ -100,7 +100,7 @@ def test_load_netcdf_dates():
     test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 1),
                                         datetime.date(2018, 11, 1),
                                         datetime.date(2021, 5, 1)])
-    og_dim_data = test_data.to_original_dim()
+    og_dim_data = test_data._to_original_dim()
 
     assert test_data.values.shape == (3, 3835)
     assert og_dim_data.shape == (3, 59, 65)

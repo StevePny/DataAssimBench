@@ -67,6 +67,7 @@ class AWS(_data.Data):
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=None, delta_t=None, store_as_jax=store_as_jax,
+                         x0=None,
                          **kwargs)
 
     def _build_urls(self):

@@ -122,6 +122,9 @@ class SQGTurb(_data.Data):
         self.Nv, self.Nx, self.Ny = pvspec.shape
         self.system_dim = self.Nv * self.Nx * self.Ny
 
+        # _x0_gridded property to overwrite base Data class
+        self._x0_gridded = None
+
         # initialize SQG model.
         if pv.shape[0] != 2:
             raise ValueError('1st dim of pv should be 2')
@@ -243,6 +246,13 @@ class SQGTurb(_data.Data):
         # with efolding time scale for diffusion of shortest wave (N/2)
         self.hyperdiff = jnp.exp((-self.delta_t / self.diff_efold) *
                                  (ktot / ktotcutoff) ** self.diff_order)
+
+    @property
+    def x0_gridded(self):
+        if self._x0 is None:
+            return None
+        else:
+            return self.map1dto2d_ifft2(self.x0)
 
     # Private support methods
     @partial(jax.jit, static_argnums=(0,))
@@ -498,7 +508,7 @@ class SQGTurb(_data.Data):
         self.v = psix
         return dpvspecdt
 
-    def to_original_dim(self):
+    def _to_original_dim(self):
         """Going back to 2D is a bit trickier for sqgturb"""
         gridded_vals = np.zeros((self.time_dim, self.Nv, self.Nx, self.Nx))
 

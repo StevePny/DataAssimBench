@@ -102,10 +102,8 @@ class Barotropic(_data.Data):
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=values, times=times, delta_t=delta_t,
-                         store_as_jax=store_as_jax,
+                         store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
-
-        self.x0 = x0
 
     def generate(self, n_steps=None, t_final=40, x0=None):
         """Generates values and times, saves them to the data object
@@ -134,14 +132,17 @@ class Barotropic(_data.Data):
         else:
             t_final = n_steps * self.delta_t
 
-        # Check that x0 initial conditions is supplied
+        # Check if x0 initial conditions is supplied
         # If not, set based on McWilliams 84
+        # TODO: Rework so that initial conditions can be supplied in 3D OR 1D
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
                 if len(x0.shape) != 3:
                     raise ValueError('Initial condition x0 must be a 3D array')
                 self.m.set_q(x0)
+                self.original_dim = self.x0.shape
+                self.x0 = self.x0.flatten()
             else:
                 print('Initial condition not set. Start with McWilliams 84 IC '
                       'condition:\n'
@@ -166,11 +167,11 @@ class Barotropic(_data.Data):
                 qih = -self.m.wv2 * pih
                 qi = self.m.ifft(qih)
                 self.m.set_q(qi)
-                self.x0 = qi
+                self.original_dim = qi.shape
+                self.x0 = qi.flatten()
         else:
-            self.x0 = x0
-
-        self.original_dim = self.x0.shape
+            self.original_dim = x0.shape
+            self.x0 = x0.flatten()
 
         # Integrate and store values and times
         self.m.dt = self.delta_t

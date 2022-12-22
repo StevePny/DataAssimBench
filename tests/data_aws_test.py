@@ -61,8 +61,8 @@ def test_values_multivar(aws_multivar):
 
 def test_to_og_dim(aws_small, aws_multivar):
     """Tests to make sure reshape to original dim works"""
-    assert aws_multivar.to_original_dim().shape == (744, 13, 43, 2)
-    assert aws_multivar.to_original_dim()[500, 5, 5, 1] == 295.375
-    assert aws_small.to_original_dim().shape == (1440, 13, 43)
-    assert aws_small.to_original_dim()[500, 5, 5] == 295.375
+    assert aws_multivar._to_original_dim().shape == (744, 13, 43, 2)
+    assert aws_multivar._to_original_dim()[500, 5, 5, 1] == 295.375
+    assert aws_small._to_original_dim().shape == (1440, 13, 43)
+    assert aws_small._to_original_dim()[500, 5, 5] == 295.375
 
