@@ -95,10 +95,9 @@ class Data():
     @property
     def values_gridded(self):
         if self._values is None:
-            self._values_gridded = None
+            return None
         else:
-            self._values_gridded = self.to_original_dim()
-        return self._values_gridded
+            return self.to_original_dim()
 
     @values_gridded.setter
     def values_gridded(self, vals_gridded):
@@ -111,10 +110,9 @@ class Data():
     @property
     def x0_gridded(self):
         if self._x0 is None:
-            self._x0_gridded = None
+            return None
         else:
-            self._x0_gridded = self._x0.reshape(self.original_dim)
-        return self._x0_gridded
+            return self._x0.reshape(self.original_dim)
 
     @x0_gridded.setter
     def x0_gridded(self, x0_vals_gridded):
