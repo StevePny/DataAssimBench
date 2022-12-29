@@ -340,15 +340,18 @@ class Data():
             raise ValueError('No valid data_vars were found in dataset.\n'
                              'Check your include_vars and exclude_vars args.')
         if not shapes_list.count(shapes_list[0]) == len(shapes_list):
+            # Formatting for showing variable names and shapes
+            var_shape_warn_list = ['{:<12} {:<15}'.format(
+                    'Variable', 'Dimensions')]
+            var_shape_warn_list += ['{:<16} {:<16}'.format(
+                names_list[i], str(shapes_list[i]))
+                for i in range(len(shapes_list))]
             warnings.warn('data_vars do not all share the same dimensions.\n'
                           'Broadcasting variables to same dimensions.\n'
-                          'To avoid, use include_vars or exclude_vars.\n'
+                          'To avoid, use include_vars or exclude_vars args.\n'
                           'Variable dimensions are:\n'
+                          '{}'.format('\n'.join(var_shape_warn_list))
                           )
-            print('{:<12} {:<15}'.format('Variable', 'Dimensions',))
-            for i in range(len(shapes_list)):
-                print('{:<12} {:<15}'.format(names_list[i],
-                                             str(shapes_list[i])))
 
         # Gather values and set dimensions
         temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
