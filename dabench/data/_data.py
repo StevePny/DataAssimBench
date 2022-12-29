@@ -225,7 +225,8 @@ class Data():
             return M
 
     def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
-                          years_select=None, dates_select=None):
+                          years_select=None, dates_select=None,
+                          lat_sorting=None):
         if dates_select is not None:
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
@@ -281,7 +282,7 @@ class Data():
 
         # Set x and y
         og_dims = []
-        lat_key = None # Used to determine if flipping is needed
+        lat_key = None  # Used for latitude sorting
         if 'level' in dims_keys:
             og_dims += [dims['level']]
         if 'latitude' in dims_keys:
@@ -302,7 +303,18 @@ class Data():
 
         # Flips vertically if data is upside down
         if lat_key is not None:
-            ds = ds.sortby(lat_key, ascending=False)
+            if lat_sorting is not None:
+                if lat_sorting == 'ascending':
+                    ds = ds.sortby(lat_key, ascending=True)
+                elif lat_sorting == 'descending':
+                    ds = ds.sortby(lat_key, ascending=False)
+                else:
+                    warnings.warn('{} is not a valid value for lat_sorting.\n'
+                                  'Choose one of None, "ascending", or '
+                                  '"descending".\n'
+                                  'Proceeding without sorting.'.format(
+                                      lat_sorting)
+                                  )
 
         # Gather values
         vars_list = []
@@ -327,7 +339,8 @@ class Data():
         self.original_dim = tuple(og_dims)
 
     def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
-                    years_select=None, dates_select=None):
+                    years_select=None, dates_select=None,
+                    lat_sorting='descending'):
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
@@ -349,6 +362,9 @@ class Data():
                 indices in NetCDF. If both years_select and dates_select
                 are specified, time_stamps overwrites "years" argument. If
                 None, loads all timesteps.
+            lat_sorting (str): Orient data by latitude:
+                descending (default), ascending, or None (uses orientation
+                from data file).
         """
         if filepath is None:
             # Use importlib.resources to get the default netCDF from dabench
@@ -358,13 +374,15 @@ class Data():
                     self._import_xarray_ds(
                         ds, include_vars=include_vars,
                         exclude_vars=exclude_vars,
-                        years_select=years_select, dates_select=dates_select)
+                        years_select=years_select, dates_select=dates_select,
+                        lat_sorting=lat_sorting)
         else:
             with xr.open_dataset(filepath, decode_coords='all') as ds:
                 self._import_xarray_ds(
                     ds, include_vars=include_vars,
                     exclude_vars=exclude_vars,
-                    years_select=years_select, dates_select=dates_select)
+                    years_select=years_select, dates_select=dates_select,
+                    lat_sorting=lat_sorting)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
