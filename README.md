@@ -6,6 +6,9 @@ The field of data assimilation (DA) studies the integration of theory with obser
 
 Today, applied DA has matured in operational weather forecasting to include the entire online cycled process of continually ingesting numerous disparate observational data sources and integrating them with numerical prediction models to make regular forecasts. The process can also include correcting the models or applying post-processing to forecasts.  
 
+The user may have to manually install:
+conda install -c conda-forge jax
+conda install -c conda-forge pyqg
 
 ## Installation
 
@@ -82,3 +85,4 @@ aws_obj = data.AWS(**aws_options) # Create data generator object
 aws_obj.load() # Loads data. Can also use aws_obj.generate()
 aws_obj.values # View the output values
 ```
+
