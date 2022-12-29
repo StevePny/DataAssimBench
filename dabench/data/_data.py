@@ -266,6 +266,7 @@ class Data():
 
         # Get dims
         dims = ds.dims
+        dims_names = list(ds.dims)
 
         # Set times
         time_key = None
@@ -279,29 +280,37 @@ class Data():
         if time_key is not None:
             self.times = ds[time_key].values
             self.time_dim = self.times.shape[0]
+        else:
+            self.times = np.array([0])
+            self.time_dim = 1
 
-        # Set x and y
-        og_dims = []
-        lat_key = None  # Used for latitude sorting
+        # Find names for key dimensions: lat, lon, level (if it exists)
+        lat_key = None
+        lon_key = None
+        lev_key = None
         if 'level' in dims_keys:
-            og_dims += [dims['level']]
+            lev_key = 'level'
+        elif 'lev' in dims_keys:
+            lev_key = 'lev'
         if 'latitude' in dims_keys:
             lat_key = 'latitude'
-            og_dims += [dims['latitude']]
         elif 'lat' in dims_keys:
             lat_key = 'lat'
-            og_dims += [dims['lat']]
         if 'longitude' in dims_keys:
-            og_dims += [dims['longitude']]
+            lon_key = 'longitude'
         elif 'lon' in dims_keys:
-            og_dims += [dims['lon']]
+            lon_key = 'lon'
 
-        if len(og_dims) == 0:
-            warnings.warn('Unable to find any spatial or level dimensions '
-                          'in dataset. Setting original_dim to system_dim: '
-                          '{}'.format(len(ds.data_vars)))
+        # Reorder dimensions: time, level, lat, lon, etc.
+        dim_order = np.array([time_key, lev_key, lat_key, lon_key])
+        dim_order = dim_order[dim_order != np.array(None)]
+        remaining_dims = [d for d in dims_names if d not in dim_order]
+        full_dim_order = list(dim_order) + remaining_dims
 
-        # Flips vertically if data is upside down
+        if len(full_dim_order) > 0:
+            ds = ds.transpose(*full_dim_order)
+
+        # Orient data vertically
         if lat_key is not None:
             if lat_sorting is not None:
                 if lat_sorting == 'ascending':
@@ -315,8 +324,7 @@ class Data():
                                   'Proceeding without sorting.'.format(
                                       lat_sorting)
                                   )
-
-        # Gather values
+        #  Get variable names and shapes
         names_list = []
         shapes_list = []
         if exclude_vars is not None:
@@ -340,7 +348,12 @@ class Data():
                                            values=shapes_list))
                           )
 
+        # Gather values and set dimensions
         temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
+        self.original_dim = temp_values.shape[1:]
+        if self.original_dim[-1] == 1 and len(self.original_dim) > 2:
+            self.original_dim = self.original_dim[:-1]
+
         self.values = temp_values.reshape(
                 temp_values.shape[0], -1)
         self.var_names = np.array(names_list)
@@ -348,11 +361,10 @@ class Data():
             self.x0 = self.values[0]
         self.time_dim = self.values.shape[0]
         self.system_dim = self.values.shape[1]
-
-        if len(names_list) > 1:
-            og_dims += [len(names_list)]
-
-        self.original_dim = tuple(og_dims)
+        if len(full_dim_order) == 0:
+            warnings.warn('Unable to find any spatial or level dimensions '
+                          'in dataset. Setting original_dim to system_dim: '
+                          '{}'.format(self.system_dim))
 
     def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
                     years_select=None, dates_select=None,
