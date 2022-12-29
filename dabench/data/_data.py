@@ -344,9 +344,11 @@ class Data():
                           'Broadcasting variables to same dimensions.\n'
                           'To avoid, use include_vars or exclude_vars.\n'
                           'Variable dimensions are:\n'
-                          '{}'.format(dict(keys=names_list,
-                                           values=shapes_list))
                           )
+            print('{:<12} {:<15}'.format('Variable', 'Dimensions',))
+            for i in range(len(shapes_list)):
+                print('{:<12} {:<15}'.format(names_list[i],
+                                             str(shapes_list[i])))
 
         # Gather values and set dimensions
         temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
