@@ -280,11 +280,14 @@ class Data():
 
         # Set x and y
         og_dims = []
+        lat_key = None # Used to determine if flipping is needed
         if 'level' in dims_keys:
             og_dims += [dims['level']]
         if 'latitude' in dims_keys:
+            lat_key = 'latitude'
             og_dims += [dims['latitude']]
         elif 'lat' in dims_keys:
+            lat_key = 'lat'
             og_dims += [dims['lat']]
         if 'longitude' in dims_keys:
             og_dims += [dims['longitude']]
@@ -295,6 +298,10 @@ class Data():
             warnings.warn('Unable to find any spatial or level dimensions '
                           'in dataset. Setting original_dim to system_dim: '
                           '{}'.format(len(ds.data_vars)))
+
+        # Flips vertically if data is upside down
+        if lat_key is not None:
+            ds = ds.sortby(lat_key, ascending=False)
 
         # Gather values
         vars_list = []
