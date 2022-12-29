@@ -317,17 +317,33 @@ class Data():
                                   )
 
         # Gather values
-        vars_list = []
         names_list = []
+        shapes_list = []
+        if exclude_vars is not None:
+            ds = ds.drop_vars(exclude_vars)
+        if include_vars is not None:
+            ds = ds[include_vars]
         for data_var in ds.data_vars:
-            if exclude_vars is None or data_var not in exclude_vars:
-                if include_vars is None or data_var in include_vars:
-                    vars_list.append(ds[data_var].values)
-                    names_list.append(data_var)
+            shapes_list.append(ds[data_var].shape)
+            names_list.append(data_var)
 
+        # Check if all elements' data shapes are equal
+        if len(names_list) == 0:
+            raise ValueError('No valid data_vars were found in dataset.\n'
+                             'Check your include_vars and exclude_vars args.')
+        if not shapes_list.count(shapes_list[0]) == len(shapes_list):
+            warnings.warn('data_vars do not all share the same dimensions.\n'
+                          'Broadcasting variables to same dimensions.\n'
+                          'To avoid, use include_vars or exclude_vars.\n'
+                          'Variable dimensions are:\n'
+                          '{}'.format(dict(keys=names_list,
+                                           values=shapes_list))
+                          )
+
+        temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
+        self.values = temp_values.reshape(
+                temp_values.shape[0], -1)
         self.var_names = np.array(names_list)
-        self.values = np.stack(vars_list, axis=-1).reshape(
-                vars_list[0].shape[0], -1)
         if self.x0 is None:
             self.x0 = self.values[0]
         self.time_dim = self.values.shape[0]
