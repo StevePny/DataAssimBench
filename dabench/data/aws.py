@@ -87,7 +87,7 @@ class AWS(_data.Data):
 
         ds = xr.open_mfdataset(urls_mapper, engine='zarr',
                                coords='minimal', compat='override',
-                               parallel=True)
+                               parallel=True, decode_coords='all')
 
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries

@@ -343,11 +343,11 @@ class Data():
             # Use importlib.resources to get the default netCDF from dabench
             with resources.open_binary(
                     _suppl_data, 'era5_japan_slp.nc') as nc_file:
-                with xr.open_dataset(nc_file) as ds:
+                with xr.open_dataset(nc_file, decode_coords='all') as ds:
                     self._import_xarray_ds(ds, years_select=years_select,
                                            dates_select=dates_select)
         else:
-            with xr.open_dataset(filepath) as ds:
+            with xr.open_dataset(filepath, decode_coords='all') as ds:
                 self._import_xarray_ds(ds, years_select=years_select,
                                        dates_select=dates_select)
 
