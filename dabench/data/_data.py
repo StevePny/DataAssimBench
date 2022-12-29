@@ -224,7 +224,8 @@ class Data():
 
             return M
 
-    def _import_xarray_ds(self, ds, years_select=None, dates_select=None):
+    def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
+                          years_select=None, dates_select=None):
         if dates_select is not None:
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
@@ -307,9 +308,10 @@ class Data():
         vars_list = []
         names_list = []
         for data_var in ds.data_vars:
-            if data_var not in ['lon_bnds', 'lat_bnds', 'time_bnds']:
-                vars_list.append(ds[data_var].values)
-                names_list.append(data_var)
+            if exclude_vars is None or data_var not in exclude_vars:
+                if include_vars is None or data_var in include_vars:
+                    vars_list.append(ds[data_var].values)
+                    names_list.append(data_var)
 
         self.var_names = np.array(names_list)
         self.values = np.stack(vars_list, axis=-1).reshape(
@@ -324,13 +326,22 @@ class Data():
 
         self.original_dim = tuple(og_dims)
 
-    def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
+    def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
+                    years_select=None, dates_select=None):
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
             filepath (str): Path to netCDF file to load. If not given,
                 defaults to loading ERA5 ECMWF SLP data over Japan
                 from 2018 to 2021.
+            include_vars (list-like): Data variables to load from NetCDF. If
+                None (default), loads all variables. Can be used to exclude bad
+                variables.
+            exclude_vars (list-like): Data variabes to exclude from NetCDF
+                loading. If None (default), loads all vars (or only those
+                specified in include_vars). It's recommended to only specify
+                include_vars OR exclude_vars (unless you want to do extra
+                typing).
             years_select (list-like): Years to load (ints). If None, loads all
                 timesteps.
             dates_select (list-like): Dates to load. Elements must be
@@ -344,12 +355,16 @@ class Data():
             with resources.open_binary(
                     _suppl_data, 'era5_japan_slp.nc') as nc_file:
                 with xr.open_dataset(nc_file, decode_coords='all') as ds:
-                    self._import_xarray_ds(ds, years_select=years_select,
-                                           dates_select=dates_select)
+                    self._import_xarray_ds(
+                        ds, include_vars=include_vars,
+                        exclude_vars=exclude_vars,
+                        years_select=years_select, dates_select=dates_select)
         else:
             with xr.open_dataset(filepath, decode_coords='all') as ds:
-                self._import_xarray_ds(ds, years_select=years_select,
-                                       dates_select=dates_select)
+                self._import_xarray_ds(
+                    ds, include_vars=include_vars,
+                    exclude_vars=exclude_vars,
+                    years_select=years_select, dates_select=dates_select)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
