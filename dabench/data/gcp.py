@@ -104,7 +104,7 @@ class GCP(_data.Data):
 
         url = self._build_url()
 
-        ds = xr.open_zarr(url, chunks={'time': 48}, consolidated=True)
+        ds = xr.open_zarr(url, chunks={'time': 48}, consolidated=True, decode_coords='all')
 
         # Check that variables are in zarr
         missing_vars = [v for v in self.variables if v not in ds.data_vars]

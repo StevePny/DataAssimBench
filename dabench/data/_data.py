@@ -224,7 +224,9 @@ class Data():
 
             return M
 
-    def _import_xarray_ds(self, ds, years_select=None, dates_select=None):
+    def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
+                          years_select=None, dates_select=None,
+                          lat_sorting=None):
         if dates_select is not None:
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
@@ -264,6 +266,7 @@ class Data():
 
         # Get dims
         dims = ds.dims
+        dims_names = list(ds.dims)
 
         # Set times
         time_key = None
@@ -277,53 +280,114 @@ class Data():
         if time_key is not None:
             self.times = ds[time_key].values
             self.time_dim = self.times.shape[0]
+        else:
+            self.times = np.array([0])
+            self.time_dim = 1
 
-        # Set x and y
-        og_dims = []
+        # Find names for key dimensions: lat, lon, level (if it exists)
+        lat_key = None
+        lon_key = None
+        lev_key = None
         if 'level' in dims_keys:
-            og_dims += [dims['level']]
+            lev_key = 'level'
+        elif 'lev' in dims_keys:
+            lev_key = 'lev'
         if 'latitude' in dims_keys:
-            og_dims += [dims['latitude']]
+            lat_key = 'latitude'
         elif 'lat' in dims_keys:
-            og_dims += [dims['lat']]
+            lat_key = 'lat'
         if 'longitude' in dims_keys:
-            og_dims += [dims['longitude']]
+            lon_key = 'longitude'
         elif 'lon' in dims_keys:
-            og_dims += [dims['lon']]
+            lon_key = 'lon'
 
-        if len(og_dims) == 0:
-            warnings.warn('Unable to find any spatial or level dimensions '
-                          'in dataset. Setting original_dim to system_dim: '
-                          '{}'.format(len(ds.data_vars)))
+        # Reorder dimensions: time, level, lat, lon, etc.
+        dim_order = np.array([time_key, lev_key, lat_key, lon_key])
+        dim_order = dim_order[dim_order != np.array(None)]
+        remaining_dims = [d for d in dims_names if d not in dim_order]
+        full_dim_order = list(dim_order) + remaining_dims
 
-        # Gather values
-        vars_list = []
+        if len(full_dim_order) > 0:
+            ds = ds.transpose(*full_dim_order)
+
+        # Orient data vertically
+        if lat_key is not None:
+            if lat_sorting is not None:
+                if lat_sorting == 'ascending':
+                    ds = ds.sortby(lat_key, ascending=True)
+                elif lat_sorting == 'descending':
+                    ds = ds.sortby(lat_key, ascending=False)
+                else:
+                    warnings.warn('{} is not a valid value for lat_sorting.\n'
+                                  'Choose one of None, "ascending", or '
+                                  '"descending".\n'
+                                  'Proceeding without sorting.'.format(
+                                      lat_sorting)
+                                  )
+        #  Get variable names and shapes
         names_list = []
+        shapes_list = []
+        if exclude_vars is not None:
+            ds = ds.drop_vars(exclude_vars)
+        if include_vars is not None:
+            ds = ds[include_vars]
         for data_var in ds.data_vars:
-            if data_var not in ['lon_bnds', 'lat_bnds', 'time_bnds']:
-                vars_list.append(ds[data_var].values)
-                names_list.append(data_var)
+            shapes_list.append(ds[data_var].shape)
+            names_list.append(data_var)
 
+        # Check if all elements' data shapes are equal
+        if len(names_list) == 0:
+            raise ValueError('No valid data_vars were found in dataset.\n'
+                             'Check your include_vars and exclude_vars args.')
+        if not shapes_list.count(shapes_list[0]) == len(shapes_list):
+            # Formatting for showing variable names and shapes
+            var_shape_warn_list = ['{:<12} {:<15}'.format(
+                    'Variable', 'Dimensions')]
+            var_shape_warn_list += ['{:<16} {:<16}'.format(
+                names_list[i], str(shapes_list[i]))
+                for i in range(len(shapes_list))]
+            warnings.warn('data_vars do not all share the same dimensions.\n'
+                          'Broadcasting variables to same dimensions.\n'
+                          'To avoid, use include_vars or exclude_vars args.\n'
+                          'Variable dimensions are:\n'
+                          '{}'.format('\n'.join(var_shape_warn_list))
+                          )
+
+        # Gather values and set dimensions
+        temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
+        self.original_dim = temp_values.shape[1:]
+        if self.original_dim[-1] == 1 and len(self.original_dim) > 2:
+            self.original_dim = self.original_dim[:-1]
+
+        self.values = temp_values.reshape(
+                temp_values.shape[0], -1)
         self.var_names = np.array(names_list)
-        self.values = np.stack(vars_list, axis=-1).reshape(
-                vars_list[0].shape[0], -1)
         if self.x0 is None:
             self.x0 = self.values[0]
         self.time_dim = self.values.shape[0]
         self.system_dim = self.values.shape[1]
+        if len(full_dim_order) == 0:
+            warnings.warn('Unable to find any spatial or level dimensions '
+                          'in dataset. Setting original_dim to system_dim: '
+                          '{}'.format(self.system_dim))
 
-        if len(names_list) > 1:
-            og_dims += [len(names_list)]
-
-        self.original_dim = tuple(og_dims)
-
-    def load_netcdf(self, filepath=None, years_select=None, dates_select=None):
+    def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
+                    years_select=None, dates_select=None,
+                    lat_sorting='descending'):
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
             filepath (str): Path to netCDF file to load. If not given,
                 defaults to loading ERA5 ECMWF SLP data over Japan
                 from 2018 to 2021.
+            include_vars (list-like): Data variables to load from NetCDF. If
+                None (default), loads all variables. Can be used to exclude bad
+                variables.
+            exclude_vars (list-like): Data variabes to exclude from NetCDF
+                loading. If None (default), loads all vars (or only those
+                specified in include_vars). It's recommended to only specify
+                include_vars OR exclude_vars (unless you want to do extra
+                typing).
             years_select (list-like): Years to load (ints). If None, loads all
                 timesteps.
             dates_select (list-like): Dates to load. Elements must be
@@ -331,18 +395,27 @@ class Data():
                 indices in NetCDF. If both years_select and dates_select
                 are specified, time_stamps overwrites "years" argument. If
                 None, loads all timesteps.
+            lat_sorting (str): Orient data by latitude:
+                descending (default), ascending, or None (uses orientation
+                from data file).
         """
         if filepath is None:
             # Use importlib.resources to get the default netCDF from dabench
             with resources.open_binary(
                     _suppl_data, 'era5_japan_slp.nc') as nc_file:
-                with xr.open_dataset(nc_file) as ds:
-                    self._import_xarray_ds(ds, years_select=years_select,
-                                           dates_select=dates_select)
+                with xr.open_dataset(nc_file, decode_coords='all') as ds:
+                    self._import_xarray_ds(
+                        ds, include_vars=include_vars,
+                        exclude_vars=exclude_vars,
+                        years_select=years_select, dates_select=dates_select,
+                        lat_sorting=lat_sorting)
         else:
-            with xr.open_dataset(filepath) as ds:
-                self._import_xarray_ds(ds, years_select=years_select,
-                                       dates_select=dates_select)
+            with xr.open_dataset(filepath, decode_coords='all') as ds:
+                self._import_xarray_ds(
+                    ds, include_vars=include_vars,
+                    exclude_vars=exclude_vars,
+                    years_select=years_select, dates_select=dates_select,
+                    lat_sorting=lat_sorting)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
