@@ -2,9 +2,10 @@
 
 import numpy as np
 import jax.numpy as jnp
+from dabench.vector import _vector
 
 
-class StateVector():
+class StateVector(_vector._Vector):
     """Class for storing state(s) of a system
 
     Attributes:
@@ -30,9 +31,10 @@ class StateVector():
         self._xi = None
         self.original_dim = original_dim
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=None, delta_t=delta_t,
-                         store_as_jax=store_as_jax, **kwargs)
+        super().__init__(system_dim=system_dim,
+                         time_dim=time_dim,
+                         delta_t=delta_t,
+                         store_as_jax=store_as_jax)
 
     @property
     def values(self):

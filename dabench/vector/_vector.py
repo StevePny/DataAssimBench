@@ -24,9 +24,10 @@ class _Vector():
                  delta_t=None,
                  store_as_jax=False,
                  **kwargs):
+
         self.system_dim = system_dim
         self.time_dim = time_dim
         self.original_dim = original_dim
         self.delta_t = delta_t
-        store_as_jax = store_as_jax
+        self.store_as_jax = store_as_jax
 
