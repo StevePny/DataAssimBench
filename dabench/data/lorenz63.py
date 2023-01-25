@@ -4,6 +4,7 @@ import logging
 import jax.numpy as jnp
 
 from dabench.data import _data
+from dabench.vector import _state_vector
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
@@ -29,6 +30,8 @@ class Lorenz63(_data.Data):
         delta_t (float): length of one time step
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        state_vector (dabench.StateVector): State and system information
+            stored in dabench's StateVector Class.
     """
 
     def __init__(self,
@@ -41,6 +44,7 @@ class Lorenz63(_data.Data):
                  time_dim=None,
                  values=None,
                  store_as_jax=False,
+                 state_vector=None,
                  **kwargs):
         """Initialize Lorenz63 object, subclass of Base"""
 
@@ -64,6 +68,19 @@ class Lorenz63(_data.Data):
 
         # Initial conditions
         self.x0 = x0
+
+        # Initialize StateVector
+        if state_vector is not None:
+            self.state_vector = state_vector
+        else:
+            self.state_vector = _state_vector.StateVector(
+                    system_dim=system_dim,
+                    original_dim=None,
+                    delta_t=delta_t,
+                    values=values,
+                    store_as_jax=store_as_jax,
+                    time_dim=time_dim
+                    )
 
     def rhs(self, x, t=None):
         """vector field of Lorenz 63

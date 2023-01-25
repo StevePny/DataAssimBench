@@ -212,6 +212,9 @@ class Data():
         self.values = y[:, :self.system_dim]
         self.times = t
         self.time_dim = len(t)
+        self.state_vector.values = self.values
+        self.state_vector.times = self.times
+        self.state_vector.time_dim = self.time_dim
 
         # Return the data series and associated TLMs if requested
         if return_tlm:
