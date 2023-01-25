@@ -36,6 +36,9 @@ class StateVector(_vector._Vector):
                          delta_t=delta_t,
                          store_as_jax=store_as_jax)
 
+    def __repr__(self):
+        return str(self.__dict__)
+
     @property
     def values(self):
         return self._values
