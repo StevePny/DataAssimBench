@@ -171,6 +171,8 @@ class Data():
         if x0 is None:
             if self.x0 is not None:
                 x0 = self.x0
+            elif self.state_vector.x0 is not None:
+                x0 = self.state_vector.x0
             else:
                 raise TypeError('Initial condition is None, x0 = {}. it must '
                                 'either be provided as an argument or set as '

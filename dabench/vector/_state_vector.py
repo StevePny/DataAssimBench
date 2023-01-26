@@ -12,7 +12,7 @@ class StateVector(_vector._Vector):
         system_dim (int): system dimension
         time_dim (int): total time steps
         original_dim (tuple): dimensions in original space, e.g. could be 3x3
-            for a 2d system with system_dim = 9. 
+            for a 2d system with system_dim = 9.
         delta_t (float): the timestep of the data (assumed uniform)
         values (ndarray): 2d array of data (time_dim, system_dim),
         store_as_jax (bool): Store values as jax array instead of numpy array.
@@ -25,9 +25,9 @@ class StateVector(_vector._Vector):
                  original_dim=None,
                  delta_t=None,
                  store_as_jax=False,
+                 x0=None,
                  **kwargs):
         self._values = None
-        self._x0 = None
         self._xi = None
         self.original_dim = original_dim
 
@@ -35,6 +35,8 @@ class StateVector(_vector._Vector):
                          time_dim=time_dim,
                          delta_t=delta_t,
                          store_as_jax=store_as_jax)
+
+        self.x0 = x0
 
     def __repr__(self):
         return str(self.__dict__)

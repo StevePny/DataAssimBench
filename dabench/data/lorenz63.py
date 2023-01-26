@@ -48,31 +48,28 @@ class Lorenz63(_data.Data):
                  **kwargs):
         """Initialize Lorenz63 object, subclass of Base"""
 
-        # Lorenz63 requires system dim to be 3
-        if system_dim is None:
-            system_dim = 3
-        elif system_dim != 3:
-            print('WARNING: input system_dim is {}, '
-                  'Lorenz63 requires system_dim=3.'.format(system_dim))
-            print('Assigning system_dim to 3.')
-            system_dim = 3
-
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, delta_t=delta_t,
-                         store_as_jax=store_as_jax, **kwargs)
-
         # Model constants
         self.sigma = sigma
         self.rho = rho  # Model Constants
         self.beta = beta
 
-        # Initial conditions
-        self.x0 = x0
-
         # Initialize StateVector
         if state_vector is not None:
             self.state_vector = state_vector
         else:
+            # Lorenz63 requires system dim to be 3
+            if system_dim is None:
+                system_dim = 3
+            elif system_dim != 3:
+                print('WARNING: input system_dim is {}, '
+                      'Lorenz63 requires system_dim=3.'.format(system_dim))
+                print('Assigning system_dim to 3.')
+                system_dim = 3
+
+
+
+            # Initial conditions
+            self.x0 = x0
             self.state_vector = _state_vector.StateVector(
                     system_dim=system_dim,
                     original_dim=None,
@@ -81,6 +78,11 @@ class Lorenz63(_data.Data):
                     store_as_jax=store_as_jax,
                     time_dim=time_dim
                     )
+
+        super().__init__(system_dim=system_dim, time_dim=time_dim,
+                         values=values, delta_t=delta_t,
+                         store_as_jax=store_as_jax, **kwargs)
+
 
     def rhs(self, x, t=None):
         """vector field of Lorenz 63
