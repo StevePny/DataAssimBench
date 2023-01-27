@@ -38,9 +38,9 @@ class StateVector(_vector._Vector):
 
         self.x0 = x0
 
-    def __repr__(self):
-        return str(self.__dict__)
-
+    def __str__(self):
+        return f'Current State = {self.xi}, Timesteps = {self.time_dim}'
+                
     @property
     def values(self):
         return self._values
@@ -95,8 +95,11 @@ class StateVector(_vector._Vector):
 
     @property
     def xi(self):
-        if self._xi is None and self.values is not None:
-            self.xi = self.values[-1]
+        if self._xi is None:
+            if self.values is not None:
+                self.xi = self.values[-1]
+            elif self.x0 is not None:
+                self.xi = self.x0
         return self._xi
 
     @xi.setter
