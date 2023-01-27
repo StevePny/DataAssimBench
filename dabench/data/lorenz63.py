@@ -66,11 +66,9 @@ class Lorenz63(_data.Data):
                 print('Assigning system_dim to 3.')
                 system_dim = 3
 
-
-
             # Initial conditions
-            self.x0 = x0
             self.state_vector = _state_vector.StateVector(
+                    x0=x0,
                     system_dim=system_dim,
                     original_dim=None,
                     delta_t=delta_t,
