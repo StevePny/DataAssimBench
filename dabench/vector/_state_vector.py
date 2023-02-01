@@ -25,7 +25,6 @@ class StateVector(_vector._Vector):
                  original_dim=None,
                  delta_t=None,
                  store_as_jax=False,
-                 x0=None,
                  **kwargs):
         self._values = None
         self._xi = None
@@ -35,8 +34,6 @@ class StateVector(_vector._Vector):
                          time_dim=time_dim,
                          delta_t=delta_t,
                          store_as_jax=store_as_jax)
-
-        self.x0 = x0
 
     def __str__(self):
         return f'Current State = {self.xi}, Timesteps = {self.time_dim}'
@@ -67,39 +64,9 @@ class StateVector(_vector._Vector):
             return self._to_original_dim()
 
     @property
-    def x0(self):
-        if self._x0 is None and self.values is not None:
-            self.x0 = self.values[0]
-        return self._x0
-
-    @x0.setter
-    def x0(self, x0_vals):
-        if x0_vals is None:
-            self._x0 = None
-        else:
-            if self.store_as_jax:
-                self._x0 = jnp.asarray(x0_vals)
-            else:
-                self._x0 = np.asarray(x0_vals)
-
-    @x0.deleter
-    def x0(self):
-        del self._x0
-
-    @property
-    def x0_gridded(self):
-        if self._x0 is None:
-            return None
-        else:
-            return self._x0.reshape(self.original_dim)
-
-    @property
     def xi(self):
-        if self._xi is None:
-            if self.values is not None:
-                self.xi = self.values[-1]
-            elif self.x0 is not None:
-                self.xi = self.x0
+        if self._xi is None and self.values is not None:
+            self.xi = self.values[-1]
         return self._xi
 
     @xi.setter
