@@ -6,17 +6,25 @@ from dabench.vector import _vector
 
 
 class StateVector(_vector._Vector):
-    """Class for storing state(s) of a system
+    """Class for storing state(s) of a system. 
+
+    Notes:
+        - Can store a single "state vector", meaning the state of the system
+            at a single timestep.
+        - Can also store multiple state vectors (in other words, a trajectory).
+        - Shape of StateVector().values will always be (time_dim, system_dim).
 
     Attributes:
         system_dim (int): system dimension
         time_dim (int): total time steps
         original_dim (tuple): dimensions in original space, e.g. could be 3x3
-            for a 2d system with system_dim = 9.
+            for a 2d system with system_dim = 9. Default is None.
         delta_t (float): the timestep of the data (assumed uniform)
-        values (ndarray): 2d array of data (time_dim, system_dim),
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        values (ndarray): 2d array of data (time_dim, system_dim). Default is
+            None.
+        xi (ndarray): Most recent state of the system. Default is None.
         """
 
     def __init__(self,
@@ -25,19 +33,21 @@ class StateVector(_vector._Vector):
                  original_dim=None,
                  delta_t=None,
                  store_as_jax=False,
+                 values=None
                  **kwargs):
-        self._values = None
+        self._values = values
         self._xi = None
         self.original_dim = original_dim
 
         super().__init__(system_dim=system_dim,
                          time_dim=time_dim,
                          delta_t=delta_t,
-                         store_as_jax=store_as_jax)
+                         store_as_jax=store_as_jax,
+                         **kwargs)
 
     def __str__(self):
         return f'Current State = {self.xi}, Timesteps = {self.time_dim}'
-                
+
     @property
     def values(self):
         return self._values
