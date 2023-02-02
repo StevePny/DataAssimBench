@@ -35,7 +35,6 @@ class StateVector(_vector._Vector):
                  store_as_jax=False,
                  values=None,
                  **kwargs):
-        self._values = values
         self._xi = None
         self.original_dim = original_dim
 
@@ -44,6 +43,8 @@ class StateVector(_vector._Vector):
                          delta_t=delta_t,
                          store_as_jax=store_as_jax,
                          **kwargs)
+
+        self.values = values
 
     def __str__(self):
         return f'Current State = {self.xi}, Timesteps = {self.time_dim}'
