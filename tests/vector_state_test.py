@@ -69,7 +69,7 @@ def test_init_traj(sv_trajectory):
 
 
 def test_set_values():
-    """Test manually setting data values"""
+    """Test manually setting vector values"""
 
     test_vec = StateVector()
 
@@ -79,83 +79,35 @@ def test_set_values():
     assert np.array_equal(test_vec.values, new_values)
     assert np.array_equal(test_vec.xi, new_values[-1])
 
-# 
-# 
-# def test_set_values_jax():
-#     """Tests storing values as jax array"""
-# 
-#     test_data = Data(store_as_jax=True)
-# 
-#     x_test = np.arange(15).reshape(3, 5)
-#     test_data.values = x_test
-# 
-#     assert isinstance(test_data.values, jaxlib.xla_extension.DeviceArray)
-#     assert jnp.array_equal(test_data.values, x_test)
-# 
-# 
-# def test_to_original_dims():
-#     """Test returning data to original dimensions"""
-# 
-#     test_data = Data(original_dim=(2, 3))
-# 
-#     x_test = np.arange(18).reshape(3, 6)
-#     x_original = np.arange(18).reshape(3, 2, 3)
-#     test_data.values = x_test
-#     test_data.time_dim = x_test.shape[0]
-#     test_data.system_dim = x_test.shape[1]
-# 
-#     values_original_dim = test_data._to_original_dim()
-# 
-#     assert np.array_equal(x_original, values_original_dim)
-#     assert np.array_equal(
-#         test_data.values,
-#         values_original_dim.reshape(
-#             test_data.time_dim,
-#             test_data.system_dim)
-#         )
-# 
-# 
-# def test_load_netcdf():
-#     """Tests loading default netcdf (ERA5 ECWMF SLP)"""
-#     test_data = Data()
-#     test_data.load_netcdf()
-#     og_dim_data = test_data._to_original_dim()
-# 
-#     assert test_data.values.shape == (48, 3835)
-#     assert og_dim_data.shape == (48, 59, 65)
-#     assert og_dim_data[5, 5, 5] == pytest.approx(100588.86)
-# 
-# 
-# def test_load_netcdf_years():
-#     """Tests loading netcdf with only subset of years"""
-#     test_data = Data()
-#     test_data.load_netcdf(years_select=[2018, 2020])
-#     og_dim_data = test_data._to_original_dim()
-# 
-#     assert test_data.values.shape == (24, 3835)
-#     assert og_dim_data.shape == (24, 59, 65)
-#     assert og_dim_data[20, 5, 5] == pytest.approx(101301.56)
-#     with pytest.raises(
-#             ValueError,
-#             match='Dataset does not contain any of the years specified'
-#             ):
-#         test_data.load_netcdf(years_select=[1957, 2057])
-# 
-# 
-# def test_load_netcdf_dates():
-#     """Tests loading netcdf with only subset of dates"""
-#     test_data = Data()
-#     test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 1),
-#                                         datetime.date(2018, 11, 1),
-#                                         datetime.date(2021, 5, 1)])
-#     og_dim_data = test_data._to_original_dim()
-# 
-#     assert test_data.values.shape == (3, 3835)
-#     assert og_dim_data.shape == (3, 59, 65)
-#     assert og_dim_data[2, 3, 4] == pytest.approx(100478.59)
-#     with pytest.raises(
-#             ValueError,
-#             match='Dataset does not contain any of the dates specified'
-#             ):
-#         test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 31),
-#                                             datetime.date(1957, 11, 1)])
+
+def test_set_values_jax():
+    """Test manually setting vector values with jax backend"""
+
+    test_vec = StateVector(store_as_jax=True)
+
+    new_values = np.arange(15).reshape(3, 5)
+    test_vec.values = new_values
+
+    assert jnp.array_equal(test_vec.values, new_values)
+    assert jnp.array_equal(test_vec.xi, new_values[-1])
+    assert isinstance(test_vec.values, jaxlib.xla_extension.DeviceArray)
+
+
+def test_to_original_dims():
+    """Test returning data to original dimensions"""
+
+    test_vec = StateVector(original_dim=(2, 3))
+
+    test_values = np.arange(18).reshape(3, 6)
+    values_og_dim = np.arange(18).reshape(3, 2, 3)
+    test_vec.values = test_values
+    test_vec.time_dim = test_values.shape[0]
+    test_vec.system_dim = test_values.shape[1]
+
+    assert np.array_equal(values_og_dim, test_vec.values_gridded)
+    assert np.array_equal(
+        test_vec.values,
+        values_og_dim.reshape(
+            test_vec.time_dim,
+            test_vec.system_dim)
+        )
