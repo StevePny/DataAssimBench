@@ -37,12 +37,12 @@ class StateVector(_vector._Vector):
                  **kwargs):
         self._values = values
         self._xi = None
+        self.original_dim = original_dim
 
         super().__init__(system_dim=system_dim,
                          time_dim=time_dim,
                          delta_t=delta_t,
                          store_as_jax=store_as_jax,
-                         original_dim=original_dim,
                          **kwargs)
 
     def __str__(self):
