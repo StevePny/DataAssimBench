@@ -36,36 +36,20 @@ class StateVector(_vector._Vector):
                  values=None,
                  **kwargs):
         self._xi = None
-        self.original_dim = original_dim
+        self.system_dim = system_dim
+        self.delta_t = delta_t
+        if original_dim is None:
+            self.original_dim = system_dim
+        else:
+            self.original_dim = original_dim
 
-        super().__init__(system_dim=system_dim,
-                         time_dim=time_dim,
-                         delta_t=delta_t,
+        super().__init__(time_dim=time_dim,
                          store_as_jax=store_as_jax,
+                         values=values,
                          **kwargs)
-
-        self.values = values
 
     def __str__(self):
         return f'Current State = {self.xi}, Timesteps = {self.time_dim}'
-
-    @property
-    def values(self):
-        return self._values
-
-    @values.setter
-    def values(self, vals):
-        if vals is None:
-            self._values = None
-        else:
-            if self.store_as_jax:
-                self._values = jnp.asarray(vals)
-            else:
-                self._values = np.asarray(vals)
-
-    @values.deleter
-    def values(self):
-        del self._values
 
     @property
     def values_gridded(self):
