@@ -33,7 +33,7 @@ class StateVector(_vector._Vector):
                  original_dim=None,
                  delta_t=None,
                  store_as_jax=False,
-                 values=None
+                 values=None,
                  **kwargs):
         self._values = values
         self._xi = None
