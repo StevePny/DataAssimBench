@@ -14,7 +14,7 @@ class ObsVector(_vector._Vector):
     Attributes:
         obs_dim (int): Number of observations
         values (array): 1d array of observations
-        locations (ndarray): n-dimensional array of locations associated with 
+        coords (ndarray): n-dimensional array of locations associated with 
             each observation. For example, 2D if only x and y coordinates, 3D
             if x, y, and z, etc.
         errors (array): 1d array of errors associated with each observation
@@ -27,7 +27,7 @@ class ObsVector(_vector._Vector):
                  obs_dim=None,
                  error_dist=None,
                  values=None,
-                 locations=None,
+                 coords=None,
                  errors=None,
                  times=None,
                  store_as_jax=False,
@@ -35,31 +35,32 @@ class ObsVector(_vector._Vector):
 
         self.obs_dim = obs_dim
         self.error_dist = error_dist
-        self.locations = locations
-        self.errors = errors
 
         super().__init__(times=times,
                          store_as_jax=store_as_jax,
                          values=values,
                          **kwargs)
 
-    @property
-    def locations(self):
-        return self._locations
+        self.coords = coords
+        self.errors = errors
 
-    @locations.setter
-    def locations(self, vals):
+    @property
+    def coords(self):
+        return self._coords
+
+    @coords.setter
+    def coords(self, vals):
         if vals is None:
-            self._locations = None
+            self._coords = None
         else:
             if self.store_as_jax:
-                self._locations = jnp.asarray(vals)
+                self._coords = jnp.asarray(vals)
             else:
-                self._locations = np.asarray(vals)
+                self._coords = np.asarray(vals)
 
-    @locations.deleter
-    def locations(self):
-        del self._locations
+    @coords.deleter
+    def coords(self):
+        del self._coords
 
     @property
     def errors(self):
@@ -107,6 +108,10 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times > start
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            if new_vec.errors is not None:
+                new_vec.errors = new_vec.errors[filtered_idx]
+            if new_vec.coords is not None:
+                new_vec.coords = new_vec.coords[filtered_idx]
 
         if end is not None:
             if inclusive:
@@ -115,6 +120,12 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times < end
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            if new_vec.errors is not None:
+                new_vec.errors = new_vec.errors[filtered_idx]
+            if new_vec.coords is not None:
+                new_vec.coords = new_vec.coords[filtered_idx]
+
+        new_vec.obs_dim = new_vec.values.shape[0]
 
         return new_vec
 
