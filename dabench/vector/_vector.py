@@ -1,6 +1,7 @@
 """Base class for vector objects"""
 
 import numpy as np
+
 import jax.numpy as jnp
 
 
@@ -44,3 +45,21 @@ class _Vector():
     @values.deleter
     def values(self):
         del self._values
+
+    @property
+    def times(self):
+        return self._times
+
+    @times.setter
+    def times(self, vals):
+        if vals is None:
+            self._times = None
+        else:
+            if self.store_as_jax:
+                self._times = jnp.asarray(vals)
+            else:
+                self._times = np.asarray(vals)
+
+    @times.deleter
+    def times(self):
+        del self._times
