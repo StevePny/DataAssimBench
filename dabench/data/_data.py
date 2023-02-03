@@ -169,8 +169,8 @@ class Data():
 
         # Check that x0 initial conditions is supplied
         if x0 is None:
-            if self.state_vector.x0 is not None:
-                x0 = self.state_vector.x0
+            if self.x0 is not None:
+                x0 = self.x0
             else:
                 raise TypeError('Initial condition is None, x0 = {}. it must '
                                 'either be provided as an argument or set as '
@@ -212,9 +212,6 @@ class Data():
         self.values = y[:, :self.system_dim]
         self.times = t
         self.time_dim = len(t)
-        self.state_vector.values = self.values
-        self.state_vector.times = self.times
-        self.state_vector.time_dim = self.time_dim
 
         # Return the data series and associated TLMs if requested
         if return_tlm:
