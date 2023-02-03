@@ -4,7 +4,7 @@ This work follows the effort initiated by Rasp et al. in the WeatherBench <https
 
 The field of data assimilation (DA) studies the integration of theory with observations. Models alone cannot make predictions. Data assimilation originated out of the need for operational weather forecast models to ingest observations in realtime so that computer models of the atmosphere could be initialized from a "best guess" state of the current conditions.  
 
-Today, applied DA has matured in operational weather forecasting to include the entire online cycled process of continually ingesting numerous disparate observational data sources and integrating them with numerical prediction models to make regular forecasts. The process can also include correcting the models or applying post-processing to forecasts.  
+Today, applied DA has matured in operational weather forecasting to include the entire online cycled process of continually ingesting numerous disparate observational data sources and integrating them with numerical prediction models to make regular forecasts, while estimating errors and uncertainties in this process and accounting for them along the way. The process can also include correcting inaccuracies in the model formulations or applying post-processing to forecasts to improve agreement with observations.  
 
 The user may have to manually install:
 conda install -c conda-forge jax
