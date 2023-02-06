@@ -62,7 +62,7 @@ def test_init_jax(obsvec_jax):
     assert obsvec_jax.obs_dim == 5
     assert obsvec_jax.times.shape == (5,)
     assert jnp.array_equal(obsvec_jax.values, jnp.array([1, 2, 3, 4, 5]))
-    assert isinstance(obsvec_jax.values, jaxlib.xla_extension.DeviceArray)
+    assert isinstance(obsvec_jax.values, jaxlib.xla_extension.Array)
 
 
 def test_init_datetime(obsvec_dt):
@@ -93,7 +93,7 @@ def test_set_values_jax():
     test_vec.values = new_values
 
     assert jnp.array_equal(test_vec.values, new_values)
-    assert isinstance(test_vec.values, jaxlib.xla_extension.DeviceArray)
+    assert isinstance(test_vec.values, jaxlib.xla_extension.Array)
 
 
 def test_time_filter_int(obsvec):
