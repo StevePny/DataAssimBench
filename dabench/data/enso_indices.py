@@ -270,8 +270,15 @@ class ENSOIndices(_data.Data):
         # Concatenate values between variables
         common_vals = []
         for v in all_vals:
+            # Remove duplicate years
+            _, indices = jnp.unique(all_years[v], return_index=True)
+            all_vals[v] = all_vals[v][np.sort(indices)]
+            all_years[v] = all_years[v][np.sort(indices)]
+            # Append common_vals
             common_vals.append(all_vals[v][jnp.in1d(all_years[v],
                                                     common_years)])
+        for f in common_vals:
+            print(f.shape)
         common_vals = jnp.array(common_vals)
         names = list(all_vals.keys())
 
