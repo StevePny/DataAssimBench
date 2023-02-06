@@ -41,7 +41,7 @@ def test_set_values_jax():
     x_test = np.arange(15).reshape(3, 5)
     test_data.values = x_test
 
-    assert isinstance(test_data.values, jaxlib.xla_extension.Array)
+    assert isinstance(test_data.values, jaxlib.xla_extension.DeviceArray)
     assert jnp.array_equal(test_data.values, x_test)
 
 

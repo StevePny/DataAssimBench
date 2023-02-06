@@ -57,7 +57,7 @@ def test_init_jax(single_sv_jax):
     assert single_sv_jax.time_dim == 1
     assert jnp.array_equal(single_sv_jax.values, jnp.array([[1, 2]]))
     assert jnp.array_equal(single_sv_jax.xi, single_sv_jax.values[0])
-    assert isinstance(single_sv_jax.values, jaxlib.xla_extension.Array)
+    assert isinstance(single_sv_jax.values, jaxlib.xla_extension.VectorArray)
 
 
 def test_init_traj(sv_trajectory):
@@ -91,7 +91,7 @@ def test_set_values_jax():
 
     assert jnp.array_equal(test_vec.values, new_values)
     assert jnp.array_equal(test_vec.xi, new_values[-1])
-    assert isinstance(test_vec.values, jaxlib.xla_extension.Array)
+    assert isinstance(test_vec.values, jaxlib.xla_extension.VectorArray)
 
 
 def test_to_original_dims():
