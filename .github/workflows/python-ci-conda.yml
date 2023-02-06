@@ -19,9 +19,12 @@ jobs:
         echo $CONDA/bin >> $GITHUB_PATH
     - name: Install dependencies
       run: |
+        source ~/miniconda3/etc/profile.d/conda.sh
         conda env create -f environment.yml
-        $CONDA/bin/activate dab 
+        conda activate dab
         conda install -c conda-forge pyqg
+        which python
+        conda info
     - name: Lint with flake8
       run: |
         conda install flake8
@@ -31,7 +34,6 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        $CONDA/bin/activate dab
         which python
         conda info
         conda install pytest
