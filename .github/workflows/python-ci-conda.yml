@@ -5,26 +5,22 @@ on: [push]
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l {0}
     strategy:
       max-parallel: 5
-
     steps:
     - uses: actions/checkout@v3
+    - name: Set up Python 3.10.8
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.10.8'
     - name: Add conda to system path
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
         echo $CONDA/bin >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        source ~/miniconda3/etc/profile.d/conda.sh
-        conda env create -f environment.yml
-        conda activate dab
+        conda env update --file environment.yml --name base
         conda install -c conda-forge pyqg
-        which python
-        conda info
     - name: Lint with flake8
       run: |
         conda install flake8
@@ -34,7 +30,5 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        which python
-        conda info
         conda install pytest
         python -m pytest
