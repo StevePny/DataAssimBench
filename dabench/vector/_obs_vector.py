@@ -83,7 +83,6 @@ class ObsVector(_vector._Vector):
     def filter_times(self, start, end, inclusive=True):
         """Filter observations to within a time range, returns copy of object
 
-
         Args:
             start (datetime or float): Start of time range. Type must match
                 type of times (e.g. datetime if times are datetimes, float if
