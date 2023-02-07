@@ -5,7 +5,6 @@ import datetime
 import pytest
 import numpy as np
 import jax.numpy as jnp
-import jaxlib
 
 from dabench.data import Data
 
@@ -31,6 +30,7 @@ def test_set_values():
     test_data.values = x_test
 
     assert np.array_equal(test_data.values, x_test)
+    assert isinstance(test_data.values, np.ndarray)
 
 
 def test_set_values_jax():
@@ -41,7 +41,7 @@ def test_set_values_jax():
     x_test = np.arange(15).reshape(3, 5)
     test_data.values = x_test
 
-    assert isinstance(test_data.values, jaxlib.xla_extension.DeviceArray)
+    assert isinstance(test_data.values, jnp.ndarray)
     assert jnp.array_equal(test_data.values, x_test)
 
 
