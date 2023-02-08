@@ -12,7 +12,8 @@ def lorenz96():
     params = {'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
-              'delta_t': 0.01
+              'delta_t': 0.01,
+              'store_as_jax': True,
               }
     return Lorenz96(**params)
 
