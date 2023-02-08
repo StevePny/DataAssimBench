@@ -1,5 +1,7 @@
 # DataAssimBench
 
+![Tests](https://github.com/StevePny/DataAssimBench/actions/workflows/python-ci-conda.yml/badge.svg)
+
 This work follows the effort initiated by Rasp et al. in the WeatherBench <https://github.com/pangeo-data/WeatherBench>. Here, we create training sets and a process required to develop data assimilation methods and transition them from conception to full scale Earth system models.  
 
 The field of data assimilation (DA) studies the integration of theory with observations. Models alone cannot make predictions. Data assimilation originated out of the need for operational weather forecast models to ingest observations in realtime so that computer models of the atmosphere could be initialized from a "best guess" state of the current conditions.  
