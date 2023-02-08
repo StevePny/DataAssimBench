@@ -161,3 +161,4 @@ def test_lyapunov_exponents_values(lorenz96_lyaps):
     LE = lorenz96_lyaps[-1]
     known_LE = np.array([0.4167, 0.0017, -0.5111, -1.3160, -3.5662])
     assert np.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
+    assert not np.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
