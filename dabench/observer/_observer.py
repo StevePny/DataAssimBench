@@ -74,8 +74,8 @@ class Observer():
                          + errors_vector)
 
         return ObsVector(values=values_vector,
-                         times=np.repeat(time_vector, loc_vector.shape[0]),
-                         coords=np.repeat(loc_vector, time_vector.shape[0]),
+                         times=self.data_obj.times[time_vector],
+                         coords=np.repeat(loc_vector, time_vector.sum()),
                          errors=errors_vector,
                          error_dist='normal'
                          )
