@@ -9,7 +9,12 @@ from dabench.data import Lorenz96
 @pytest.fixture
 def lorenz96():
     """Defines class Lorenz96 object for rest of tests."""
-    params = {'system_dim': 5,
+    params = {'x0': jnp.array([1.76609240000,
+                               0.29829425000,
+                               0.31333990000,
+                               4.52197400000,
+                               8.68036700000],dtype='float64'),
+              'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.01,
@@ -159,7 +164,4 @@ def test_lyapunov_exponents_values(lorenz96_lyaps):
     """Tests that Lorenz96 lyapunov exponents are close to known values."""
     LE = lorenz96_lyaps[-1]
     known_LE = np.array([0.4167, 0.0017, -0.5111, -1.3160, -3.5662])
-    known_LE2 = np.array([0.4965212, 0.0024427, -0.5374982, -1.254559,
-                          -3.656906])
-    assert (np.allclose(known_LE, LE, rtol=0.05, atol=0.01) or
-            np.allclose(known_LE2, LE, rtol=0.05, atol=0.01))
+    assert np.allclose(known_LE, LE, rtol=0.05, atol=0.01)
