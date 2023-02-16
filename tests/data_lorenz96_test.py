@@ -9,11 +9,11 @@ from dabench.data import Lorenz96
 @pytest.fixture
 def lorenz96():
     """Defines class Lorenz96 object for rest of tests."""
-    params = {'x0': jnp.array([1.76609240000,
-                               0.29829425000,
-                               0.31333990000,
-                               4.52197400000,
-                               8.68036700000],dtype='float64'),
+    params = {'x0': np.array([1.766092400000,
+                              0.298294250000,
+                              0.313339900000,
+                              4.521974000000,
+                              8.680367000000], dtype='float64'),
               'system_dim': 5,
               'time_dim': 1000,
               'forcing_term': 8.0,
