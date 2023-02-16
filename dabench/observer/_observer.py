@@ -68,7 +68,6 @@ class Observer():
         errors_vector = rng.normal(loc=self.error_bias, scale=self.error_sd,
                                    size=(time_vector.sum(),
                                          loc_vector.sum()))
-                                        
 
         values_vector = (self.data_obj.values[time_vector][:, loc_vector]
                          + errors_vector)
