@@ -58,12 +58,25 @@ class Observer():
         """
 
         if self.data_obj.values is None:
-            self.data_obj.generate()
+            raise ValueError('Data have not been generated/loaded. Run:\n'
+                             'self.data_obj.generate() to create data for '
+                             'observer')
 
-        loc_vector = rng.binomial(1, p=self.loc_density,
-                                  size=self.data_obj.system_dim).astype('bool')
-        time_vector = rng.binomial(1, p=self.time_density,
-                                   size=self.data_obj.time_dim).astype('bool')
+        # Generate locations if they aren't specified
+        if self.locations is None:
+            loc_vector = rng.binomial(1, p=self.loc_density,
+                                      size=self.data_obj.system_dim
+                                      ).astype('bool')
+        else:
+            loc_vector = self.locations
+
+        # Generate times if they aren't specifieid
+        if self.times is None:
+            time_vector = rng.binomial(1, p=self.time_density,
+                                       size=self.data_obj.time_dim
+                                       ).astype('bool')
+        else:
+            time_vector = self.times
 
         errors_vector = rng.normal(loc=self.error_bias, scale=self.error_sd,
                                    size=(time_vector.sum(),
