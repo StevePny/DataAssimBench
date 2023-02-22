@@ -2,25 +2,41 @@ name: Tests
 
 on: [push]
 
+env:
+  CACHE_NUMBER: 0  # increase to reset cache manually
+  
 jobs:
   build-linux:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 5
     steps:
+    
     - uses: actions/checkout@v3
     - name: Set up Python 3.10.8
       uses: actions/setup-python@v3
       with:
         python-version: '3.10.8'
+        
     - name: Add conda to system path
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
         echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
+    - name: Set cache date
+      run: echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+
+    - uses: actions/cache@v2
+      with:
+        path: /usr/share/miniconda3/envs/base/
+        key: conda-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
+      id: cache
+      
+    - name: Update environment
       run: |
         conda env update --file environment.yml --name base
         conda install -c conda-forge pyqg
+      if: steps.cache.outputs.cache-hit != 'true'
+
     - name: Lint with flake8
       run: |
         conda install flake8
@@ -28,6 +44,7 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        
     - name: Test with pytest
       run: |
         conda install pytest

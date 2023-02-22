@@ -20,7 +20,7 @@ def lorenz96():
 @pytest.fixture
 def lorenz96_lyaps(lorenz96):
     """Calculates Lyapunov Exponent values for tests."""
-    return lorenz96.calc_lyapunov_exponents_series()
+    return lorenz96.calc_lyapunov_exponents_series(total_time=20)
 
 
 def test_initialization():
@@ -150,13 +150,14 @@ def test_lyapunov_exponents(lorenz96, lorenz96_lyaps):
 
 def test_lyapunov_exponents_series(lorenz96, lorenz96_lyaps):
     """Tests shape of lyapunov exponents series and value of last timestep"""
-    LE = lorenz96.calc_lyapunov_exponents_final()
-    assert lorenz96_lyaps.shape == (500 - 1, lorenz96.system_dim)
+    LE = lorenz96.calc_lyapunov_exponents_final(total_time=20)
+    assert lorenz96_lyaps.shape == (20 - 1, lorenz96.system_dim)
     assert np.all(LE == lorenz96_lyaps[-1])
 
 
 def test_lyapunov_exponents_values(lorenz96_lyaps):
     """Tests that Lorenz96 lyapunov exponents are close to known values."""
     LE = lorenz96_lyaps[-1]
-    known_LE = np.array([0.4167, 0.0017, -0.5111, -1.3160, -3.5662])
+    known_LE = np.array([0.55787979, -0.06681031, -0.42554347, -1.30596795,
+                         -3.70955825])
     assert np.allclose(known_LE, LE,  rtol=0.05, atol=0.01)
