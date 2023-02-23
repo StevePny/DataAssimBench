@@ -4,7 +4,6 @@ Input is  generated data, returns ObsVector with values, times, coords, etc
 """
 
 import numpy as np
-import jax.numpy as jnp
 
 from dabench.vector import ObsVector
 
@@ -17,13 +16,29 @@ class Observer():
     Attributes:
         data_obj (dabench.data.Data): Data generator/loader object from which
             to gather observations.
-        locations (ndarray): Locations to gather observations from. If not
-            specified, will be randomly generated according to loc_density.
+        location_indices (ndarray): Indices to gather observations
+            from. If 1D array provided, assumed to be for flattened system_dim.
+            If >1D, must have same dimensionality as data generator's
+            original_dim (e.g. (x, y, z)). If stationary_observers=False,
+            expects leading time dimension. If not specified, will be randomly
+            generated according to location_density. Default is None.
+        location_density (float or tuple): Fraction(s) of locations to gather
+            observations from, must be values between 0 and 1. If one value is
+            provided, samples from flattened system_dim. If tuple/list-like of
+            values, length must match dimensionality of data generator's
+            original_dim and each value is used to sample from its respective
+            dimension.
+        stationary_observers (bool): If True,
+            samples from same indices at each time step. If False, randomly
+            generates/expects new observation indices at each timestep.
+            If False:
+                If using location_density, indices are randomly generated.
+                If using location_indices, expects indices to either be 2D
+                (time_dim, system_dim) or >2D (time_dim, original_dim).
+                Default is True .
+        time_indices (ndarray): Indices of times to gather observations from.
+            If not specified, randomly generate according to time_density.
             Default is None.
-        loc_density (float): Fraction of locations to gather observations from,
-            must be value between 0 and 1. Default is 1.
-        times (ndarray): Times to gather observations from. If not specified,
-            randomly generate according to time_density. Default is None.
         time_density (float): Fraction of times to gather observations from,
             must be value between 0 and 1. Default is 1.
         error_bias (float): Mean of normal distribution of observation errors.
@@ -34,17 +49,19 @@ class Observer():
 
     def __init__(self,
                  data_obj,
-                 locations=None,
-                 loc_density=1.,
-                 times=None,
+                 location_indices=None,
+                 location_density=1.,
+                 stationary_observer=True,
+                 time_indices=None,
                  time_density=1.,
                  error_bias=0.,
                  error_sd=0.
                  ):
         self.data_obj = data_obj
-        self.locations = locations
-        self.loc_density = loc_density
-        self.times = times
+        self.location_indices = location_indices
+        self.location_density = location_density
+        self.stationary_observer = stationary_observer
+        self.time_indices = time_indices
         self.time_density = time_density
         self.error_bias = error_bias
         self.error_sd = error_sd
@@ -62,32 +79,74 @@ class Observer():
                              'self.data_obj.generate() to create data for '
                              'observer')
 
-        # Generate locations if they aren't specified
-        if self.locations is None:
-            loc_vector = rng.binomial(1, p=self.loc_density,
-                                      size=self.data_obj.system_dim
-                                      ).astype('bool')
-        else:
-            loc_vector = self.locations
-
         # Generate times if they aren't specifieid
-        if self.times is None:
-            time_vector = rng.binomial(1, p=self.time_density,
-                                       size=self.data_obj.time_dim
-                                       ).astype('bool')
+        if self.time_indices is None:
+            self.time_indices = np.where(
+                    rng.binomial(1, p=self.time_density,
+                                 size=self.data_obj.time_dim
+                                 ).astype('bool')
+                    )
+        self.time_dim = self.time_indices.shape[0]
+
+        # Generate locations if they aren't specified
+        if self.stationary_observer:
+            if self.location_indices is None:
+                self.location_indices = np.where(
+                    rng.binomial(1, p=self.location_density,
+                                 size=self.data_obj.system_dim
+                                 ).astype('bool')
+                    )
+            # Check that location_indices are in correct dimensions
+            elif (len(self.location_indices.shape)
+                    not in [1, len(self.data_obj.original_dim)]):
+                raise ValueError('location_indices must be 1D or match\n'
+                                 'self.data_obj.original_dim')
+            self.location_dim = self.location_indices.shape
+
+            errors_vector = rng.normal(loc=self.error_bias,
+                                       scale=self.error_sd,
+                                       size=((self.time_dim,)
+                                             + self.location_dim)
+                                       )
+        # If NON-stationary observer
         else:
-            time_vector = self.times
+            if self.location_indices is None:
+                self.location_indices = np.array([
+                        np.where(
+                            rng.binomial(1, p=self.location_density,
+                                         size=self.data_obj.system_dim
+                                         ).astype('bool'))
+                        for i in range(self.time_indices.shape[0])
+                        ])
+            elif (len(self.location_indices.shape)
+                    not in [2, 1 + len(self.data_obj.original_dim)]):
+                raise ValueError('With stationary_observer=False,'
+                                 'location_indices must be 2 or match\n'
+                                 'self.data_obj.original_dim + 1')
+            self.location_dim = np.array([a.shape for a in
+                                          self.location_indices])
+            errors_vector = np.array([
+                rng.normal(
+                    loc=self.error_bias,
+                    scale=self.error_sd,
+                    size=ld)
+                for ld in self.location_dim])
 
-        errors_vector = rng.normal(loc=self.error_bias, scale=self.error_sd,
-                                   size=(time_vector.sum(),
-                                         loc_vector.sum()))
-
-        values_vector = (self.data_obj.values[time_vector][:, loc_vector]
-                         + errors_vector)
+        if self.stationary_observer:
+            values_vector = (
+                self.data_obj.values[self.time_indices][self.location_indices]
+                + errors_vector)
+            coords = np.repeat(self.location_indices, self.time_dim)
+        else:
+            values_vector = np.array([
+                (self.data_obj.values[self.time_indices[i]]
+                    [self.location_indices[i]] + errors_vector[i])
+                for i in range(self.time_dim)])
+            coords = self.location_indices
 
         return ObsVector(values=values_vector,
-                         times=self.data_obj.times[time_vector],
-                         coords=np.repeat(loc_vector, time_vector.sum()),
+                         times=self.data_obj.times[self.time_indices],
+                         coords=coords,
                          errors=errors_vector,
                          error_dist='normal'
                          )
