@@ -12,8 +12,12 @@ class ObsVector(_vector._Vector):
     """Class for storing observations
 
     Attributes:
-        obs_dim (int): Number of observations
-        values (array): 1d array of observations
+        num_obs (int): Number of observations.
+        obs_dims (array): Number of values stored in each observation.
+        values (array): array of observation values. If each observation can
+            store more than one value (e.g. wind and temperature at some
+            location), values is 2D with first dimension num_obs and variable
+            second dimension of lengths obs_dims.
         coords (ndarray): n-dimensional array of locations associated with 
             each observation. For example, 2D if only x and y coordinates, 3D
             if x, y, and z, etc.
@@ -24,7 +28,8 @@ class ObsVector(_vector._Vector):
             Default is False (store as numpy).
         """
     def __init__(self,
-                 obs_dim=None,
+                 num_obs=None,
+                 obs_dims=None,
                  error_dist=None,
                  values=None,
                  coords=None,
@@ -33,7 +38,8 @@ class ObsVector(_vector._Vector):
                  store_as_jax=False,
                  **kwargs):
 
-        self.obs_dim = obs_dim
+        self.obs_dims = obs_dims
+        self.num_obs = num_obs
         self.error_dist = error_dist
 
         super().__init__(times=times,
@@ -124,7 +130,8 @@ class ObsVector(_vector._Vector):
             if new_vec.coords is not None:
                 new_vec.coords = new_vec.coords[filtered_idx]
 
-        new_vec.obs_dim = new_vec.values.shape[0]
+        new_vec.num_obs = new_vec.values.shape[0]
+        new_vec.obs_dims = self.obs_dims[filtered_idx]
 
         return new_vec
 
