@@ -85,7 +85,7 @@ class Observer():
                     rng.binomial(1, p=self.time_density,
                                  size=self.data_obj.time_dim
                                  ).astype('bool')
-                    )
+                    )[0]
         self.time_dim = self.time_indices.shape[0]
 
         # Generate locations if they aren't specified
@@ -95,7 +95,7 @@ class Observer():
                     rng.binomial(1, p=self.location_density,
                                  size=self.data_obj.system_dim
                                  ).astype('bool')
-                    )
+                    )[0]
             # Check that location_indices are in correct dimensions
             elif (len(self.location_indices.shape)
                     not in [1, len(self.data_obj.original_dim)]):
@@ -108,6 +108,7 @@ class Observer():
                                        size=((self.time_dim,)
                                              + self.location_dim)
                                        )
+            print(errors_vector.shape)
         # If NON-stationary observer
         else:
             if self.location_indices is None:
@@ -115,7 +116,7 @@ class Observer():
                         np.where(
                             rng.binomial(1, p=self.location_density,
                                          size=self.data_obj.system_dim
-                                         ).astype('bool'))
+                                         ).astype('bool'))[0]
                         for i in range(self.time_indices.shape[0])
                         ])
             elif (len(self.location_indices.shape)
@@ -134,7 +135,8 @@ class Observer():
 
         if self.stationary_observer:
             values_vector = (
-                self.data_obj.values[self.time_indices][self.location_indices]
+                self.data_obj.values[self.time_indices][:,
+                                                        self.location_indices]
                 + errors_vector)
             coords = np.repeat(self.location_indices, self.time_dim)
         else:
