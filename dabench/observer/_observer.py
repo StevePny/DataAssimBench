@@ -118,7 +118,7 @@ class Observer():
                                          size=self.data_obj.system_dim
                                          ).astype('bool'))[0]
                         for i in range(self.time_indices.shape[0])
-                        ])
+                        ], dtype=object)
             elif (len(self.location_indices.shape)
                     not in [2, 1 + len(self.data_obj.original_dim)]):
                 raise ValueError('With stationary_observer=False,'
@@ -131,7 +131,7 @@ class Observer():
                     loc=self.error_bias,
                     scale=self.error_sd,
                     size=ld)
-                for ld in self.location_dim])
+                for ld in self.location_dim], dtype=object)
 
         if self.stationary_observer:
             values_vector = (
@@ -143,7 +143,7 @@ class Observer():
             values_vector = np.array([
                 (self.data_obj.values[self.time_indices[i]]
                     [self.location_indices[i]] + errors_vector[i])
-                for i in range(self.time_dim)])
+                for i in range(self.time_dim)], dtype=object)
             coords = self.location_indices
 
         return ObsVector(values=values_vector,
