@@ -124,7 +124,7 @@ class Observer():
                 raise ValueError('With stationary_observer=False,'
                                  'location_indices must be 2 or match\n'
                                  'self.data_obj.original_dim + 1')
-            self.location_dim = np.array([a.shape for a in
+            self.location_dim = np.array([a.shape[0] for a in
                                           self.location_indices])
             errors_vector = np.array([
                 rng.normal(
@@ -149,6 +149,8 @@ class Observer():
         return ObsVector(values=values_vector,
                          times=self.data_obj.times[self.time_indices],
                          coords=coords,
+                         obs_dims = self.location_dim,
+                         num_obs=values_vector.shape[0],
                          errors=errors_vector,
                          error_dist='normal'
                          )
