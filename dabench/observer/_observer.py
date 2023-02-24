@@ -101,14 +101,26 @@ class Observer():
                     not in [1, len(self.data_obj.original_dim)]):
                 raise ValueError('location_indices must be 1D or match\n'
                                  'self.data_obj.original_dim')
-            self.location_dim = self.location_indices.shape
+            self.location_dim = np.repeat(self.location_indices.shape,
+                                          self.time_dim)
 
+            if len(self.location_indices.shape) == 1:
+                errors_vec_size = (self.time_dim,) + (self.location_dim[0],)
+            else:
+                errors_vec_size = ((self.time_dim,) +
+                                   tuple(self.location_dim[0]))
             errors_vector = rng.normal(loc=self.error_bias,
                                        scale=self.error_sd,
-                                       size=((self.time_dim,)
-                                             + self.location_dim)
-                                       )
-            print(errors_vector.shape)
+                                       size=errors_vec_size)
+
+            values_vector = (
+                self.data_obj.values[self.time_indices][
+                    :, self.location_indices]
+                + errors_vector)
+
+            # Coords is same across time_dim
+            coords = np.array([self.location_indices] * self.time_dim)
+
         # If NON-stationary observer
         else:
             if self.location_indices is None:
@@ -133,13 +145,6 @@ class Observer():
                     size=ld)
                 for ld in self.location_dim], dtype=object)
 
-        if self.stationary_observer:
-            values_vector = (
-                self.data_obj.values[self.time_indices][:,
-                                                        self.location_indices]
-                + errors_vector)
-            coords = np.repeat(self.location_indices, self.time_dim)
-        else:
             values_vector = np.array([
                 (self.data_obj.values[self.time_indices[i]]
                     [self.location_indices[i]] + errors_vector[i])
@@ -149,7 +154,7 @@ class Observer():
         return ObsVector(values=values_vector,
                          times=self.data_obj.times[self.time_indices],
                          coords=coords,
-                         obs_dims = self.location_dim,
+                         obs_dims=self.location_dim,
                          num_obs=values_vector.shape[0],
                          errors=errors_vector,
                          error_dist='normal'

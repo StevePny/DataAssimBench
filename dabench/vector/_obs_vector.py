@@ -113,6 +113,7 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times > start
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            new_vec.obs_dims = new_vec.obs_dims[filtered_idx]
             if new_vec.errors is not None:
                 new_vec.errors = new_vec.errors[filtered_idx]
             if new_vec.coords is not None:
@@ -125,13 +126,13 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times < end
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            new_vec.obs_dims = new_vec.obs_dims[filtered_idx]
             if new_vec.errors is not None:
                 new_vec.errors = new_vec.errors[filtered_idx]
             if new_vec.coords is not None:
                 new_vec.coords = new_vec.coords[filtered_idx]
 
         new_vec.num_obs = new_vec.values.shape[0]
-        new_vec.obs_dims = self.obs_dims[filtered_idx]
 
         return new_vec
 
