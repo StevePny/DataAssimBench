@@ -51,27 +51,27 @@ help(data.Lorenz96) # Get more info about Lorenz96 class
 
 #### Generating data
 
-All the data generators are set up with reasonable defaults. Generating data is as easy as:
+All of the data objects are set up with reasonable defaults. Generating data is as easy as:
 
 ```python
 l96_obj = data.Lorenz96() # Create data generator object
 l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
 l96_obj.values # View the output values
 ```
+This example is for a Lorenz96 model, but all of the data objects work in a similar way.  
 
-This example is for a Lorenz96 model, but all of the models and data downloaders work in a similar way. 
 
 #### Customizing generation options
 
-All the data generators are customizable.
+All data objects are customizable.
 
 For data-generators (e.g. numerical models such as Lorenz63, Lorenz96, SQGTurb), this means you can change initial conditions, model parameters, timestep size, number of timesteps, etc.
 
 For data-downloaders (e.g. ENSOIDX, AWS, GCP), this means changing which variables you download, the lat/lon bounding box, the time period, etc.
 
-The recommended way of specifying options is to pass a keyword argument (kwargs) dictionary. The exact options vary between the different types of data generators, so be sure to check the specific documentation for your chosen model/downloader more info.
+The recommended way of specifying options is to pass a keyword argument (kwargs) dictionary. The exact options vary between the different types of data objects, so be sure to check the specific documentation for your chosen generator/downloader more info.
 
-- For example, for Lorenz96 we can changing the forcing term, system_dim, and timestep delta_t like this:
+- For example, for the Lorenz96 data-generator we can change the forcing term, system_dim, and integration timestep delta_t like this:
 
 ```python
 l96_options = {'forcing_term': 7.5,
@@ -82,7 +82,7 @@ l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
 l96_obj.values # View the output values
 ```
 
-- For example, for the Amazon Web Services (AWS) ERA5 data downloader, we can select our variables and time period like this:
+- For example, for the Amazon Web Services (AWS) ERA5 data-downloader, we can select our variables and time period like this:
 
 ```python
 aws_options = {'variables': ['air_pressure_at_mean_sea_level', 'sea_surface_temperature'],
