@@ -45,6 +45,8 @@ class Observer():
             Default is 0.
         error_sd (float): Standard deviation of observation errors. Default is
             0.
+        error_positive_only (bool): Clip errors to be positive only. Default is
+            False.
     """
 
     def __init__(self,
@@ -55,7 +57,8 @@ class Observer():
                  time_indices=None,
                  time_density=1.,
                  error_bias=0.,
-                 error_sd=0.
+                 error_sd=0.,
+                 error_positive_only=False
                  ):
         self.data_obj = data_obj
         self.location_indices = location_indices
@@ -65,6 +68,7 @@ class Observer():
         self.time_density = time_density
         self.error_bias = error_bias
         self.error_sd = error_sd
+        self.error_positive_only = error_positive_only
 
     def observe(self):
         """Generate observations.
@@ -113,6 +117,10 @@ class Observer():
                                        scale=self.error_sd,
                                        size=errors_vec_size)
 
+            # Clip errors to positive only
+            if self.error_positive_only:
+                errors_vector[errors_vector < 0.] = 0.
+
             values_vector = (
                 self.data_obj.values[self.time_indices][
                     :, self.location_indices]
@@ -144,6 +152,10 @@ class Observer():
                     scale=self.error_sd,
                     size=ld)
                 for ld in self.location_dim], dtype=object)
+
+            if self.error_positive_only:
+                errors_vector = np.array([
+                    np.maximum(e, 0.) for e in errors_vector])
 
             values_vector = np.array([
                 (self.data_obj.values[self.time_indices[i]]
