@@ -65,9 +65,9 @@ This example is for a Lorenz96 model, but all of the models and data downloaders
 
 All the data generators are customizable.
 
-For models (e.g. Lorenz63, Lorenz96, SQGTurb), this means you can change initial conditions, model parameters, timestep size, number of timesteps, etc.
+For data-generators (e.g. numerical models such as Lorenz63, Lorenz96, SQGTurb), this means you can change initial conditions, model parameters, timestep size, number of timesteps, etc.
 
-For data downloaders (e.g. ENSOIDX, AWS, GCP), this means changing which variables you download, the lat/lon bounding box, the time period, etc.
+For data-downloaders (e.g. ENSOIDX, AWS, GCP), this means changing which variables you download, the lat/lon bounding box, the time period, etc.
 
 The recommended way of specifying options is to pass a keyword argument (kwargs) dictionary. The exact options vary between the different types of data generators, so be sure to check the specific documentation for your chosen model/downloader more info.
 
