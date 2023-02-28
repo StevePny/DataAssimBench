@@ -13,7 +13,9 @@ class ObsVector(_vector._Vector):
 
     Attributes:
         num_obs (int): Number of observations.
-        obs_dims (array): Number of values stored in each observation.
+        obs_dims (array): Number of values stored in each observation. Must
+            match dims of values array. If not specified, will be calculated
+            using values. Default is None.
         values (array): array of observation values. If each observation can
             store more than one value (e.g. wind and temperature at some
             location), values is 2D with first dimension num_obs and variable
@@ -38,7 +40,6 @@ class ObsVector(_vector._Vector):
                  store_as_jax=False,
                  **kwargs):
 
-        self.obs_dims = obs_dims
         self.num_obs = num_obs
         self.error_dist = error_dist
 
@@ -46,6 +47,26 @@ class ObsVector(_vector._Vector):
                          store_as_jax=store_as_jax,
                          values=values,
                          **kwargs)
+
+        # Calculate/check obs_dims
+        if self.values is not None:
+            if self.values.dtype is object:
+                self.obs_dims = np.array([v.shape[0] for
+                                          v in self.values])
+            elif len(self.values.shape) == 1:
+                self.obs_dims = np.repeat(1, self.values.shape[0])
+            else:
+                self.obs_dims = np.repeat(
+                        self.values.shape[1],
+                        self.values.shape[0])
+            if obs_dims is not None:
+                if obs_dims != self.obs_dims:
+                    raise Warning('obs_dims {} does not match dimensions of '
+                                  ' values {}.\n Proceeding with obs_dims '
+                                  'calculated based on values..'.format(
+                                      obs_dims, self.obs_dims))
+        else:
+            self.obs_dims = obs_dims
 
         self.coords = coords
         self.errors = errors

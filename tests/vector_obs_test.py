@@ -52,6 +52,7 @@ def test_init(obsvec):
 
     assert obsvec.num_obs == 5
     assert obsvec.times.shape == (5,)
+    assert np.array_equal(obsvec.obs_dims, np.repeat(1, 5))
     assert np.array_equal(obsvec.values, np.array([1, 2, 3, 4, 5]))
     assert isinstance(obsvec.values, np.ndarray)
 
@@ -61,6 +62,7 @@ def test_init_jax(obsvec_jax):
 
     assert obsvec_jax.num_obs == 5
     assert obsvec_jax.times.shape == (5,)
+    assert np.array_equal(obsvec_jax.obs_dims, np.repeat(1, 5))
     assert jnp.array_equal(obsvec_jax.values, jnp.array([1, 2, 3, 4, 5]))
     assert isinstance(obsvec_jax.values, jnp.ndarray)
 
@@ -70,6 +72,7 @@ def test_init_datetime(obsvec_dt):
 
     assert obsvec_dt.num_obs == 4
     assert obsvec_dt.times.shape == (4,)
+    assert np.array_equal(obsvec_dt.obs_dims, np.repeat(1, 4))
     assert np.array_equal(obsvec_dt.values,  np.array([10, 11, 50, 25]))
 
 
@@ -103,6 +106,7 @@ def test_time_filter_int(obsvec):
 
     assert newvec.values.shape != obsvec.values.shape
     assert newvec.num_obs == 3
+    assert np.array_equal(newvec.obs_dims, np.repeat(1, 3))
     assert np.array_equal(newvec.values, np.array([1, 2, 3]))
     assert np.array_equal(newvec.times, np.array([0, 5, 10]))
 
@@ -114,6 +118,7 @@ def test_time_filter_int_exc(obsvec):
 
     assert newvec.values.shape != obsvec.values.shape
     assert newvec.num_obs == 1
+    assert np.array_equal(newvec.obs_dims, np.repeat(1, 1))
     assert np.array_equal(newvec.values, np.array([2]))
     assert np.array_equal(newvec.times, np.array([5]))
 
@@ -127,4 +132,5 @@ def test_time_filter_dt(obsvec_dt):
 
     assert newvec.values.shape != obsvec_dt.values.shape
     assert newvec.num_obs == 2
+    assert np.array_equal(newvec.obs_dims, np.repeat(1, 2))
     assert np.array_equal(newvec.values, np.array([11, 25]))
