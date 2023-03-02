@@ -1,6 +1,7 @@
 """Class for storing an observation vector and accompanying info"""
 
 import copy
+import warnings
 
 import numpy as np
 import jax.numpy as jnp
@@ -50,7 +51,7 @@ class ObsVector(_vector._Vector):
 
         # Calculate/check obs_dims
         if self.values is not None:
-            if self.values.dtype is object:
+            if self.values.dtype is np.dtype('O'):
                 self.obs_dims = np.array([v.shape[0] for
                                           v in self.values])
             elif len(self.values.shape) == 1:
@@ -60,8 +61,8 @@ class ObsVector(_vector._Vector):
                         self.values.shape[1],
                         self.values.shape[0])
             if obs_dims is not None:
-                if obs_dims != self.obs_dims:
-                    raise Warning('obs_dims {} does not match dimensions of '
+                if not np.array_equal(obs_dims, self.obs_dims):
+                    warnings.warn('obs_dims {} does not match dimensions of '
                                   ' values {}.\n Proceeding with obs_dims '
                                   'calculated based on values..'.format(
                                       obs_dims, self.obs_dims))
