@@ -14,7 +14,8 @@ def obsvec():
               'values': np.array([1, 2, 3, 4, 5]),
               'times': np.array([0, 5, 10, 15, 20]),
               'errors': np.array([0.1, -0.15, 0.05, 0.2, -0.2]),
-              'coords':  np.array([[0, 0], [0, 1], [1, 1], [2, 2], [5, 3]])
+              'location_indices':  np.array([[0, 0], [0, 1], [1, 1], [2, 2],
+                                             [5, 3]])
               }
 
     return ObsVector(**params)

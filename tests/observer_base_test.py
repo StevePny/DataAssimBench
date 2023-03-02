@@ -11,19 +11,20 @@ def test_obs_l63():
     """Tests observer for Lorenz63"""
     l63 = data.Lorenz63()
     l63.generate(n_steps=10)
-    
+
     obs = observer.Observer(
             l63,
             time_density=0.5,
             location_density=0.5,
             error_sd=0.7)
     obs_vec = obs.observe()
-    
+
     assert obs_vec.values.shape[0] == 8
     assert obs_vec.num_obs == 8
     assert obs_vec.times.shape[0] == 8
+    assert obs_vec.time_indices.shape[0] == 8
     assert np.array_equal(obs_vec.obs_dims, np.repeat(1, 8))
-    assert np.array_equal(obs_vec.coords,
+    assert np.array_equal(obs_vec.location_indices,
                           np.repeat(0, 8).reshape((8, 1)))
     assert obs_vec.values[0, 0] == pytest.approx(
             l63.values[0, 0] + obs_vec.errors[0, 0])
@@ -54,8 +55,9 @@ def test_obs_l63_diffseed():
     assert obs_vec.values.shape[0] == 5
     assert obs_vec.num_obs == 5
     assert obs_vec.times.shape[0] == 5
+    assert obs_vec.time_indices.shape[0] == 5
     assert np.array_equal(obs_vec.obs_dims, np.repeat(2, 5))
-    assert np.array_equal(obs_vec.coords,
+    assert np.array_equal(obs_vec.location_indices,
                           np.tile([0, 1], 5).reshape((5, 2)))
     assert obs_vec.values[0, 0] == l63.values[0, 0]
     assert np.allclose(obs_vec.values,
@@ -87,8 +89,9 @@ def test_obs_l63_specific_locs():
     assert obs_vec.values.shape[0] == 2
     assert obs_vec.num_obs == 2
     assert obs_vec.times.shape[0] == 2
+    assert obs_vec.time_indices.shape[0] == 2
     assert np.array_equal(obs_vec.obs_dims, np.repeat(1, 2))
-    assert np.array_equal(obs_vec.coords,
+    assert np.array_equal(obs_vec.location_indices,
                           np.repeat(2, 2).reshape((2, 1)))
     assert np.allclose(obs_vec.values - obs_vec.errors,
                        np.array([[l63.values[4, 2]], [l63.values[9, 2]]]))
@@ -113,8 +116,9 @@ def test_obs_l96():
     assert obs_vec.values.shape[0] == 3
     assert obs_vec.num_obs == 3
     assert obs_vec.times.shape[0] == 3
+    assert obs_vec.time_indices.shape[0] == 3
     assert np.array_equal(obs_vec.obs_dims, np.repeat(4, 3))
-    assert np.array_equal(obs_vec.coords,
+    assert np.array_equal(obs_vec.location_indices,
                           np.tile([0, 6, 13, 29], 3).reshape((3, 4)))
     assert obs_vec.values[0, 0] == pytest.approx(
             l96.values[3, 0] + obs_vec.errors[0, 0])
@@ -143,8 +147,9 @@ def test_obs_l96_moving():
     assert obs_vec.values.shape[0] == 3
     assert obs_vec.num_obs == 3
     assert obs_vec.times.shape[0] == 3
+    assert obs_vec.time_indices.shape[0] == 3
     assert np.array_equal(obs_vec.obs_dims, np.array([8, 12, 12]))
-    assert obs_vec.coords[1][-1] == 32
+    assert obs_vec.location_indices[1][-1] == 32
     assert obs_vec.values[0][0] == pytest.approx(
             l96.values[3, 0] + obs_vec.errors[0][0])
     assert obs_vec.values[2][5] == pytest.approx(2.220523949148202)
@@ -167,15 +172,15 @@ def test_obs_pyqg():
     assert obs_vec.values.shape[0] == 6
     assert obs_vec.num_obs == 6
     assert obs_vec.times.shape[0] == 6
+    assert obs_vec.time_indices.shape[0] == 6
     assert np.array_equal(obs_vec.obs_dims, np.repeat(431, 6))
-    assert obs_vec.coords[0, 0] == 29
+    assert obs_vec.location_indices[0, 0] == 29
     assert obs_vec.values[0, 0] == pytest.approx(
             pyqg.values[1, 29] + obs_vec.errors[0, 0])
     assert obs_vec.values[2, 64] == pytest.approx(-6.591154124480716e-05)
     assert obs_vec.errors[2, 411] == pytest.approx(-6.324655243224687e-06)
     assert np.array_equal(obs_vec.times,
                           np.array([7200, 21600, 28800, 36000, 50400, 64800]))
-
 
 
 def test_obs_aws():
@@ -191,20 +196,15 @@ def test_obs_aws():
         error_bias=5.)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 219 
+    assert obs_vec.values.shape[0] == 219
     assert obs_vec.num_obs == 219
     assert obs_vec.times.shape[0] == 219
+    assert obs_vec.time_indices.shape[0] == 219
     assert np.array_equal(obs_vec.obs_dims, np.repeat(58, 219))
-    assert obs_vec.coords[0, 0] == 17 
+    assert obs_vec.location_indices[0, 0] == 17
     assert obs_vec.values[0, 0] == pytest.approx(
             aws.values[72, 17] + 5)
     assert obs_vec.values[123, 42] == pytest.approx(306.0625)
     assert np.array_equal(obs_vec.errors,
                           np.repeat(5, 219*58).reshape(219, 58))
     assert obs_vec.times[1] == np.datetime64('2020-01-04T18:00:00.000000000')
-
-
-
-
-
-
