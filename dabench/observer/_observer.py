@@ -135,7 +135,8 @@ class Observer():
                 + errors_vector)
 
             # Coords is same across time_dim
-            coords = np.array([self.location_indices] * self.time_dim)
+            full_loc_indices = np.array(
+                [self.location_indices] * self.time_dim)
 
         # If NON-stationary observer
         else:
@@ -169,11 +170,12 @@ class Observer():
                 (self.data_obj.values[self.time_indices[i]]
                     [self.location_indices[i]] + errors_vector[i])
                 for i in range(self.time_dim)], dtype=object)
-            coords = self.location_indices
+            full_loc_indices = self.location_indices
 
         return ObsVector(values=values_vector,
                          times=self.data_obj.times[self.time_indices],
-                         coords=coords,
+                         time_indices=self.time_indices,
+                         location_indices=full_loc_indices,
                          obs_dims=self.location_dim,
                          num_obs=values_vector.shape[0],
                          errors=errors_vector,
