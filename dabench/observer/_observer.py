@@ -7,8 +7,6 @@ import numpy as np
 
 from dabench.vector import ObsVector
 
-rng = np.random.default_rng(45)
-
 
 class Observer():
     """Base class for Observer objects
@@ -47,28 +45,36 @@ class Observer():
             0.
         error_positive_only (bool): Clip errors to be positive only. Default is
             False.
+        random_seed (int): Random seed for sampling times and locations
+            according to location_density and time_density. Default is 99.
     """
 
     def __init__(self,
                  data_obj,
                  location_indices=None,
                  location_density=1.,
-                 stationary_observer=True,
+                 stationary_observers=True,
                  time_indices=None,
                  time_density=1.,
                  error_bias=0.,
                  error_sd=0.,
-                 error_positive_only=False
+                 error_positive_only=False,
+                 random_seed=99,
                  ):
         self.data_obj = data_obj
+        if location_indices is not None:
+            location_indices = np.array(location_indices)
         self.location_indices = location_indices
         self.location_density = location_density
-        self.stationary_observer = stationary_observer
+        self.stationary_observers = stationary_observers
+        if time_indices is not None:
+            time_indices = np.array(time_indices)
         self.time_indices = time_indices
         self.time_density = time_density
         self.error_bias = error_bias
         self.error_sd = error_sd
         self.error_positive_only = error_positive_only
+        self.random_seed = random_seed
 
     def observe(self):
         """Generate observations.
@@ -83,6 +89,8 @@ class Observer():
                              'self.data_obj.generate() to create data for '
                              'observer')
 
+        rng = np.random.default_rng(self.random_seed)
+
         # Generate times if they aren't specifieid
         if self.time_indices is None:
             self.time_indices = np.where(
@@ -93,7 +101,7 @@ class Observer():
         self.time_dim = self.time_indices.shape[0]
 
         # Generate locations if they aren't specified
-        if self.stationary_observer:
+        if self.stationary_observers:
             if self.location_indices is None:
                 self.location_indices = np.where(
                     rng.binomial(1, p=self.location_density,
@@ -141,7 +149,7 @@ class Observer():
                         ], dtype=object)
             elif (len(self.location_indices.shape)
                     not in [2, 1 + len(self.data_obj.original_dim)]):
-                raise ValueError('With stationary_observer=False,'
+                raise ValueError('With stationary_observers=False,'
                                  'location_indices must be 2 or match\n'
                                  'self.data_obj.original_dim + 1')
             self.location_dim = np.array([a.shape[0] for a in
