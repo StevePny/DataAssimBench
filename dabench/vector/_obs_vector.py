@@ -1,6 +1,7 @@
 """Class for storing an observation vector and accompanying info"""
 
 import copy
+import warnings
 
 import numpy as np
 import jax.numpy as jnp
@@ -12,11 +13,21 @@ class ObsVector(_vector._Vector):
     """Class for storing observations
 
     Attributes:
-        obs_dim (int): Number of observations
-        values (array): 1d array of observations
-        coords (ndarray): n-dimensional array of locations associated with 
+        num_obs (int): Number of observations.
+        obs_dims (array): Number of values stored in each observation. Must
+            match dims of values array. If not specified, will be calculated
+            using values. Default is None.
+        values (array): array of observation values. If each observation can
+            store more than one value (e.g. wind and temperature at some
+            location), values is 2D with first dimension num_obs and variable
+            second dimension of lengths obs_dims.
+        coords (ndarray): n-dimensional array of locations associated with
             each observation. For example, 2D if only x and y coordinates, 3D
             if x, y, and z, etc.
+        time_indices (ndarray): Array of indices in data generator object
+            time_dim from which observations were made. Default is None.
+        location_indices (ndarray): Array of indices in data generator object
+            values from which observations were made. Default is None.
         errors (array): 1d array of errors associated with each observation
         error_dist (str): String describing error distribution (e.g. Gaussian)
         times (array): 1d array of times associated with each observation
@@ -24,25 +35,76 @@ class ObsVector(_vector._Vector):
             Default is False (store as numpy).
         """
     def __init__(self,
-                 obs_dim=None,
+                 num_obs=None,
+                 obs_dims=None,
                  error_dist=None,
                  values=None,
                  coords=None,
+                 time_indices=None,
+                 location_indices=None,
                  errors=None,
                  times=None,
                  store_as_jax=False,
                  **kwargs):
 
-        self.obs_dim = obs_dim
+        self.num_obs = num_obs
         self.error_dist = error_dist
+        self.time_indices = time_indices
+        self.location_indices = location_indices
 
         super().__init__(times=times,
                          store_as_jax=store_as_jax,
-                         values=values,
                          **kwargs)
+
+        self.values = values
+
+        # Calculate/check obs_dims
+        if self.values is not None:
+            self._calc_obs_dims()
+            # Check user provided obs_dims
+            if obs_dims is not None:
+                if not np.array_equal(obs_dims, self.obs_dims):
+                    warnings.warn('obs_dims {} does not match dimensions of '
+                                  ' values {}.\n Proceeding with obs_dims '
+                                  'calculated based on values..'.format(
+                                      obs_dims, self.obs_dims))
+        else:
+            self.obs_dims = obs_dims
 
         self.coords = coords
         self.errors = errors
+
+    @property
+    def values(self):
+        return self._values
+
+    @values.setter
+    def values(self, vals):
+        if vals is None:
+            self._values = None
+        else:
+            if self.store_as_jax:
+                self._values = jnp.asarray(vals)
+            else:
+                self._values = np.asarray(vals)
+            self.num_obs = self._values.shape[0]
+            self._calc_obs_dims()
+
+    @values.deleter
+    def values(self):
+        del self._values
+
+    def _calc_obs_dims(self):
+        """Private helper method for calculating obs_dims"""
+        if self.values.dtype is np.dtype('O'):
+            self.obs_dims = np.array([v.shape[0] for
+                                      v in self.values])
+        elif len(self.values.shape) == 1:
+            self.obs_dims = np.repeat(1, self.values.shape[0])
+        else:
+            self.obs_dims = np.repeat(
+                    self.values.shape[1],
+                    self.values.shape[0])
 
     @property
     def coords(self):
@@ -123,8 +185,6 @@ class ObsVector(_vector._Vector):
                 new_vec.errors = new_vec.errors[filtered_idx]
             if new_vec.coords is not None:
                 new_vec.coords = new_vec.coords[filtered_idx]
-
-        new_vec.obs_dim = new_vec.values.shape[0]
 
         return new_vec
 

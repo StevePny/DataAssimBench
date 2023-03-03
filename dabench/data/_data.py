@@ -49,7 +49,7 @@ class Data():
         self._x0 = x0
 
         if original_dim is None:
-            self.original_dim = (system_dim)
+            self.original_dim = (system_dim,)
         else:
             self.original_dim = original_dim
 
