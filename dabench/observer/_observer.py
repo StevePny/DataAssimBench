@@ -76,6 +76,58 @@ class Observer():
         self.error_positive_only = error_positive_only
         self.random_seed = random_seed
 
+    def _generate_time_indices(self, rng):
+        self.time_indices = np.where(
+                rng.binomial(1, p=self.time_density,
+                             size=self.data_obj.time_dim
+                             ).astype('bool')
+                )[0]
+
+    def _generate_stationary_indices(self, rng):
+        self.location_indices = np.where(
+                rng.binomial(1, p=self.location_density,
+                             size=self.data_obj.system_dim
+                             ).astype('bool')
+                )[0]
+
+    def _generate_nonstationary_indices(self, rng):
+        self.location_indices = np.array([
+                np.where(
+                    rng.binomial(1, p=self.location_density,
+                                 size=self.data_obj.system_dim
+                                 ).astype('bool'))[0]
+                for i in range(self.time_indices.shape[0])
+                ], dtype=object)
+
+    def _sample_stationary(self, errors_vector, sample_in_system_dim):
+        if sample_in_system_dim:
+            values_vector = (
+                self.data_obj.values[self.time_indices][
+                    :, self.location_indices]
+                + errors_vector)
+        else:
+            # If sampling in gridded dimensions, need tuple for indexing
+            tupled_inds = tuple(self.location_indices[:, i] for i in
+                                range(self.location_indices.shape[1]))
+            values_vector = np.array([
+                self.data_obj.values_gridded[t][tupled_inds] for t in
+                self.time_indices]) + errors_vector
+        return values_vector
+
+    def _sample_nonstationary(self, errors_vector, sample_in_system_dim):
+        if sample_in_system_dim:
+            values_vector = np.array([
+                (self.data_obj.values[self.time_indices[i]]
+                    [self.location_indices[i]] + errors_vector[i])
+                for i in range(self.time_dim)], dtype=object)
+        else:
+            values_vector = np.array(
+                [self.data_obj.values_gridded[self.time_indices[i]][
+                    tuple(self.location_indices[i])]
+                 + errors_vector[i] for i in range(self.time_dim)],
+                dtype=object)
+        return values_vector
+
     def observe(self):
         """Generate observations.
 
@@ -89,38 +141,37 @@ class Observer():
                              'self.data_obj.generate() to create data for '
                              'observer')
 
+        # Define random num generator
         rng = np.random.default_rng(self.random_seed)
 
-        # Generate times if they aren't specifieid
+        # Set time indices
         if self.time_indices is None:
-            self.time_indices = np.where(
-                    rng.binomial(1, p=self.time_density,
-                                 size=self.data_obj.time_dim
-                                 ).astype('bool')
-                    )[0]
+            self._generate_time_indices(rng)
+
         self.time_dim = self.time_indices.shape[0]
 
-        # Generate locations if they aren't specified
+        # For stationary observers (default)
         if self.stationary_observers:
+            # Generate location_indices if not specified
             if self.location_indices is None:
-                self.location_indices = np.where(
-                    rng.binomial(1, p=self.location_density,
-                                 size=self.data_obj.system_dim
-                                 ).astype('bool')
-                    )[0]
-            # Check that location_indices are in correct dimensions
-            elif (len(self.location_indices.shape)
-                    not in [1, len(self.data_obj.original_dim)]):
-                raise ValueError('location_indices must be 1D or match\n'
-                                 'self.data_obj.original_dim')
-            self.location_dim = np.repeat(self.location_indices.shape,
-                                          self.time_dim)
+                self._generate_stationary_indices(rng)
 
-            if len(self.location_indices.shape) == 1:
-                errors_vec_size = (self.time_dim,) + (self.location_dim[0],)
+            # Check that location_indices are in correct dimensions
+            if self.location_indices.shape[0] == 0:
+                raise ValueError('location_indices is an empty list')
+            elif len(self.location_indices.shape) == 1:
+                sample_in_system_dim = True
+            elif (self.location_indices.shape[1] ==
+                    len(self.data_obj.original_dim)):
+                sample_in_system_dim = False
             else:
-                errors_vec_size = ((self.time_dim,) +
-                                   tuple(self.location_dim[0]))
+                raise ValueError('location_indices must be 1D or match\n'
+                                 'len(self.data_obj.original_dim)')
+
+            # Generate errors
+            self.location_dim = np.repeat(self.location_indices.shape[0],
+                                          self.time_dim)
+            errors_vec_size = (self.time_dim,) + (self.location_dim[0],)
             errors_vector = rng.normal(loc=self.error_bias,
                                        scale=self.error_sd,
                                        size=errors_vec_size)
@@ -129,32 +180,38 @@ class Observer():
             if self.error_positive_only:
                 errors_vector[errors_vector < 0.] = 0.
 
-            values_vector = (
-                self.data_obj.values[self.time_indices][
-                    :, self.location_indices]
-                + errors_vector)
+            # Get values
+            values_vector = self._sample_stationary(
+                    errors_vector,
+                    sample_in_system_dim)
 
-            # Coords is same across time_dim
+            # Repeat location indices across time_dim for passing to ObsVector
             full_loc_indices = np.array(
                 [self.location_indices] * self.time_dim)
 
         # If NON-stationary observer
         else:
+            # Generate location_indices if not specified
             if self.location_indices is None:
-                self.location_indices = np.array([
-                        np.where(
-                            rng.binomial(1, p=self.location_density,
-                                         size=self.data_obj.system_dim
-                                         ).astype('bool'))[0]
-                        for i in range(self.time_indices.shape[0])
-                        ], dtype=object)
-            elif (len(self.location_indices.shape)
-                    not in [2, 1 + len(self.data_obj.original_dim)]):
+                self._generate_nonstationary_indices(rng)
+
+            # Check that location_indices are in correct dimensions
+            if self.location_indices.shape[0] == 0:
+                raise ValueError('location_indices is an empty list')
+            elif len(self.location_indices[0].shape) == 1:
+                sample_in_system_dim = True
+            elif (self.location_indices[0].shape[1] ==
+                  len(self.data_obj.original_dim)):
+                sample_in_system_dim = False
+            else:
                 raise ValueError('With stationary_observers=False,'
-                                 'location_indices must be 2 or match\n'
-                                 'self.data_obj.original_dim + 1')
+                                 'location_indices must be 1D array of arrays,'
+                                 ' with each element being 1D or matching\n'
+                                 'self.data_obj.original_dim')
             self.location_dim = np.array([a.shape[0] for a in
                                           self.location_indices])
+
+            # Generate errors
             errors_vector = np.array([
                 rng.normal(
                     loc=self.error_bias,
@@ -166,10 +223,12 @@ class Observer():
                 errors_vector = np.array([
                     np.maximum(e, 0.) for e in errors_vector])
 
-            values_vector = np.array([
-                (self.data_obj.values[self.time_indices[i]]
-                    [self.location_indices[i]] + errors_vector[i])
-                for i in range(self.time_dim)], dtype=object)
+            # Get values from generator
+            values_vector = self._sample_nonstationary(
+                    errors_vector,
+                    sample_in_system_dim)
+
+            # For passing to ObsVector
             full_loc_indices = self.location_indices
 
         return ObsVector(values=values_vector,
