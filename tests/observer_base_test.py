@@ -208,3 +208,31 @@ def test_obs_aws():
     assert np.array_equal(obs_vec.errors,
                           np.repeat(5, 219*58).reshape(219, 58))
     assert obs_vec.times[1] == np.datetime64('2020-01-04T18:00:00.000000000')
+
+
+def test_obs_sqgturb():
+    """Tests observer for SQGTurb"""
+    sqg = data.SQGTurb()
+    sqg.generate(n_steps=10)
+
+    obs = observer.Observer(
+        sqg,
+        time_density=0.3,
+        location_density=0.01,
+        error_sd=25.)
+    obs_vec = obs.observe()
+
+    assert obs_vec.values.shape[0] == 2
+    assert obs_vec.num_obs == 2
+    assert obs_vec.times.shape[0] == 2
+    assert obs_vec.time_indices.shape[0] == 2
+    assert np.array_equal(obs_vec.obs_dims, np.repeat(204, 2))
+    assert np.array_equal(obs_vec.location_indices[0, 0],
+                          np.array([0, 0, 61]))
+    assert obs_vec.values[1, 123] == pytest.approx(
+            (sqg.values_gridded[obs_vec.time_indices[1]][
+                tuple(obs_vec.location_indices[1, 123])]
+             + obs_vec.errors[1, 123]))
+    assert obs_vec.values[0, 44] == pytest.approx(2934.9163955098516)
+    assert obs_vec.errors[1, 187] == pytest.approx(-16.501806315409056)
+    assert np.allclose(obs_vec.times, np.array([2700., 9000.]))
