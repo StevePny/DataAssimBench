@@ -99,6 +99,22 @@ class Observer():
                 for i in range(self.time_indices.shape[0])
                 ], dtype=object)
 
+    def _generate_stationary_indices_gridded(self, rng):
+        self.location_indices = np.array(np.where(
+                rng.binomial(1, p=self.location_density,
+                             size=self.data_obj.original_dim
+                             ).astype('bool')
+                )).T
+
+    def _generate_nonstationary_indices_gridded(self, rng):
+        self.location_indices = np.array([
+                np.array(np.where(
+                    rng.binomial(1, p=self.location_density,
+                                 size=self.data_obj.original_dim
+                                 ).astype('bool'))).T
+                for i in range(self.time_indices.shape[0])
+                ], dtype=object)
+
     def _sample_stationary(self, errors_vector, sample_in_system_dim):
         if sample_in_system_dim:
             values_vector = (
@@ -106,12 +122,9 @@ class Observer():
                     :, self.location_indices]
                 + errors_vector)
         else:
-            # If sampling in gridded dimensions, need tuple for indexing
-            tupled_inds = tuple(self.location_indices[:, i] for i in
-                                range(self.location_indices.shape[1]))
             values_vector = np.array([
-                self.data_obj.values_gridded[t][tupled_inds] for t in
-                self.time_indices]) + errors_vector
+                self.data_obj.values_gridded[t][tuple(self.location_indices.T)]
+                for t in self.time_indices]) + errors_vector
         return values_vector
 
     def _sample_nonstationary(self, errors_vector, sample_in_system_dim):
@@ -123,7 +136,7 @@ class Observer():
         else:
             values_vector = np.array(
                 [self.data_obj.values_gridded[self.time_indices[i]][
-                    tuple(self.location_indices[i])]
+                    tuple(self.location_indices[i].T)]
                  + errors_vector[i] for i in range(self.time_dim)],
                 dtype=object)
         return values_vector
@@ -154,7 +167,12 @@ class Observer():
         if self.stationary_observers:
             # Generate location_indices if not specified
             if self.location_indices is None:
-                self._generate_stationary_indices(rng)
+                # Check if data is in spectral or physical space
+                if (hasattr(self.data_obj, 'is_spectral') and
+                        self.data_obj.is_spectral):
+                    self._generate_stationary_indices_gridded(rng)
+                else:
+                    self._generate_stationary_indices(rng)
 
             # Check that location_indices are in correct dimensions
             if self.location_indices.shape[0] == 0:
@@ -193,7 +211,12 @@ class Observer():
         else:
             # Generate location_indices if not specified
             if self.location_indices is None:
-                self._generate_nonstationary_indices(rng)
+                # Check if data is in spectral or physical space
+                if (hasattr(self.data_obj, 'is_spectral') and
+                        self.data_obj.is_spectral):
+                    self._generate_nonstationary_indices_gridded(rng)
+                else:
+                    self._generate_nonstationary_indices(rng)
 
             # Check that location_indices are in correct dimensions
             if self.location_indices.shape[0] == 0:

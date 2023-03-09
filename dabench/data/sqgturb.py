@@ -76,6 +76,8 @@ class SQGTurb(_data.Data):
         tstart (float): initialize time counter
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        is_spectral (bool): Attribute to track which generators store values
+            in spectral space. Is automatically set to True for SQGTurb.
     """
 
     def __init__(self,
@@ -103,6 +105,9 @@ class SQGTurb(_data.Data):
                  store_as_jax=False,
                  **kwargs,
                  ):
+
+        # Attribute to track which generators store spectral values by default
+        self.is_spectral = True
 
         super().__init__(system_dim=system_dim, input_dim=input_dim,
                          output_dim=output_dim, time_dim=time_dim,
