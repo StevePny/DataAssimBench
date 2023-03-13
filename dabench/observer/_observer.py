@@ -132,7 +132,7 @@ class Observer():
                     size=self.random_location_count,
                     replace=False,
                     shuffle=False)
-                for i in range(self.time_indices.shape[0]))
+                for i in range(self.time_indices.shape[0])])
         else:
             self.location_indices = np.array([
                     np.where(
@@ -147,7 +147,7 @@ class Observer():
             arange_list = [np.arange(n) for n in self.data_obj.original_dim]
             ind_possibilities = np.array(
                 np.meshgrid(*arange_list).T.reshape(
-                    -1, len(self.data_obj.original_dim)
+                    -1, len(self.data_obj.original_dim)))
             self.location_indices = rng.choice(
                     ind_possibilities,
                     size=self.random_location_count,
@@ -165,12 +165,12 @@ class Observer():
             arange_list = [np.arange(n) for n in self.data_obj.original_dim]
             ind_possibilities = np.array(
                 np.meshgrid(*arange_list).T.reshape(
-                    -1, len(self.data_obj.original_dim)
+                    -1, len(self.data_obj.original_dim)))
             self.location_indices = np.array([rng.choice(
                     ind_possibilities,
                     size=self.random_location_count,
                     replace=False,
-                    shuffle=False) for i in range(self.time_indices.shape[0])
+                    shuffle=False) for i in range(self.time_indices.shape[0])])
         else:
             self.location_indices = np.array([
                     np.array(np.where(
