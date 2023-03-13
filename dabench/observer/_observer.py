@@ -98,11 +98,11 @@ class Observer():
 
     def _generate_time_indices(self, rng):
         if self.random_time_count is not None:
-            self.time_indices = rng.choice(
+            self.time_indices = np.sort(rng.choice(
                     self.data_obj.time_dim,
                     size=self.random_time_count,
                     replace=False,
-                    shuffle=False)
+                    shuffle=False))
         else:
             self.time_indices = np.where(
                     rng.binomial(1, p=self.random_time_density,
@@ -146,8 +146,8 @@ class Observer():
         if self.random_location_count is not None:
             arange_list = [np.arange(n) for n in self.data_obj.original_dim]
             ind_possibilities = np.array(
-                np.meshgrid(*arange_list).T.reshape(
-                    -1, len(self.data_obj.original_dim)))
+                np.meshgrid(*arange_list)).T.reshape(
+                    -1, len(self.data_obj.original_dim))
             self.location_indices = rng.choice(
                     ind_possibilities,
                     size=self.random_location_count,
@@ -164,8 +164,8 @@ class Observer():
         if self.random_location_count is not None:
             arange_list = [np.arange(n) for n in self.data_obj.original_dim]
             ind_possibilities = np.array(
-                np.meshgrid(*arange_list).T.reshape(
-                    -1, len(self.data_obj.original_dim)))
+                np.meshgrid(*arange_list)).T.reshape(
+                    -1, len(self.data_obj.original_dim))
             self.location_indices = np.array([rng.choice(
                     ind_possibilities,
                     size=self.random_location_count,
