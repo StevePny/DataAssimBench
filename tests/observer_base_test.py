@@ -14,8 +14,8 @@ def test_obs_l63():
 
     obs = observer.Observer(
             l63,
-            time_density=0.5,
-            location_density=0.5,
+            random_time_density=0.5,
+            random_location_density=0.5,
             error_sd=0.7)
     obs_vec = obs.observe()
 
@@ -38,6 +38,43 @@ def test_obs_l63():
         [0., 0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.09]))
 
 
+def test_obs_l63_count():
+    """Tests observer for Lorenz63 using random_[time/location]_count"""
+    l63 = data.Lorenz63()
+    l63.generate(n_steps=10)
+
+    obs = observer.Observer(
+            l63,
+            random_time_count=5,
+            random_location_count=2,
+            error_sd=0.7)
+    obs_vec = obs.observe()
+
+    assert obs_vec.values.shape[0] == 5
+    assert obs_vec.num_obs == 5
+    assert obs_vec.times.shape[0] == 5
+    assert obs_vec.time_indices.shape[0] == 5
+    assert np.array_equal(obs_vec.obs_dims, np.repeat(2, 5))
+    assert np.array_equal(obs_vec.location_indices,
+                          np.tile([1, 2], 5).reshape((5, 2)))
+    assert obs_vec.values[0, 0] == pytest.approx(
+            l63.values[1, 1] + obs_vec.errors[0, 0])
+    assert np.allclose(obs_vec.values, np.array([
+        [-16.71412359,  23.46140116],
+        [-16.5006219,  24.10746168],
+        [-17.11500315,  27.69793923],
+        [-15.78352562,  29.22759993],
+        [-14.87744996,  31.11579368]]))
+    assert np.allclose(obs_vec.errors, np.array([
+        [-1.22975335,  1.17910212],
+        [-0.32048999, -0.41749407],
+        [-0.73287729,  0.65225442],
+        [0.47248634,  0.87110884],
+        [0.6251612,  0.18410346]]))
+    assert np.array_equal(obs_vec.times, np.array(
+        [0.01, 0.03, 0.05, 0.06, 0.08]))
+
+
 def test_obs_l63_diffseed():
     """Tests observer for Lorenz63 with different seed and no errors"""
 
@@ -46,8 +83,8 @@ def test_obs_l63_diffseed():
 
     obs = observer.Observer(
             l63,
-            time_density=0.5,
-            location_density=0.5,
+            random_time_density=0.5,
+            random_location_density=0.5,
             error_sd=0.0,
             random_seed=1)
     obs_vec = obs.observe()
@@ -108,8 +145,8 @@ def test_obs_l96():
 
     obs = observer.Observer(
             l96,
-            time_density=0.4,
-            location_density=0.2,
+            random_time_density=0.4,
+            random_location_density=0.2,
             error_sd=0.7)
     obs_vec = obs.observe()
 
@@ -138,8 +175,8 @@ def test_obs_l96_moving():
 
     obs = observer.Observer(
             l96,
-            time_density=0.4,
-            location_density=0.3,
+            random_time_density=0.4,
+            random_location_density=0.3,
             error_sd=1.2,
             stationary_observers=False)
     obs_vec = obs.observe()
@@ -164,8 +201,8 @@ def test_obs_pyqg():
 
     obs = observer.Observer(
         pyqg,
-        time_density=0.45,
-        location_density=0.05,
+        random_time_density=0.45,
+        random_location_density=0.05,
         error_sd=1e-5)
     obs_vec = obs.observe()
 
@@ -190,8 +227,8 @@ def test_obs_aws():
 
     obs = observer.Observer(
         aws,
-        time_density=0.025,
-        location_density=0.1,
+        random_time_density=0.025,
+        random_location_density=0.1,
         error_sd=0.0,
         error_bias=5.)
     obs_vec = obs.observe()
@@ -217,8 +254,8 @@ def test_obs_sqgturb():
 
     obs = observer.Observer(
         sqg,
-        time_density=0.3,
-        location_density=0.01,
+        random_time_density=0.3,
+        random_location_density=0.01,
         error_sd=25.)
     obs_vec = obs.observe()
 
