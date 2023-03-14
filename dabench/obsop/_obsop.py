@@ -6,6 +6,7 @@ Input is a StateVector from a Model, returns ObsVector
 import warnings
 
 import numpy as np
+import jax.numpy as jnp
 
 from dabench import vector
 
@@ -59,13 +60,14 @@ class ObsOp():
             else:
                 self.location_indices = self._generate_indices(state_vec)
 
-        if self.location_indices is not None:
-            return np.take(
-                    np.identity(state_vec.system_dim),
-                    self.location_indices,
-                    axis=0)
-        else:
-            return np.identity(state_vec.system_dim)
+        if self.location_indices is None:
+            # Default: all locations
+            self.location_indices = np.arange(state_vec.system_dim)
+
+        return np.take(
+                np.identity(state_vec.system_dim),
+                self.location_indices,
+                axis=0)
 
     def observe(self, state_vec):
         """Generate observations according to ObsOp attributes
@@ -80,6 +82,9 @@ class ObsOp():
         if self.H is None:
             self.H = self._get_H(state_vec)
 
+        if state_vec.store_as_jax:
+            self.H = jnp.array(self.H)
+
         # Apply observation operator
         out_vals = [self.H @ state_vec.values[i]
                     for i in range(state_vec.time_dim)]
@@ -88,5 +93,6 @@ class ObsOp():
                 values=out_vals,
                 times=state_vec.times,
                 time_dim=state_vec.time_dim,
-                location_indices=self.location_indices
+                location_indices=self.location_indices,
+                store_as_jax=state_vec.store_as_jax
                 )
