@@ -80,8 +80,12 @@ class ObsOp():
         if self.H is None:
             self.H = self._get_H(state_vec)
 
-        out_values = self.H * state_vec.values
+        # Apply observation operator
+        out_vals = [self.H @ state_vec.values[i]
+                    for i in range(state_vec.time_dim)]
 
         return ObsVector(
-                values=out_values,
-                times=state_vec.times)
+                values=out_vals,
+                times=state_vec.times,
+                time_dim=state_vec.time_dim
+                )
