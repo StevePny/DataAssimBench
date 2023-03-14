@@ -23,10 +23,16 @@ class _Vector():
                  store_as_jax=False,
                  values=None):
 
-        self.time_dim = time_dim
         self.store_as_jax = store_as_jax
         self.values = values
-        self.times = times
+        if times is None and self.values is not None:
+            self.times = np.arange(self.values.shape[0])
+        else:
+            self.times = times
+        if time_dim is None and self.times is not None:
+            self.time_dim = self.times.shape[0]
+        else:
+            self.time_dim = time_dim
 
     @property
     def values(self):
