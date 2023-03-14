@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from dabench.vector import StateVector, ObsVector
+from dabench import vector
 
 
 class ObsOp():
@@ -84,8 +84,9 @@ class ObsOp():
         out_vals = [self.H @ state_vec.values[i]
                     for i in range(state_vec.time_dim)]
 
-        return ObsVector(
+        return vector.ObsVector(
                 values=out_vals,
                 times=state_vec.times,
-                time_dim=state_vec.time_dim
+                time_dim=state_vec.time_dim,
+                location_indices=self.location_indices
                 )
