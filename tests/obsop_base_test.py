@@ -53,18 +53,6 @@ def obsop_manual_locindices():
 
 
 @pytest.fixture
-def obsop_random_locindices_1():
-    """Defines ObsOp with 1 randomly generated loc indices"""
-    return obsop.ObsOp(random_location_count=1)
-
-
-@pytest.fixture
-def obsop_random_locindices_2():
-    """Defines ObsOp with 2 randomly generated loc indices"""
-    return obsop.ObsOp(random_location_count=2)
-
-
-@pytest.fixture
 def obsop_custom_H():
     """Defines ObsOp with custom H operator"""
     return obsop.ObsOp(
@@ -134,41 +122,6 @@ def test_man_locinds_trajectory(sv_trajectory, obsop_manual_locindices):
     assert np.array_equal(obs_vec.location_indices, np.array([0]))
     assert np.array_equal(obs_vec.values,
                           np.arange(24, step=3, dtype='float').reshape(8, 1))
-    assert isinstance(obs_vec.values, np.ndarray)
-
-
-def test_random_locinds_singlesv(single_sv, obsop_random_locindices_1):
-    """Test randomly generated indices on single timestep"""
-
-    obs_vec = obsop_random_locindices_1.observe(single_sv)
-
-    assert obs_vec.obs_dims == np.array([1])
-    assert obs_vec.time_dim == 1
-    assert np.array_equal(obs_vec.times, np.array([0]))
-    assert np.array_equal(obs_vec.location_indices, np.array([1]))
-    assert np.array_equal(obs_vec.values, np.array([[2.]]))
-    assert isinstance(obs_vec.values, np.ndarray)
-
-
-def test_random_locinds_trajectory(sv_trajectory, obsop_random_locindices_2):
-    """Test randomly generated indices on trajectory"""
-
-    obs_vec = obsop_random_locindices_2.observe(sv_trajectory)
-
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(2, 8))
-    assert obs_vec.time_dim == 8
-    assert np.array_equal(obs_vec.times, np.arange(8))
-    assert np.array_equal(obs_vec.location_indices, np.array([1, 2]))
-    assert np.array_equal(obs_vec.values,
-                          np.array([[1., 2.],
-                                    [4., 5.],
-                                    [7., 8.],
-                                    [10., 11.],
-                                    [13., 14.],
-                                    [16., 17.],
-                                    [19., 20.],
-                                    [22., 23.]])
-                          )
     assert isinstance(obs_vec.values, np.ndarray)
 
 
