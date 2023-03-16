@@ -4,6 +4,7 @@ Input is a StateVector from a Model, returns ObsVector
 """
 
 import warnings
+import inspect
 
 import numpy as np
 import jax.numpy as jnp
@@ -36,7 +37,7 @@ class ObsOp():
         else:
             location_indices = np.arange(state_vec.system_dim)
 
-        out_vals = [state_vec.values[i][location_indices]
+        out_vals = [state_vec.values[i][np.array(location_indices)]
                     for i in range(state_vec.time_dim)]
 
         return vector.ObsVector(
