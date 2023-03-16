@@ -28,8 +28,17 @@ class ObsOp():
         if h is None:
             self.h = self._index_state_vec
         else:
-            self.h = h
+            # Check custom h
+            custom_args = inspect.getargspec(h).args
+            if 'state_vec' not in custom_args or 'obs_vec' not in custom_args:
+                raise ValueError('User-specified h does not accept the '
+                                 'required args for h: "state_vec" and '
+                                 '"obs_vec". \n'
+                                 'Your h accepts: {}'.format(custom_args))
+            else:
+                self.h = h
         self.H = H
+
 
     def _index_state_vec(self, state_vec, obs_vector=None):
         if obs_vector is not None and obs_vector.location_indices is not None:
