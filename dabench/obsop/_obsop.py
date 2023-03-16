@@ -15,55 +15,35 @@ class ObsOp():
     """Base class for ObsOp objects
 
     Attributes:
-        H (ndarray): Observation operator matrix that maps from model to
-            observation. Can be manually specified or generated according to
-            location_indices. If not provided, will be calculated when
-            ObsOp.observe() is run. Default is identity matrix with shape
-            (state_vec.system_dim, state_vec.system_dim).
-        location_indices (ndarray): Indices to gather observations from. If
-            location_indices is provided, will create H. Default is None.
+        h (function): Operator that takes state_vector and existing obs_vector
+            with locations of observations as inputs. Outputs new obs_vector.
+            If not provided, will default to simple indexing of the
+            state_vector. Default is None.
+        H (ndarray): Linearization of operator h. Not currently supported.
     """
     def __init__(self,
-                 H=None,
-                 location_indices=None,
-                 ):
-        self.location_indices = location_indices
+                 h=None,
+                 H=None):
+        if h is None:
+            self.h = self._index_state_vec
+        else:
+            self.h = h
         self.H = H
 
-    def _get_H(self, state_vec):
-        if self.location_indices is None:
-            # Default: all locations
-            self.location_indices = np.arange(state_vec.system_dim)
+    def _index_state_vec(self, state_vec, obs_vector=None):
+        if obs_vector is not None and obs_vector.location_indices is not None:
+            location_indices = obs_vector.location_indices
+        else:
+            location_indices = np.arange(state_vec.system_dim)
 
-        return np.take(
-                np.identity(state_vec.system_dim),
-                self.location_indices,
-                axis=0)
-
-    def observe(self, state_vec):
-        """Generate observations according to ObsOp attributes
-
-        Args:
-            state_vec (dabench.vector.StateVector): StateVector input.
-
-        Returns:
-            Observation vector (dabench.vector.ObsVector).
-        """
-        # Initialize H
-        if self.H is None:
-            self.H = self._get_H(state_vec)
-
-        if state_vec.store_as_jax:
-            self.H = jnp.array(self.H)
-
-        # Apply observation operator
-        out_vals = [self.H @ state_vec.values[i]
+        out_vals = [state_vec.values[i][location_indices]
                     for i in range(state_vec.time_dim)]
 
         return vector.ObsVector(
                 values=out_vals,
                 times=state_vec.times,
                 time_dim=state_vec.time_dim,
-                location_indices=self.location_indices,
+                location_indices=location_indices,
                 store_as_jax=state_vec.store_as_jax
                 )
+
