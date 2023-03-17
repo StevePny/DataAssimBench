@@ -24,6 +24,8 @@ class StateVector(_vector._Vector):
             Default is False (store as numpy).
         values (ndarray): 2d array of data (time_dim, system_dim). Default is
             None.
+        times (array): 1D array of times associated with each state. If not
+            provided, will be set to np.arange(time_dim). Default is None.
         xi (ndarray): Most recent state of the system. Default is None.
         """
 
@@ -34,6 +36,7 @@ class StateVector(_vector._Vector):
                  delta_t=None,
                  store_as_jax=False,
                  values=None,
+                 times=None,
                  **kwargs):
         self._xi = None
         self.system_dim = system_dim
@@ -46,6 +49,7 @@ class StateVector(_vector._Vector):
         super().__init__(time_dim=time_dim,
                          store_as_jax=store_as_jax,
                          values=values,
+                         times=times,
                          **kwargs)
 
     def __str__(self):
