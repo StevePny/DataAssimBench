@@ -4,11 +4,6 @@ Wrapper around user-specified model. The user must define a sub-class that
     inherits from dabench.model.Model, with an forecast() method.
 """
 
-import numpy as np
-import jax.numpy as jnp
-
-from dabench import vector
-
 
 class Model():
     """Base class for Model object
@@ -35,7 +30,6 @@ class Model():
         if not callable(forecast_method):
             raise ValueError('Model object does not have a defined forecast() '
                              'method.')
-
 
     def _default_forecast(self, state_vec, timesteps=1, other_inputs=None):
         """Default method for forecasting"""
