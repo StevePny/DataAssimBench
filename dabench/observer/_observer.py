@@ -326,5 +326,7 @@ class Observer():
                          obs_dims=self.location_dim,
                          num_obs=values_vector.shape[0],
                          errors=errors_vector,
-                         error_dist='normal'
+                         error_dist='normal',
+                         error_sd=self.error_sd,
+                         error_bias=self.error_bias
                          )

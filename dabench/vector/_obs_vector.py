@@ -32,6 +32,8 @@ class ObsVector(_vector._Vector):
         error_dist (str): String describing error distribution (e.g. Gaussian)
         error_sd (float): If applicable, standard deviation of Gaussian dist
             from which errors were sampled. Default is None.
+        error_bias (float): If applicable,mean of Gaussian dist from which
+            errors were sampled. Default is None.
         times (array): 1d array of times associated with each observation
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
@@ -46,6 +48,7 @@ class ObsVector(_vector._Vector):
                  location_indices=None,
                  errors=None,
                  error_sd=None,
+                 error_bias=None,
                  times=None,
                  store_as_jax=False,
                  **kwargs):
@@ -53,6 +56,7 @@ class ObsVector(_vector._Vector):
         self.num_obs = num_obs
         self.error_dist = error_dist
         self.error_sd = error_sd
+        self.error_bias = error_bias
         self.time_indices = time_indices
         self.location_indices = location_indices
 
