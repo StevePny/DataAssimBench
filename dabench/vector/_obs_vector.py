@@ -30,6 +30,8 @@ class ObsVector(_vector._Vector):
             values from which observations were made. Default is None.
         errors (array): 1d array of errors associated with each observation
         error_dist (str): String describing error distribution (e.g. Gaussian)
+        error_sd (float): If applicable, standard deviation of Gaussian dist
+            from which errors were sampled. Default is None.
         times (array): 1d array of times associated with each observation
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
@@ -43,12 +45,14 @@ class ObsVector(_vector._Vector):
                  time_indices=None,
                  location_indices=None,
                  errors=None,
+                 error_sd=None,
                  times=None,
                  store_as_jax=False,
                  **kwargs):
 
         self.num_obs = num_obs
         self.error_dist = error_dist
+        self.error_sd = error_sd
         self.time_indices = time_indices
         self.location_indices = location_indices
 
@@ -169,6 +173,7 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times > start
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            new_vec.location_indices = new_vec.location_indices[filtered_idx]
             if new_vec.errors is not None:
                 new_vec.errors = new_vec.errors[filtered_idx]
             if new_vec.coords is not None:
@@ -181,6 +186,7 @@ class ObsVector(_vector._Vector):
                 filtered_idx = new_vec.times < end
             new_vec.times = new_vec.times[filtered_idx]
             new_vec.values = new_vec.values[filtered_idx]
+            new_vec.location_indices = new_vec.location_indices[filtered_idx]
             if new_vec.errors is not None:
                 new_vec.errors = new_vec.errors[filtered_idx]
             if new_vec.coords is not None:
