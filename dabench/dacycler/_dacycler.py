@@ -11,6 +11,8 @@ class DACycler():
         model_obj (obj): underlying model object, e.g. pytorch neural network.
     """
     def __init__(self,
+                 system_dim=None,
+                 delta_t=None,
                  start_time=0,
                  end_time=None,
                  num_cycles=1,
@@ -28,20 +30,5 @@ class DACycler():
                  ):
 
         self.system_dim = system_dim
-        self.time_dim = time_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
-
-        # Check that forecast is a defined method
-        forecast_method = getattr(self, 'forecast', None)
-        if not callable(forecast_method):
-            raise ValueError('Model object does not have a defined forecast() '
-                             'method.')
-
-    def _default_forecast(self, state_vec, timesteps=1, other_inputs=None):
-        """Default method for forecasting"""
-        new_state_vec = state_vec
-        for i in range(timesteps):
-            new_state_vec = self.model_obj.predict(new_state_vec)
-
-        return new_state_vec
