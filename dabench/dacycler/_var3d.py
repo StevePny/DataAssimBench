@@ -38,7 +38,7 @@ class Var3D(dacycler.DACycler):
                          delta_t=delta_t,
                          model_obj=model_obj)
 
-    def cycle(self, xb, yo, H=None, h=None, R=None, B=None):
+    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:
             return self._cycle_linear_obsop(xb, yo, H, R, B)
         else:
@@ -102,5 +102,5 @@ class Var3D(dacycler.DACycler):
 
         return vector.StateVector(values=xa), KH
 
-    def forecast(self, xa):
+    def step_forecast(self, xa):
         return self.model_obj.forecast(xa)
