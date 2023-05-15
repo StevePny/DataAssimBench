@@ -1,7 +1,7 @@
 """Class for Ensemble Transform Kalman Filter (ETKF) DA Class"""
 
 import numpy as np
-from scipy import sparse
+from scipy import sparse, linalg
 
 from dabench import dacycler, vector
 
@@ -93,9 +93,9 @@ class ETKF(dacycler.DACycler):
 
         Xbt = model_forecast
         nr, nc = Xbt.shape
-        assert (nr == self.ensemble_dimension,
+        assert (nr == self.ensemble_dim,
                 'cycle:: model_forecast must have dimension {}x{}'.format(
-                    self.ensemble_dim,'system_dimension')
+                    self.ensemble_dim, self.system_dim)
                 )
 
         # Analysis cycles over all obs in data_obs
@@ -105,7 +105,7 @@ class ETKF(dacycler.DACycler):
                                     R=self.R,
                                     rho=self.multiplicative_inflation)
 
-        Xa = self.datoolkit.compute_analysis(Xb=Xbt.T,  # forecast ensemble (system_dimension x ensemble_dimension)
+        Xa = self.datoolkit.compute_analysis(Xb=Xbt.T,  # forecast ensemble (system_dim x ensemble_dim)
                                              y=self.data_obs.values[i],   # observations for this time
                                              H=self.H,                            # observation operator
                                              R=self.R,                            # observation error covariance
@@ -127,3 +127,99 @@ class ETKF(dacycler.DACycler):
 
         return np.stack(data_forecast)
           
+
+    def _compute_analysis(self, Xb, y, H, R, rho=1.0, Yb=None):
+        """ETKF analysis algorithm
+
+        Args:
+          Xb (ndarray): Forecast/background ensemble with shape
+            (system_dim, ensemble_dim).
+          y (ndarray): Observation array with shape (observation_dim,)
+          H (ndarray): Observation operator with shape (observation_dim,
+            system_dim).
+          R (ndarray): Observation error covariance matrix with shape
+            (observation_dim, observation_dim)
+          rho (float): Multiplicative inflation factor. Default=1.0,
+            (i.e. no inflation)
+
+        Returns:
+          Xa (ndarray): Analysis ensemble [size: (system_dim, ensemble_dim)]
+        """
+
+        # Input checks
+        assert isinstance(Xb,np.ndarray), 'observation vector Xb must be an ndarray, instead type(Xb) = {}'.format(type(Xb))
+        assert isinstance(y,np.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
+        assert isinstance(H,np.ndarray), 'observation vector H must be an ndarray, instead type(H) = {}'.format(type(H))
+        assert isinstance(R,np.ndarray), 'observation vector R must be an ndarray, instead type(R) = {}'.format(type(R))
+
+        # Number of state variables, ensemble members and observations
+        system_dim, ensemble_dim    = Xb.shape
+        observation_dim, system_dim = H.shape
+
+        # Auxiliary matrices that will ease the computation of averages and covariances
+        U = np.ones((ensemble_dim, ensemble_dim))/ensemble_dim
+        I = np.identity(ensemble_dim)
+
+        # The ensemble is inflated (rho=1.0 is no inflation)
+        #ISSUE: this can be applied with a single multiply below - see Hunt et al. (2007)
+        Xb_pert = Xb @ (I-U)
+        Xb = Xb_pert + Xb @ U
+
+        # Ensemble Transform Kalman Filter
+        # Initialize the ensemble in observation space
+        if Yb is None:
+            Yb = np.mat(np.empty((observation_dim, ensemble_dim)))
+            Yb.fill(np.nan)
+
+            # Map every ensemble member into observation space
+            try:
+                Yb = H @ Xb
+            except:
+                print('Yb.shape = {}, H.shape = {}, Xb.shape = {}'.format(Yb.shape,H.shape,Xb.shape))
+                raise
+
+        # Get ensemble means and perturbations
+        xb_bar = np.mean(Xb,  axis=1)
+        Xb_pert = Xb @ (I-U)
+
+        yb_bar = np.mean(Yb, axis=1)
+        Yb_pert = Yb @ (I-U)
+
+        # Compute the analysis
+        # Only do this part if we have observations on this chunk (parallel case)
+        if len(R) > 0:
+            Rinv = linalg.pinv(R)
+
+            Pa_ens = linalg.pinv((ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert)
+            Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)  # matrix square root (symmetric)
+            Wa = np.real_if_close(Wa)
+        else:
+            Rinv = np.zeros_like(R,dtype=R.dtype)
+            Pa_ens = np.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
+            Wa = np.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
+
+        try:
+            wa = Pa_ens @ Yb_pert.T @ Rinv @ (y-yb_bar)
+        except:
+            print('Pa_ens.shape = {}, Yb_pert.shape = {} Rinv.shape = {}, y.shape = {}, yb_bar.shape = {}'.format(Pa_ens.shape, Yb_pert.shape, Rinv.shape, y.shape, yb_bar.shape))
+            print('If y.shape is incorrect, make sure that the S operator is defined correctly at input.')
+            raise
+
+        Xa_pert = Xb_pert @ Wa
+
+        try:
+            xa_bar = xb_bar + np.ravel(Xb_pert @ wa)
+        except:
+            print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
+            raise
+
+        v = np.ones((1, ensemble_dim))
+        try:
+            Xa = Xa_pert + xa_bar[:, None] @ v
+        except:
+            print('Xa_pert.shape = {}, xa_bar.shape = {} v.shape = {}'.format(Xa_pert.shape,xa_bar.shape,v.shape))
+            print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
+            raise
+
+        return Xa
+
