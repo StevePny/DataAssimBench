@@ -32,6 +32,7 @@ class DACycler():
                  **kwargs
                  ):
 
+        self.ensemble = ensemble
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
