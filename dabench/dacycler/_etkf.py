@@ -16,6 +16,7 @@ class ETKF(dacycler.DACycler):
                  ensemble_dim=4,
                  delta_t=None,
                  model_obj=None,
+                 truth_obj=None,
                  start_time=0,
                  end_time=None,
                  num_cycles=1,
@@ -40,16 +41,19 @@ class ETKF(dacycler.DACycler):
         self.x0_pred = x0_pred
         self.ensemble_dim = ensemble_dim
         self._rng = np.random.default_rng(random_seed)
-        if self.x0_pred is None:
-            self.x0_pred = (self.model_obj.x0
-                            + self._rng.normal(self.ensemble_dim,
-                                               self.system_dim)
-                            )
+        self.multiplicative_inflation = multiplicative_inflation
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
+                         truth_obj=truth_obj,
                          ensemble_dim=ensemble_dim)
+
+        if self.x0_pred is None:
+            self.x0_pred = (self.truth_obj.x0
+                            + self._rng.normal(size=(self.ensemble_dim,
+                                                     self.system_dim))
+                            )
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:
@@ -91,7 +95,7 @@ class ETKF(dacycler.DACycler):
             else:
                 B = self.B
 
-        Xbt = model_forecast
+        Xbt = model_forecast.values
         nr, nc = Xbt.shape
         assert (nr == self.ensemble_dim,
                 'cycle:: model_forecast must have dimension {}x{}'.format(
@@ -101,32 +105,24 @@ class ETKF(dacycler.DACycler):
         # Analysis cycles over all obs in data_obs
         Xa = self._compute_analysis(Xb=Xbt.T,
                                     y=obs_vec,
-                                    H=self.H,
-                                    R=self.R,
+                                    H=H,
+                                    R=R,
                                     rho=self.multiplicative_inflation)
 
-        Xa = self.datoolkit.compute_analysis(Xb=Xbt.T,  # forecast ensemble (system_dim x ensemble_dim)
-                                             y=self.data_obs.values[i],   # observations for this time
-                                             H=self.H,                            # observation operator
-                                             R=self.R,                            # observation error covariance
-                                             rho=self.multiplicative_inflation)   # multiplicative inflation parameter
         Xat = Xa.T
 
-        # Generate an ensemble forecast
-        # Output is [ens, time, system]
-        ens_fcst = self.step_forecast(np.array(Xat)) 
+        return vector.StateVector(values=Xat), 0
 
-        # Take the next cycle's background as the last timestep of the forecast
-        Xbt = ens_fcst[:, -1, :]
 
     def step_forecast(self, xa):
         data_forecast = []
         for i in range(self.ensemble_dim):
-            self.model_obj.forecast(x0=xa[i])
-            data_forecast.append(self.model_obj.values)
+            new_vals = self.model_obj.forecast(
+                    vector.StateVector(values=xa.values[i])
+                    ).values
+            data_forecast.append(new_vals)
 
-        return np.stack(data_forecast)
-          
+        return vector.StateVector(values=np.stack(data_forecast))
 
     def _compute_analysis(self, Xb, y, H, R, rho=1.0, Yb=None):
         """ETKF analysis algorithm
@@ -146,9 +142,10 @@ class ETKF(dacycler.DACycler):
           Xa (ndarray): Analysis ensemble [size: (system_dim, ensemble_dim)]
         """
 
+        y = y.values
         # Input checks
         assert isinstance(Xb,np.ndarray), 'observation vector Xb must be an ndarray, instead type(Xb) = {}'.format(type(Xb))
-        assert isinstance(y,np.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
+        assert isinstance(y, np.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
         assert isinstance(H,np.ndarray), 'observation vector H must be an ndarray, instead type(H) = {}'.format(type(H))
         assert isinstance(R,np.ndarray), 'observation vector R must be an ndarray, instead type(R) = {}'.format(type(R))
 
@@ -199,7 +196,7 @@ class ETKF(dacycler.DACycler):
             Wa = np.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
 
         try:
-            wa = Pa_ens @ Yb_pert.T @ Rinv @ (y-yb_bar)
+            wa = Pa_ens @ Yb_pert.T @ Rinv @ (y.flatten()-yb_bar)
         except:
             print('Pa_ens.shape = {}, Yb_pert.shape = {} Rinv.shape = {}, y.shape = {}, yb_bar.shape = {}'.format(Pa_ens.shape, Yb_pert.shape, Rinv.shape, y.shape, yb_bar.shape))
             print('If y.shape is incorrect, make sure that the S operator is defined correctly at input.')

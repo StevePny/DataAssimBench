@@ -29,6 +29,7 @@ class DACycler():
                  B_matrix=None,
                  R_matrix=None,
                  model_obj=None,
+                 truth_obj=None,
                  **kwargs
                  ):
 
@@ -36,6 +37,7 @@ class DACycler():
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
+        self.truth_obj = truth_obj
 
     def cycle(self,
               input_state,
