@@ -1,7 +1,8 @@
 """Class for 3D Var Data Assimilation Cycler object"""
 
 import numpy as np
-from scipy import sparse
+import jax.numpy as jnp
+import jax.scipy as jscipy
 
 from dabench import dacycler, vector
 
@@ -12,7 +13,6 @@ class Var3D(dacycler.DACycler):
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 forecast_model=None,
                  start_time=0,
                  end_time=None,
                  num_cycles=1,
@@ -45,15 +45,16 @@ class Var3D(dacycler.DACycler):
             return self._cycle_general_obsop(xb, yo, h, R, B)
 
     def _calc_default_H(self, obs_vec):
-        H = np.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
-        H[np.arange(H.shape[0]), obs_vec.location_indices.flatten()] = 1
+        H = jnp.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
+        H = H.at[jnp.arange(H.shape[0]), obs_vec.location_indices.flatten()
+                 ].set(1)
         return H
 
     def _calc_default_R(self, obs_vec):
-        return np.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd
+        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd
 
     def _calc_default_B(self):
-        return np.identity(self.system_dim)
+        return jnp.identity(self.system_dim)
 
     def _cycle_general_obsop(self, forecast, obs_vec):
         # make inputs column vectors
@@ -79,28 +80,29 @@ class Var3D(dacycler.DACycler):
                 B = self.B
 
         # make inputs column vectors
-        xb = np.matrix(forecast.values).flatten().T
-        yo = np.matrix(obs_vec.values).flatten().T
+        xb = jnp.array([forecast.values.flatten()]).T
+        yo = jnp.array([obs_vec.values.flatten()]).T
 
         # Set parameters
         xdim = xb.size  # Size or get one of the shape params?
-        Rinv = np.linalg.inv(R)
+        Rinv = jnp.linalg.inv(R)
 
         # 'preconditioning with B'
-        I = np.identity(xdim)
-        BHt = np.dot(B, H.T)
-        BHtRinv = np.dot(BHt, Rinv)
-        A = I + np.dot(BHtRinv, H)
-        b1 = xb + np.dot(BHtRinv, yo)
+        I = jnp.identity(xdim)
+        BHt = jnp.dot(B, H.T)
+        BHtRinv = jnp.dot(BHt, Rinv)
+        A = I + jnp.dot(BHtRinv, H)
+        b1 = xb + jnp.dot(BHtRinv, yo)
 
         # Use minimization algorithm to minimize cost function:
-        xa, ierr = sparse.linalg.cg(A, b1, x0=xb, tol=1e-05, maxiter=1000)
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
+                                           maxiter=1000)
 
         # Compute KH:
-        HBHtPlusR_inv = np.linalg.inv(H @  BHt + R)
+        HBHtPlusR_inv = jnp.linalg.inv(H @  BHt + R)
         KH = BHt @ HBHtPlusR_inv @ H
 
-        return vector.StateVector(values=xa), KH
+        return vector.StateVector(values=xa, store_as_jax=True), KH
 
     def step_forecast(self, xa):
         return self.forecast_model.forecast(xa)
