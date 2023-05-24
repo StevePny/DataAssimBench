@@ -26,9 +26,6 @@ class DACycler():
                  observation_window=None,
                  observations=None,
                  forecast_model=None,
-                 B_matrix=None,
-                 R_matrix=None,
-                 model_obj=None,
                  truth_obj=None,
                  **kwargs
                  ):
@@ -36,7 +33,7 @@ class DACycler():
         self.ensemble = ensemble
         self.system_dim = system_dim
         self.delta_t = delta_t
-        self.model_obj = model_obj
+        self.forecast_model = forecast_model
         self.truth_obj = truth_obj
 
     def cycle(self,

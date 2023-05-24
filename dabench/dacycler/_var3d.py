@@ -12,7 +12,7 @@ class Var3D(dacycler.DACycler):
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 model_obj=None,
+                 forecast_model=None,
                  start_time=0,
                  end_time=None,
                  num_cycles=1,
@@ -36,7 +36,7 @@ class Var3D(dacycler.DACycler):
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         model_obj=model_obj)
+                         forecast_model=forecast_model)
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:
@@ -55,12 +55,12 @@ class Var3D(dacycler.DACycler):
     def _calc_default_B(self):
         return np.identity(self.system_dim)
 
-    def _cycle_general_obsop(self, model_forecast, obs_vec):
+    def _cycle_general_obsop(self, forecast, obs_vec):
         # make inputs column vectors
-        xb = model_forecast.flatten().T
+        xb = forecast.flatten().T
         yo = obs_vec.values.flatten().T
 
-    def _cycle_linear_obsop(self, model_forecast, obs_vec, H=None, R=None,
+    def _cycle_linear_obsop(self, forecast, obs_vec, H=None, R=None,
                             B=None):
         if H is None:
             if self.H is None:
@@ -79,7 +79,7 @@ class Var3D(dacycler.DACycler):
                 B = self.B
 
         # make inputs column vectors
-        xb = np.matrix(model_forecast.values).flatten().T
+        xb = np.matrix(forecast.values).flatten().T
         yo = np.matrix(obs_vec.values).flatten().T
 
         # Set parameters
@@ -103,4 +103,4 @@ class Var3D(dacycler.DACycler):
         return vector.StateVector(values=xa), KH
 
     def step_forecast(self, xa):
-        return self.model_obj.forecast(xa)
+        return self.forecast_model.forecast(xa)
