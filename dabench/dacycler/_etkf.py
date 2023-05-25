@@ -1,7 +1,8 @@
 """Class for Ensemble Transform Kalman Filter (ETKF) DA Class"""
 
 import numpy as np
-from scipy import sparse, linalg
+import jax.numpy as jnp
+from jax.scipy import linalg
 
 from dabench import dacycler, vector
 
@@ -15,7 +16,7 @@ class ETKF(dacycler.DACycler):
                  ensemble=True,
                  ensemble_dim=4,
                  delta_t=None,
-                 model_obj=None,
+                 forecast_model=None,
                  truth_obj=None,
                  start_time=0,
                  end_time=None,
@@ -25,7 +26,6 @@ class ETKF(dacycler.DACycler):
                  analysis_window=None,
                  observation_window=None,
                  observations=None,
-                 forecast_model=None,
                  multiplicative_inflation=1.0,
                  B=None,
                  R=None,
@@ -45,7 +45,7 @@ class ETKF(dacycler.DACycler):
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         model_obj=model_obj,
+                         forecast_model=forecast_model,
                          truth_obj=truth_obj,
                          ensemble_dim=ensemble_dim)
 
@@ -62,15 +62,16 @@ class ETKF(dacycler.DACycler):
             return self._cycle_general_obsop(xb, yo, h, R, B)
 
     def _calc_default_H(self, obs_vec):
-        H = np.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
-        H[np.arange(H.shape[0]), obs_vec.location_indices.flatten()] = 1
+        H = jnp.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
+        H = H.at[jnp.arange(H.shape[0]), obs_vec.location_indices.flatten()
+                 ].set(1)
         return H
 
     def _calc_default_R(self, obs_vec):
-        return np.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd
+        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd
 
     def _calc_default_B(self):
-        return np.identity(self.system_dim)
+        return jnp.identity(self.system_dim)
 
     def _cycle_general_obsop(self, model_forecast, obs_vec):
         # make inputs column vectors
@@ -97,10 +98,10 @@ class ETKF(dacycler.DACycler):
 
         Xbt = model_forecast.values
         nr, nc = Xbt.shape
-        assert (nr == self.ensemble_dim,
-                'cycle:: model_forecast must have dimension {}x{}'.format(
+        assert nr == self.ensemble_dim, (
+                'cycle:: model_forecast must have dimension {}x{}').format(
                     self.ensemble_dim, self.system_dim)
-                )
+                
 
         # Analysis cycles over all obs in data_obs
         Xa = self._compute_analysis(Xb=Xbt.T,
@@ -111,18 +112,18 @@ class ETKF(dacycler.DACycler):
 
         Xat = Xa.T
 
-        return vector.StateVector(values=Xat), 0
+        return vector.StateVector(values=Xat, store_as_jax=True), 0
 
 
     def step_forecast(self, xa):
         data_forecast = []
         for i in range(self.ensemble_dim):
-            new_vals = self.model_obj.forecast(
-                    vector.StateVector(values=xa.values[i])
+            new_vals = self.forecast_model.forecast(
+                    vector.StateVector(values=xa.values[i], store_as_jax=True)
                     ).values
             data_forecast.append(new_vals)
 
-        return vector.StateVector(values=np.stack(data_forecast))
+        return vector.StateVector(values=jnp.stack(data_forecast), store_as_jax=True)
 
     def _compute_analysis(self, Xb, y, H, R, rho=1.0, Yb=None):
         """ETKF analysis algorithm
@@ -144,18 +145,18 @@ class ETKF(dacycler.DACycler):
 
         y = y.values
         # Input checks
-        assert isinstance(Xb,np.ndarray), 'observation vector Xb must be an ndarray, instead type(Xb) = {}'.format(type(Xb))
-        assert isinstance(y, np.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
-        assert isinstance(H,np.ndarray), 'observation vector H must be an ndarray, instead type(H) = {}'.format(type(H))
-        assert isinstance(R,np.ndarray), 'observation vector R must be an ndarray, instead type(R) = {}'.format(type(R))
+        assert isinstance(Xb, jnp.ndarray), 'observation vector Xb must be an ndarray, instead type(Xb) = {}'.format(type(Xb))
+        assert isinstance(y, jnp.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
+        assert isinstance(H, jnp.ndarray), 'observation vector H must be an ndarray, instead type(H) = {}'.format(type(H))
+        assert isinstance(R, jnp.ndarray), 'observation vector R must be an ndarray, instead type(R) = {}'.format(type(R))
 
         # Number of state variables, ensemble members and observations
-        system_dim, ensemble_dim    = Xb.shape
+        system_dim, ensemble_dim = Xb.shape
         observation_dim, system_dim = H.shape
 
         # Auxiliary matrices that will ease the computation of averages and covariances
-        U = np.ones((ensemble_dim, ensemble_dim))/ensemble_dim
-        I = np.identity(ensemble_dim)
+        U = jnp.ones((ensemble_dim, ensemble_dim))/ensemble_dim
+        I = jnp.identity(ensemble_dim)
 
         # The ensemble is inflated (rho=1.0 is no inflation)
         #ISSUE: this can be applied with a single multiply below - see Hunt et al. (2007)
@@ -165,8 +166,8 @@ class ETKF(dacycler.DACycler):
         # Ensemble Transform Kalman Filter
         # Initialize the ensemble in observation space
         if Yb is None:
-            Yb = np.mat(np.empty((observation_dim, ensemble_dim)))
-            Yb.fill(np.nan)
+            Yb = jnp.empty((observation_dim, ensemble_dim))
+            # Yb.fill(jnp.nan) # Commenting out on 5/24, don't think this is needed
 
             # Map every ensemble member into observation space
             try:
@@ -176,24 +177,25 @@ class ETKF(dacycler.DACycler):
                 raise
 
         # Get ensemble means and perturbations
-        xb_bar = np.mean(Xb,  axis=1)
+        xb_bar = jnp.mean(Xb,  axis=1)
         Xb_pert = Xb @ (I-U)
 
-        yb_bar = np.mean(Yb, axis=1)
+        yb_bar = jnp.mean(Yb, axis=1)
         Yb_pert = Yb @ (I-U)
 
         # Compute the analysis
         # Only do this part if we have observations on this chunk (parallel case)
         if len(R) > 0:
-            Rinv = linalg.pinv(R)
+            Rinv = jnp.linalg.pinv(R, rcond=1e-15)
 
-            Pa_ens = linalg.pinv((ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert)
+            Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert,
+                                     rcond=1e-15)
             Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)  # matrix square root (symmetric)
             Wa = np.real_if_close(Wa)
         else:
-            Rinv = np.zeros_like(R,dtype=R.dtype)
-            Pa_ens = np.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
-            Wa = np.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
+            Rinv = jnp.zeros_like(R,dtype=R.dtype)
+            Pa_ens = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
+            Wa = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
 
         try:
             wa = Pa_ens @ Yb_pert.T @ Rinv @ (y.flatten()-yb_bar)
@@ -205,12 +207,12 @@ class ETKF(dacycler.DACycler):
         Xa_pert = Xb_pert @ Wa
 
         try:
-            xa_bar = xb_bar + np.ravel(Xb_pert @ wa)
+            xa_bar = xb_bar + jnp.ravel(Xb_pert @ wa)
         except:
             print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
             raise
 
-        v = np.ones((1, ensemble_dim))
+        v = jnp.ones((1, ensemble_dim))
         try:
             Xa = Xa_pert + xa_bar[:, None] @ v
         except:
