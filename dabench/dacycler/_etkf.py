@@ -144,11 +144,6 @@ class ETKF(dacycler.DACycler):
         """
 
         y = y.values
-        # Input checks
-        assert isinstance(Xb, jnp.ndarray), 'observation vector Xb must be an ndarray, instead type(Xb) = {}'.format(type(Xb))
-        assert isinstance(y, jnp.ndarray), 'observation vector y must be an ndarray, instead type(y) = {}'.format(type(y))
-        assert isinstance(H, jnp.ndarray), 'observation vector H must be an ndarray, instead type(H) = {}'.format(type(H))
-        assert isinstance(R, jnp.ndarray), 'observation vector R must be an ndarray, instead type(R) = {}'.format(type(R))
 
         # Number of state variables, ensemble members and observations
         system_dim, ensemble_dim = Xb.shape
