@@ -186,7 +186,9 @@ class ETKF(dacycler.DACycler):
             Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert,
                                      rcond=1e-15)
             Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)  # matrix square root (symmetric)
-            Wa = np.real_if_close(Wa)
+            Wa = Wa.real
+            if Wa.imag.max() > jnp.finfo(float).eps*100:
+                raise ValueError('Wa has a non-neglible imaginary component, max of {}'.format(Wa.imag.max()))
         else:
             Rinv = jnp.zeros_like(R,dtype=R.dtype)
             Pa_ens = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
@@ -194,7 +196,7 @@ class ETKF(dacycler.DACycler):
 
         try:
             wa = Pa_ens @ Yb_pert.T @ Rinv @ (y.flatten()-yb_bar)
-        except:
+        except TypeError:
             print('Pa_ens.shape = {}, Yb_pert.shape = {} Rinv.shape = {}, y.shape = {}, yb_bar.shape = {}'.format(Pa_ens.shape, Yb_pert.shape, Rinv.shape, y.shape, yb_bar.shape))
             print('If y.shape is incorrect, make sure that the S operator is defined correctly at input.')
             raise
@@ -203,14 +205,14 @@ class ETKF(dacycler.DACycler):
 
         try:
             xa_bar = xb_bar + jnp.ravel(Xb_pert @ wa)
-        except:
+        except TypeError:
             print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
             raise
 
         v = jnp.ones((1, ensemble_dim))
         try:
             Xa = Xa_pert + xa_bar[:, None] @ v
-        except:
+        except TypeError:
             print('Xa_pert.shape = {}, xa_bar.shape = {} v.shape = {}'.format(Xa_pert.shape,xa_bar.shape,v.shape))
             print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
             raise
