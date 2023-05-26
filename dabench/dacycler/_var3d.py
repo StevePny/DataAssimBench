@@ -13,15 +13,8 @@ class Var3D(dacycler.DACycler):
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 start_time=0,
-                 end_time=None,
-                 num_cycles=1,
-                 window_time=None,
                  in_4d=False,
                  ensemble=False,
-                 analysis_window=None,
-                 observation_window=None,
-                 observations=None,
                  forecast_model=None,
                  B=None,
                  R=None,
@@ -30,6 +23,7 @@ class Var3D(dacycler.DACycler):
                  **kwargs
                  ):
 
+        self.h = h
         self.H = H
         self.R = R
         self.B = B
@@ -38,31 +32,46 @@ class Var3D(dacycler.DACycler):
                          delta_t=delta_t,
                          forecast_model=forecast_model)
 
-    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
+    def step_cycle(self, x_b, y_o, H=None, h=None, R=None, B=None):
+        """Perform one step of DA Cycle
+
+        Args:
+            x_b:
+            y_o:
+            H
+
+
+        Returns:
+            vector.StateVector containing analysis results
+
+        """
         if H is not None or h is None:
-            return self._cycle_linear_obsop(xb, yo, H, R, B)
+            return self._cycle_linear_obsop(x_b, y_o, H, R, B)
         else:
-            return self._cycle_general_obsop(xb, yo, h, R, B)
+            return self._cycle_general_obsop(x_b, y_o, h, R, B)
 
     def _calc_default_H(self, obs_vec):
+        """If H is not provided, creates identity matrix to serve as H"""
         H = jnp.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
         H = H.at[jnp.arange(H.shape[0]), obs_vec.location_indices.flatten()
                  ].set(1)
         return H
 
     def _calc_default_R(self, obs_vec):
-        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd
+        """If R i s not provided, calculates default based on observation error"""
+        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd^2
 
     def _calc_default_B(self):
+        """If B is not provided, identity matrix with shape (system_dim, system_dim."""
+
         return jnp.identity(self.system_dim)
 
     def _cycle_general_obsop(self, forecast, obs_vec):
-        # make inputs column vectors
-        xb = forecast.flatten().T
-        yo = obs_vec.values.flatten().T
+        return
 
     def _cycle_linear_obsop(self, forecast, obs_vec, H=None, R=None,
                             B=None):
+        """When obsop (H/h) is linear"""
         if H is None:
             if self.H is None:
                 H = self._calc_default_H(obs_vec)
@@ -80,11 +89,11 @@ class Var3D(dacycler.DACycler):
                 B = self.B
 
         # make inputs column vectors
-        xb = jnp.array([forecast.values.flatten()]).T
-        yo = jnp.array([obs_vec.values.flatten()]).T
+        x_b = jnp.array([forecast.values.flatten()]).T
+        y_o = jnp.array([obs_vec.values.flatten()]).T
 
         # Set parameters
-        xdim = xb.size  # Size or get one of the shape params?
+        xdim = x_b.size  # Size or get one of the shape params?
         Rinv = jnp.linalg.inv(R)
 
         # 'preconditioning with B'
@@ -92,10 +101,10 @@ class Var3D(dacycler.DACycler):
         BHt = jnp.dot(B, H.T)
         BHtRinv = jnp.dot(BHt, Rinv)
         A = I + jnp.dot(BHtRinv, H)
-        b1 = xb + jnp.dot(BHtRinv, yo)
+        b1 = x_b + jnp.dot(BHtRinv, y_o)
 
         # Use minimization algorithm to minimize cost function:
-        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=x_b, tol=1e-05,
                                            maxiter=1000)
 
         # Compute KH:
@@ -105,4 +114,5 @@ class Var3D(dacycler.DACycler):
         return vector.StateVector(values=xa, store_as_jax=True), KH
 
     def step_forecast(self, xa):
+        """One step of the forecast."""
         return self.forecast_model.forecast(xa)
