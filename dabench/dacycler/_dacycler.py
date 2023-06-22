@@ -10,7 +10,7 @@ class DACycler():
     Attributes:
         system_dim (int): system dimension
         delta_t (float): the timestep of the model (assumed uniform)
-        forecast_model (obj): underlying model object, e.g.
+        model_obj (obj): forecast model object, e.g.
             pytorch neural network.
         in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
             Default is False.
@@ -20,7 +20,7 @@ class DACycler():
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 forecast_model=None,
+                 model_obj=None,
                  in_4d=False,
                  ensemble=False,
                  **kwargs
@@ -30,7 +30,7 @@ class DACycler():
         self.ensemble = ensemble
         self.system_dim = system_dim
         self.delta_t = delta_t
-        self.forecast_model = forecast_model
+        self.model_obj = model_obj
 
     def cycle(self,
               input_state,
