@@ -24,7 +24,7 @@ class ETKF(dacycler.DACycler):
                  ensemble=True,
                  ensemble_dim=4,
                  delta_t=None,
-                 forecast_model=None,
+                 model_obj=None,
                  start_time=0,
                  end_time=None,
                  num_cycles=1,
@@ -43,6 +43,7 @@ class ETKF(dacycler.DACycler):
                  ):
 
         self.H = H
+        self.h = h
         self.R = R
         self.B = B
         self.ensemble_dim = ensemble_dim
@@ -51,13 +52,14 @@ class ETKF(dacycler.DACycler):
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         forecast_model=forecast_model,
+                         model_obj=model_obj,
                          ensemble_dim=ensemble_dim)
-
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:
-            vals, kh = self._cycle_linear_obsop(xb.values, yo.values, yo.location_indices, yo.error_sd, H, R, B)
+            vals, kh = self._cycle_obsop(
+                    xb.values, yo.values, yo.location_indices, yo.error_sd,
+                    H, R, B)
             return vector.StateVector(values=vals, store_as_jax=True), kh
         else:
             return self._cycle_general_obsop(xb, yo, h, R, B)
@@ -74,23 +76,24 @@ class ETKF(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _cycle_general_obsop(self, model_forecast, obs_vec):
-        # make inputs column vectors
-        xb = model_forecast.flatten().T
-        yo = obs_vec.values.flatten().T
-
-    def _cycle_linear_obsop(self, Xbt, obs_values, obs_loc_indices, obs_error_sd, H=None, R=None,
-                            B=None):
-        if H is None:
+    def _cycle_obsop(self, Xbt, obs_values, obs_loc_indices, obs_error_sd,
+                     H=None, h=None, R=None, B=None):
+        if H is None and h is None:
             if self.H is None:
-                H = self._calc_default_H(obs_values, obs_loc_indices)
+                if self.h is None:
+                    H = self._calc_default_H(obs_values, obs_loc_indices)
+                else:
+                    h = self.h
             else:
                 H = self.H
+        print(h)
+
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
             else:
                 R = self.R
+        print(R.shape)
         if B is None:
             if self.B is None:
                 B = self._calc_default_B()
@@ -101,12 +104,12 @@ class ETKF(dacycler.DACycler):
         assert nr == self.ensemble_dim, (
                 'cycle:: model_forecast must have dimension {}x{}').format(
                     self.ensemble_dim, self.system_dim)
-                
 
         # Analysis cycles over all obs in data_obs
         Xa = self._compute_analysis(Xb=Xbt.T,
                                     y=obs_values,
                                     H=H,
+                                    h=h,
                                     R=R,
                                     rho=self.multiplicative_inflation)
 
@@ -115,14 +118,28 @@ class ETKF(dacycler.DACycler):
     def step_forecast(self, xa):
         data_forecast = []
         for i in range(self.ensemble_dim):
-            new_vals = self.forecast_model.forecast(
+            new_vals = self.model_obj.forecast(
                     vector.StateVector(values=xa.values[i], store_as_jax=True)
                     ).values
             data_forecast.append(new_vals)
 
-        return vector.StateVector(values=jnp.stack(data_forecast), store_as_jax=True)
+        return vector.StateVector(values=jnp.stack(data_forecast),
+                                  store_as_jax=True)
 
-    def _compute_analysis(self, Xb, y, H, R, rho=1.0, Yb=None):
+    def _apply_obsop(self, Xb, H, h):
+        if H is not None:
+            try:
+                Yb = H @ Xb
+            except TypeError:
+                print('Yb.shape = {}, H.shape = {}, Xb.shape = {}'.format(
+                    Yb.shape, H.shape, Xb.shape))
+                raise
+        else:
+            Yb = h(Xb)
+
+        return Yb
+
+    def _compute_analysis(self, Xb, y, H, h, R, rho=1.0, Yb=None):
         """ETKF analysis algorithm
 
         Args:
@@ -141,7 +158,7 @@ class ETKF(dacycler.DACycler):
         """
         # Number of state variables, ensemble members and observations
         system_dim, ensemble_dim = Xb.shape
-        observation_dim, system_dim = H.shape
+        observation_dim = y.shape[0]
 
         # Auxiliary matrices that will ease the computation of averages and covariances
         U = jnp.ones((ensemble_dim, ensemble_dim))/ensemble_dim
@@ -159,11 +176,7 @@ class ETKF(dacycler.DACycler):
             # Yb.fill(jnp.nan) # Commenting out on 5/24, don't think this is needed
 
             # Map every ensemble member into observation space
-            try:
-                Yb = H @ Xb
-            except:
-                print('Yb.shape = {}, H.shape = {}, Xb.shape = {}'.format(Yb.shape,H.shape,Xb.shape))
-                raise
+            Yb = self._apply_obsop(Xb, H, h)
 
         # Get ensemble means and perturbations
         xb_bar = jnp.mean(Xb,  axis=1)
@@ -228,42 +241,49 @@ class ETKF(dacycler.DACycler):
         # 3. Forecast next timestep
         cur_state = self.step_forecast(analysis)
 
-        return (cur_state.values, obs_vals, obs_times, obs_loc_indices, obs_error_sd), cur_state.values
-          
+        return (cur_state.values, obs_vals, obs_times, obs_loc_indices,
+                obs_error_sd), cur_state.values
+
     def cycle(self,
               input_state,
               start_time,
               obs_vector,
               timesteps,
+              obs_error_sd=None,
               analysis_window=0.2):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
             input_state (vector.StateVector): Input state.
             obs_vector (vector.ObsVector): Observations vector.
+            obs_error_sd (float): Standard deviation of observation error.
+                Typically not known, so provide a best-guess.
             start_time (float or datetime-like): Starting time.
             timesteps (int): Number of timesteps, in model time.
-            obs_time_window (float): Time window from which to gather
+            analysi_window (float): Time window from which to gather
                 observations for DA Cycle. Takes observations that are +/-
                 obs_time_window from time of each analysis step.
 
         Returns:
             vector.StateVector of analyses and times.
         """
+        if obs_error_sd is None:
+            obs_error_sd = obs_vector.error_sd
         # For storing outputs
         self.analysis_window = analysis_window
-        all_times = jnp.repeat(start_time, timesteps) + jnp.arange(0, timesteps*self.delta_t, self.delta_t)
-        all_filtered_idx = jnp.stack([jnp.where(((obs_vector.times >= cur_time - self.analysis_window/2) *
-                        (obs_vector.times < cur_time + self.analysis_window/2)))[0] for cur_time in all_times])
-        print(all_filtered_idx.shape)
+        all_times = (jnp.repeat(start_time, timesteps)
+                     + jnp.arange(0, timesteps*self.delta_t, self.delta_t))
+        all_filtered_idx = jnp.stack([jnp.where(
+            (obs_vector.times
+             >= jnp.round(cur_time - self.analysis_window/2, 3))
+            * (obs_vector.times
+               < jnp.round(cur_time + self.analysis_window/2, 3)))[0]
+            for cur_time in all_times])
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
-                (input_state.values, obs_vector.values, obs_vector.times, obs_vector.location_indices, obs_vector.error_sd),
+                (input_state.values, obs_vector.values, obs_vector.times,
+                 obs_vector.location_indices, obs_error_sd),
                 all_filtered_idx)
-
-
-
 
         return vector.StateVector(values=jnp.stack(all_values),
                                   times=all_times)
-# 
