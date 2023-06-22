@@ -15,7 +15,7 @@ class Var3D(dacycler.DACycler):
                  delta_t=None,
                  in_4d=False,
                  ensemble=False,
-                 forecast_model=None,
+                 model_obj=None,
                  B=None,
                  R=None,
                  h=None,
@@ -30,14 +30,14 @@ class Var3D(dacycler.DACycler):
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         forecast_model=forecast_model)
+                         model_obj=model_obj)
 
-    def step_cycle(self, x_b, y_o, H=None, h=None, R=None, B=None):
+    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         """Perform one step of DA Cycle
 
         Args:
-            x_b:
-            y_o:
+            xb:
+            yo:
             H
 
 
@@ -46,9 +46,9 @@ class Var3D(dacycler.DACycler):
 
         """
         if H is not None or h is None:
-            return self._cycle_linear_obsop(x_b, y_o, H, R, B)
+            return self._cycle_linear_obsop(xb, yo, H, R, B)
         else:
-            return self._cycle_general_obsop(x_b, y_o, h, R, B)
+            return self._cycle_general_obsop(xb, yo, h, R, B)
 
     def _calc_default_H(self, obs_vec):
         """If H is not provided, creates identity matrix to serve as H"""
@@ -89,11 +89,11 @@ class Var3D(dacycler.DACycler):
                 B = self.B
 
         # make inputs column vectors
-        x_b = jnp.array([forecast.values.flatten()]).T
-        y_o = jnp.array([obs_vec.values.flatten()]).T
+        xb = jnp.array([forecast.values.flatten()]).T
+        yo = jnp.array([obs_vec.values.flatten()]).T
 
         # Set parameters
-        xdim = x_b.size  # Size or get one of the shape params?
+        xdim = xb.size  # Size or get one of the shape params?
         Rinv = jnp.linalg.inv(R)
 
         # 'preconditioning with B'
@@ -101,10 +101,10 @@ class Var3D(dacycler.DACycler):
         BHt = jnp.dot(B, H.T)
         BHtRinv = jnp.dot(BHt, Rinv)
         A = I + jnp.dot(BHtRinv, H)
-        b1 = x_b + jnp.dot(BHtRinv, y_o)
+        b1 = xb + jnp.dot(BHtRinv, yo)
 
         # Use minimization algorithm to minimize cost function:
-        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=x_b, tol=1e-05,
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
                                            maxiter=1000)
 
         # Compute KH:
@@ -115,4 +115,4 @@ class Var3D(dacycler.DACycler):
 
     def step_forecast(self, xa):
         """One step of the forecast."""
-        return self.forecast_model.forecast(xa)
+        return self.model_obj.forecast(xa)
