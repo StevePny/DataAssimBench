@@ -86,14 +86,12 @@ class ETKF(dacycler.DACycler):
                     h = self.h
             else:
                 H = self.H
-        print(h)
 
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
             else:
                 R = self.R
-        print(R.shape)
         if B is None:
             if self.B is None:
                 B = self._calc_default_B()
