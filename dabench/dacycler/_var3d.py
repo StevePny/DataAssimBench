@@ -59,7 +59,7 @@ class Var3D(dacycler.DACycler):
 
     def _calc_default_R(self, obs_vec):
         """If R i s not provided, calculates default based on observation error"""
-        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd^2
+        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd**2
 
     def _calc_default_B(self):
         """If B is not provided, identity matrix with shape (system_dim, system_dim."""
