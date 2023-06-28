@@ -1,4 +1,6 @@
 """Base class for data generator objects"""
+
+import copy
 import numpy as np
 import jax.numpy as jnp
 import xarray as xr
@@ -55,6 +57,26 @@ class Data():
 
         self._values_gridded = None
         self._x0_gridded = None
+
+    def __getitem__(self, subscript):
+        if self.values is None:
+            raise AttributeError('Object does not contain any data values.\n'
+                                 'Run .generate() or .load() and try again')
+
+        if isinstance(subscript, slice):
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.times = new_copy.times[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.time_dim = new_copy.times.shape[0]
+            return new_copy
+        else:
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[subscript]
+            new_copy.times = new_copy.times[subscript]
+            new_copy.time_dim = 1
+            return new_copy
 
     @property
     def values(self):
@@ -599,3 +621,31 @@ class Data():
                                                    rescale_time=rescale_time,
                                                    x0=x0,
                                                    convergence=convergence)[-1]
+
+    def split_train_valid_test(self, train_size, valid_size, test_size):
+        """Splits data into train, validation, and test sets by time
+
+        Args:
+            train_size, valid_size, test_size (float or int): Size of sets.
+                If < 1, represents the fraction of the time series to use.
+                If > 1, represents the number of timesteps.
+
+        Returns:
+            (train_obj, valid_obj, test_obj): Data objects
+        """
+
+        if train_size < 1:
+            train_size = round(train_size*self.time_dim)
+        if 0 < valid_size < 1:
+            valid_size = round(test_size*self.time_dim)
+        if 0 < test_size < 1:
+            test_size = round(test_size*self.time_dim)
+
+        # Round up train_size
+        if train_size + valid_size + test_size < self.time_dim:
+            train_size += self.time_dim - valid_size - test_size
+
+        train_end = train_size
+        valid_end = train_size + valid_size
+
+        return self[:train_end], self[train_end:valid_end], self[valid_end:]
