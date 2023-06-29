@@ -111,3 +111,34 @@ def test_load_netcdf_dates():
             ):
         test_data.load_netcdf(dates_select=[datetime.date(2018, 1, 31),
                                             datetime.date(1957, 11, 1)])
+
+
+def test_split_train_valid_test():
+    """Tests splitting data object into train, validation, test sets"""
+    test_data = Data()
+
+    x_test = np.arange(50).reshape(10, 5)
+    test_data.values = x_test
+    test_data.times = np.arange(10)
+    test_data.time_dim = 10
+
+    s_train, s_val, s_test = test_data.split_train_valid_test(5, 3, 2)
+
+    assert s_train.time_dim == 5
+    assert s_val.time_dim == 3
+    assert s_test.time_dim == 2
+
+
+def test_split_train_valid_test_fracs():
+    """Tests splitting data object using fractions for split sizes"""
+    test_data = Data()
+
+    x_test = np.arange(50).reshape(10, 5)
+    test_data.values = x_test
+    test_data.times = np.arange(10)
+    test_data.time_dim = 10
+
+    s_train, s_val, s_test = test_data.split_train_valid_test(0.5, 0.3, 0.2)
+    assert s_train.time_dim == 5
+    assert s_val.time_dim == 3
+    assert s_test.time_dim == 2

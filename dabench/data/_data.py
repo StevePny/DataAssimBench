@@ -634,16 +634,16 @@ class Data():
             (train_obj, valid_obj, test_obj): Data objects
         """
 
-        if train_size < 1:
+        if 0 < train_size < 1:
             train_size = round(train_size*self.time_dim)
         if 0 < valid_size < 1:
-            valid_size = round(test_size*self.time_dim)
+            valid_size = round(valid_size*self.time_dim)
         if 0 < test_size < 1:
             test_size = round(test_size*self.time_dim)
 
         # Round up train_size
         if train_size + valid_size + test_size < self.time_dim:
-            train_size += self.time_dim - valid_size - test_size
+            train_size = self.time_dim - valid_size - test_size
 
         train_end = train_size
         valid_end = train_size + valid_size
