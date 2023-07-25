@@ -49,6 +49,7 @@ class Data():
         # values and x0 atts are properties to better convert between jax/numpy
         self._values = values
         self._x0 = x0
+        self._times = None
 
         if original_dim is None:
             self.original_dim = (system_dim,)
@@ -99,6 +100,24 @@ class Data():
     @property
     def x0(self):
         return self._x0
+
+    @property
+    def times(self):
+        return self._times
+
+    @times.setter
+    def times(self, vals):
+        if vals is None:
+            self._times = None
+        else:
+            if self.store_as_jax:
+                self._times = jnp.asarray(vals)
+            else:
+                self._times = np.asarray(vals)
+
+    @times.deleter
+    def times(self):
+        del self._times
 
     @x0.setter
     def x0(self, x0_vals):
@@ -244,7 +263,10 @@ class Data():
                              self.system_dim)
                             )
 
-            return M
+            if self.store_as_jax:
+                return M
+            else:
+                return np.array(M)
 
     def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
                           years_select=None, dates_select=None,
