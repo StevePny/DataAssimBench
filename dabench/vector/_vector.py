@@ -127,7 +127,7 @@ class _Vector():
             start_inclusive, end_inclusive = True, True
 
         if start is not None:
-            times_equal = np.isclose(self.times, start)
+            times_equal = np.isclose(self.times, start, rtol=0)
             if start_inclusive:
                 filtered_idx = (self.times > start) + times_equal
             else:
