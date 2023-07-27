@@ -76,7 +76,10 @@ class Data():
             new_copy = copy.deepcopy(self)
             new_copy.values = new_copy.values[subscript]
             new_copy.times = new_copy.times[subscript]
-            new_copy.time_dim = 1
+            if isinstance(subscript, int):
+                new_copy.time_dim = 1
+            else:
+                new_copy.time_dim = new_copy.times.shape[0]
             return new_copy
 
     @property
