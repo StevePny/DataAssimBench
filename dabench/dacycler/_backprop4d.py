@@ -31,14 +31,15 @@ class Backprop4D(dacycler.DACycler):
         self.H = H
         self.R = R
         self.B = B
-        self.num_epochs = 20
-        self.learning_rate = 1e-5
+        self.num_epochs = num_epochs
+        self.learning_rate = learning_rate
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj)
 
-    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1):
+    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1,
+                   obs_window_indices=[0]):
         """Perform one step of DA Cycle
 
         Args:
@@ -51,10 +52,14 @@ class Backprop4D(dacycler.DACycler):
             vector.StateVector containing analysis results
 
         """
+        time_sel_matrix = self._calc_time_sel_matrix(obs_window_indices,
+                                                     n_steps)
         if H is not None or h is None:
-            return self._cycle_linear_obsop(xb, yo, H, R, B, n_steps=n_steps)
+            return self._cycle_linear_obsop(xb, yo, H, R, B, n_steps=n_steps,
+                                            time_sel_matrix=time_sel_matrix)
         else:
-            return self._cycle_general_obsop(xb, yo, h, R, B, n_steps=n_steps)
+            return self._cycle_general_obsop(xb, yo, h, R, B, n_steps=n_steps,
+                                             time_sel_matrix=time_sel_matrix)
 
     def _calc_default_H(self, obs_vec):
         """If H is not provided, creates identity matrix to serve as H"""
@@ -82,12 +87,9 @@ class Backprop4D(dacycler.DACycler):
             pred_r = self.step_forecast(
                     vector.StateVector(values=r0, store_as_jax=True),
                     n_steps=n_steps).values
-            print(pred_r)
 
             # Apply observation operator to map to obs spcae
             pred_obs = time_sel_matrix @ pred_r @ H
-            print(pred_obs)
-            print(obs_vals)
 
             # Calculate observation term of J_0
             resid = pred_obs.ravel() - obs_vals.ravel()
@@ -129,8 +131,6 @@ class Backprop4D(dacycler.DACycler):
                 B = self._calc_default_B()
             else:
                 B = self.B
-        if time_sel_matrix is None:
-            time_sel_matrix = self._calc_time_sel_matrix([0, 4], n_steps)
 
         r0 = forecast.values
         loss_func = self._make_loss(obs_vec.values, H, B, R, time_sel_matrix,
@@ -139,7 +139,7 @@ class Backprop4D(dacycler.DACycler):
             epoch_loss, dr0 = value_and_grad(loss_func, argnums=0)(r0)
             print(e, epoch_loss)
             r0 -= self.learning_rate*dr0
-       
+
         ra = self.step_forecast(
                 vector.StateVector(values=r0, store_as_jax=True),
                 n_steps=n_steps)
@@ -166,6 +166,7 @@ class Backprop4D(dacycler.DACycler):
               obs_vector,
               timesteps,
               analysis_window,
+              obs_window_indices=[0],
               steps_per_window=1,
               analysis_time_in_window=None):
         """Perform DA cycle repeatedly, including analysis and forecast
@@ -201,13 +202,17 @@ class Backprop4D(dacycler.DACycler):
 
             if obs_vec_timefilt.values.shape[0] > 0:
                 # 2. Calculate analysis
-                analysis, kh = self.step_cycle(cur_state, obs_vec_timefilt,
-                                               n_steps=steps_per_window)
+                analysis, kh = self.step_cycle(
+                        cur_state, obs_vec_timefilt,
+                        n_steps=steps_per_window,
+                        obs_window_indices=obs_window_indices)
                 # 3. Save outputs
-                all_analyses.append(analysis.values)
+                print(analysis.values.shape)
+                all_analyses.append(analysis.values[:-1])
                 all_times.append(cur_time)
 
             cur_time += analysis_window
+            cur_state = analysis[-1]
 
         return vector.StateVector(values=jnp.vstack(all_analyses),
                                   store_as_jax=True)
