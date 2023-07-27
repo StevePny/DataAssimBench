@@ -82,6 +82,34 @@ class ObsVector(_vector._Vector):
         self.coords = coords
         self.errors = errors
 
+    def __getitem__(self, subscript):
+        if self.values is None:
+            raise AttributeError('Object does not contain any data values.\n'
+                                 'Run .generate() or .load() and try again')
+
+        if isinstance(subscript, slice):
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.times = new_copy.times[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.location_indices = new_copy.location_indices[subscript]
+            if new_copy.errors is not None:
+                new_copy.errors = new_copy.errors[subscript]
+            if new_copy.coords is not None:
+                new_copy.coords = new_copy.coords[subscript]
+            return new_copy
+        else:
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[subscript]
+            new_copy.times = new_copy.times[subscript]
+            new_copy.location_indices = new_copy.location_indices[subscript]
+            if new_copy.errors is not None:
+                new_copy.errors = new_copy.errors[subscript]
+            if new_copy.coords is not None:
+                new_copy.coords = new_copy.coords[subscript]
+            return new_copy
+
     @property
     def values(self):
         return self._values
@@ -149,52 +177,3 @@ class ObsVector(_vector._Vector):
     @errors.deleter
     def errors(self):
         del self._errors
-
-    def filter_times(self, start, end, inclusive=True):
-        """Filter observations to within a time range, returns copy of object
-
-        Args:
-            start (datetime or float): Start of time range. Type must match
-                type of times (e.g. datetime if times are datetimes, float if
-                times are floats). Default is None, which includes all
-                values up to "end". If neither start nor end are specified,
-                time_filter does nothing.
-            end (datetime or float): Start of time range. See "start" for
-                more information. Default is None, which includes all values
-                after "start".
-            inclusive (bool): If True, includes times that are equal to start
-                or end. If False, excludes times equal to start/end Default is
-                True.
-
-        Returns:
-            Copy of object with filtered values.
-        """
-        new_vec = copy.deepcopy(self)
-        if start is not None:
-            if inclusive:
-                filtered_idx = new_vec.times >= start
-            else:
-                filtered_idx = new_vec.times > start
-            new_vec.times = new_vec.times[filtered_idx]
-            new_vec.values = new_vec.values[filtered_idx]
-            new_vec.location_indices = new_vec.location_indices[filtered_idx]
-            if new_vec.errors is not None:
-                new_vec.errors = new_vec.errors[filtered_idx]
-            if new_vec.coords is not None:
-                new_vec.coords = new_vec.coords[filtered_idx]
-
-        if end is not None:
-            if inclusive:
-                filtered_idx = new_vec.times <= end
-            else:
-                filtered_idx = new_vec.times < end
-            new_vec.times = new_vec.times[filtered_idx]
-            new_vec.values = new_vec.values[filtered_idx]
-            new_vec.location_indices = new_vec.location_indices[filtered_idx]
-            if new_vec.errors is not None:
-                new_vec.errors = new_vec.errors[filtered_idx]
-            if new_vec.coords is not None:
-                new_vec.coords = new_vec.coords[filtered_idx]
-
-        return new_vec
-
