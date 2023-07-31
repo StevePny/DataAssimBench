@@ -86,7 +86,6 @@ class ETKF(dacycler.DACycler):
                     h = self.h
             else:
                 H = self.H
-
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
@@ -267,7 +266,6 @@ class ETKF(dacycler.DACycler):
         """
         if obs_error_sd is None:
             obs_error_sd = obs_vector.error_sd
-        # For storing outputs
         self.analysis_window = analysis_window
         all_times = (jnp.repeat(start_time, timesteps)
                      + jnp.arange(0, timesteps*self.delta_t, self.delta_t))
