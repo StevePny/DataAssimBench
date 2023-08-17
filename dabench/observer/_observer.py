@@ -192,8 +192,9 @@ class Observer():
                     :, self.location_indices]
                 + errors_vector)
         else:
+            values_gridded = self.data_obj.values_gridded
             values_vector = np.array([
-                self.data_obj.values_gridded[t][tuple(self.location_indices.T)]
+                values_gridded[t][tuple(self.location_indices.T)]
                 for t in self.time_indices]) + errors_vector
         return values_vector
 
@@ -204,8 +205,9 @@ class Observer():
                     [self.location_indices[i]] + errors_vector[i])
                 for i in range(self.time_dim)], dtype=object)
         else:
+            values_gridded = self.data_obj.values_gridded
             values_vector = np.array(
-                [self.data_obj.values_gridded[self.time_indices[i]][
+                [values_gridded[self.time_indices[i]][
                     tuple(self.location_indices[i].T)]
                  + errors_vector[i] for i in range(self.time_dim)],
                 dtype=object)
