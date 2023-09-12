@@ -12,48 +12,54 @@ from dabench import dacycler, vector
 class ETKF(dacycler.DACycler):
     """Class for building ETKF DA Cycler
 
-
     Attributes:
-
-
+        system_dim (int): System dimension.
+        ensemble_dim (int): Number of ensemble instances for ETKF. Default is
+            4. Higher ensemble_dim increases accuracy but has performance cost.
+        delta_t (float): The timestep of the model (assumed uniform)
+        model_obj (dabench.Model): Forecast model object.
+        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
+            Always False for ETKF.
+        ensemble (bool): True for ensemble-based data assimilation techniques
+            (ETKF). Always True for ETKF.
+        B (ndarray): Initial / static background error covariance. Shape:
+            (system_dim, system_dim). If not provided, will be calculated
+            automatically.
+        R (ndarray): Observation error covariance matrix. Shape
+            (obs_dim, obs_dim). If not provided, will be calculated
+            automatically.
+        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+            If not provided will be calculated automatically.
+        h (function): Optional observation operator as function. More flexible
+            (allows for more complex observation operator).
 
     """
 
     def __init__(self,
                  system_dim=None,
-                 ensemble=True,
                  ensemble_dim=4,
                  delta_t=None,
                  model_obj=None,
-                 start_time=0,
-                 end_time=None,
-                 num_cycles=1,
-                 window_time=None,
-                 in_4d=False,
-                 analysis_window=None,
-                 observation_window=None,
-                 observations=None,
                  multiplicative_inflation=1.0,
                  B=None,
                  R=None,
-                 h=None,
                  H=None,
+                 h=None,
                  random_seed=99,
                  **kwargs
                  ):
 
-        self.H = H
-        self.h = h
-        self.R = R
-        self.B = B
         self.ensemble_dim = ensemble_dim
-        self._rng = np.random.default_rng(random_seed)
+        self.random_seed = random_seed
+        self._rng = np.random.default_rng(self.random_seed)
         self.multiplicative_inflation = multiplicative_inflation
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         ensemble_dim=ensemble_dim)
+                         in_4d=False,
+                         ensemble=True,
+                         B=B, R=R, H=H, h=h)
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:

@@ -10,11 +10,21 @@ class DACycler():
     Attributes:
         system_dim (int): System dimension
         delta_t (float): The timestep of the model (assumed uniform)
-        model_obj (obj): Forecast model object, e.g. pytorch neural network.
+        model_obj (dabench.Model): Forecast model object.
         in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
             Default is False.
         ensemble (bool): True for ensemble-based data assimilation techniques
             (ETKF). Default is False
+        B (ndarray): Initial / static background error covariance. Shape:
+            (system_dim, system_dim). If not provided, will be calculated
+            automatically.
+        R (ndarray): Observation error covariance matrix. Shape
+            (obs_dim, obs_dim). If not provided, will be calculated
+            automatically.
+        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+            If not provided will be calculated automatically.
+        h (function): Optional observation operator as function. More flexible
+            (allows for more complex observation operator). Default is None.
     """
 
     def __init__(self,
@@ -22,9 +32,17 @@ class DACycler():
                  delta_t=None,
                  model_obj=None,
                  in_4d=False,
-                 ensemble=False
+                 ensemble=False,
+                 B=None,
+                 R=None,
+                 H=None,
+                 h=None,
                  ):
 
+        self.h = h
+        self.H = H
+        self.R = R
+        self.B = B
         self.in_4d = in_4d
         self.ensemble = ensemble
         self.system_dim = system_dim

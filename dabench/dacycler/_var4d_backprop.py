@@ -15,6 +15,33 @@ class Var4DBackprop(dacycler.DACycler):
     """Class for building Backpropagation 4D DA Cycler
 
     Attributes:
+        system_dim (int): System dimension.
+        delta_t (float): The timestep of the model (assumed uniform)
+        model_obj (dabench.Model): Forecast model object.
+        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
+            Always True for Var4DBackprop.
+        ensemble (bool): True for ensemble-based data assimilation techniques
+            (ETKF). Always False for Var4DBackprop.
+        B (ndarray): Initial / static background error covariance. Shape:
+            (system_dim, system_dim). If not provided, will be calculated
+            automatically.
+        R (ndarray): Observation error covariance matrix. Shape
+            (obs_dim, obs_dim). If not provided, will be calculated
+            automatically.
+        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+            If not provided will be calculated automatically.
+        h (function): Optional observation operator as function. More flexible
+            (allows for more complex observation operator). Default is None.
+        num_epochs (int): Number of epochs for backpropagation per analysis
+            cycle. Default is 20.
+        steps_per_window (int): Number of timesteps per analysis window.
+        learning_rate (float): LR for backpropogation. Default is 1e-5, but
+            DA results can be quite sensitive to this parameter.
+        obs_window_indices (list): Timestep indices where observations fall
+            within each analysis window. For example, if analysis window is
+            0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
+            0.02, 0.03, 0.04, and 0.05, obs_window_indices =
+            [0, 1, 2, 3, 4, 5].
     """
 
     def __init__(self,
@@ -23,8 +50,8 @@ class Var4DBackprop(dacycler.DACycler):
                  model_obj=None,
                  B=None,
                  R=None,
-                 h=None,
                  H=None,
+                 h=None,
                  learning_rate=1e-5,
                  num_epochs=20,
                  steps_per_window=1,
@@ -32,10 +59,6 @@ class Var4DBackprop(dacycler.DACycler):
                  **kwargs
                  ):
 
-        self.h = h
-        self.H = H
-        self.R = R
-        self.B = B
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.steps_per_window = steps_per_window
@@ -45,7 +68,8 @@ class Var4DBackprop(dacycler.DACycler):
                          delta_t=delta_t,
                          model_obj=model_obj,
                          in_4d=True,
-                         ensemble=False)
+                         ensemble=False,
+                         B=B, R=R, H=H, h=h)
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
         H = jnp.zeros((obs_values.flatten().shape[0], self.system_dim))
@@ -102,7 +126,8 @@ class Var4DBackprop(dacycler.DACycler):
         return _backprop_epoch
 
     def _cycle_obsop(self, xb, obs_values, obs_loc_indices, obs_error_sd,
-                     H=None, h=None, R=None, B=None, time_sel_matrix=None, n_steps=1):
+                     H=None, h=None, R=None, B=None, time_sel_matrix=None,
+                     n_steps=1):
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:

@@ -8,35 +8,51 @@ from dabench import dacycler, vector
 
 
 class Var3D(dacycler.DACycler):
-    """Class for building 3DVar DA Cycler"""
+    """Class for building 3DVar DA Cycler
+
+    Attributes:
+        system_dim (int): System dimension.
+        delta_t (float): The timestep of the model (assumed uniform)
+        model_obj (dabench.Model): Forecast model object.
+        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
+            Always False for Var3D.
+        ensemble (bool): True for ensemble-based data assimilation techniques
+            (ETKF). Always False for Var3D
+        B (ndarray): Initial / static background error covariance. Shape:
+            (system_dim, system_dim). If not provided, will be calculated
+            automatically.
+        R (ndarray): Observation error covariance matrix. Shape
+            (obs_dim, obs_dim). If not provided, will be calculated
+            automatically.
+        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+            If not provided will be calculated automatically.
+        h (function): Optional observation operator as function. More flexible
+            (allows for more complex observation operator). Default is None.
+        """
 
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
                  in_4d=False,
-                 ensemble=False,
                  model_obj=None,
                  B=None,
                  R=None,
-                 h=None,
                  H=None,
-                 **kwargs
+                 h=None,
                  ):
-
-        self.h = h
-        self.H = H
-        self.R = R
-        self.B = B
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         model_obj=model_obj)
+                         model_obj=model_obj,
+                         in_4d=False,
+                         ensemble=False,
+                         B=B, R=R, H=H, h=h)
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         """Perform one step of DA Cycle
 
         Args:
-            xb:
+            xb: 
             yo:
             H
 
@@ -71,7 +87,7 @@ class Var3D(dacycler.DACycler):
 
     def _cycle_linear_obsop(self, forecast, obs_vec, H=None, R=None,
                             B=None):
-        """When obsop (H/h) is linear"""
+        """When obsop (H) is linear"""
         if H is None:
             if self.H is None:
                 H = self._calc_default_H(obs_vec)
