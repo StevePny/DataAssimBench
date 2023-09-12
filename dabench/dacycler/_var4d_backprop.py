@@ -11,13 +11,15 @@ import jax
 from dabench import dacycler, vector
 
 
-class Backprop4D(dacycler.DACycler):
-    """Class for building Backpropagation 4D DA Cycler"""
+class Var4DBackprop(dacycler.DACycler):
+    """Class for building Backpropagation 4D DA Cycler
+
+    Attributes:
+    """
 
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 ensemble=False,
                  model_obj=None,
                  B=None,
                  R=None,
@@ -41,7 +43,9 @@ class Backprop4D(dacycler.DACycler):
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
-                         model_obj=model_obj)
+                         model_obj=model_obj,
+                         in_4d=True,
+                         ensemble=False)
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
         H = jnp.zeros((obs_values.flatten().shape[0], self.system_dim))
