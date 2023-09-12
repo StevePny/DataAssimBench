@@ -8,22 +8,21 @@ class DACycler():
     """Base class for DACycler object
 
     Attributes:
-        system_dim (int): system dimension
-        delta_t (float): the timestep of the model (assumed uniform)
-        model_obj (obj): forecast model object, e.g.
-            pytorch neural network.
+        system_dim (int): System dimension
+        delta_t (float): The timestep of the model (assumed uniform)
+        model_obj (obj): Forecast model object, e.g. pytorch neural network.
         in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
             Default is False.
-        ensemble (bool): True for ensemble-based data assimilation techniques (ETKF).
-            Default is False
+        ensemble (bool): True for ensemble-based data assimilation techniques
+            (ETKF). Default is False
     """
+
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
                  model_obj=None,
                  in_4d=False,
-                 ensemble=False,
-                 **kwargs
+                 ensemble=False
                  ):
 
         self.in_4d = in_4d
@@ -43,8 +42,8 @@ class DACycler():
 
         Args:
             input_state (vector.StateVector): Input state.
-            obs_vector (vector.ObsVector): Observations vector.
             start_time (float or datetime-like): Starting time.
+            obs_vector (vector.ObsVector): Observations vector.
             timesteps (int): Number of timesteps, in model time.
             analysis_window (float): Time window from which to gather
                 observations for DA Cycle.
@@ -59,6 +58,7 @@ class DACycler():
 
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
+
         # For storing outputs
         all_analyses = []
         all_times = []
@@ -83,5 +83,4 @@ class DACycler():
 
         return vector.StateVector(values=np.stack(all_analyses),
                                   times=np.array(all_times))
-
 
