@@ -32,7 +32,6 @@ class ETKF(dacycler.DACycler):
             If not provided will be calculated automatically.
         h (function): Optional observation operator as function. More flexible
             (allows for more complex observation operator).
-
     """
 
     def __init__(self,
@@ -61,7 +60,7 @@ class ETKF(dacycler.DACycler):
                          ensemble=True,
                          B=B, R=R, H=H, h=h)
 
-    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
+    def _step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         if H is not None or h is None:
             vals, kh = self._cycle_obsop(
                     xb.values, yo.values, yo.location_indices, yo.error_sd,
@@ -118,7 +117,7 @@ class ETKF(dacycler.DACycler):
 
         return Xa.T, 0
 
-    def step_forecast(self, xa):
+    def _step_forecast(self, xa):
         data_forecast = []
         for i in range(self.ensemble_dim):
             new_vals = self.model_obj.forecast(
@@ -131,12 +130,7 @@ class ETKF(dacycler.DACycler):
 
     def _apply_obsop(self, Xb, H, h):
         if H is not None:
-            try:
-                Yb = H @ Xb
-            except TypeError:
-                print('Yb.shape = {}, H.shape = {}, Xb.shape = {}'.format(
-                    Yb.shape, H.shape, Xb.shape))
-                raise
+            Yb = H @ Xb
         else:
             Yb = h(Xb)
 
@@ -163,12 +157,11 @@ class ETKF(dacycler.DACycler):
         system_dim, ensemble_dim = Xb.shape
         observation_dim = y.shape[0]
 
-        # Auxiliary matrices that will ease the computation of averages and covariances
+        # Auxiliary matrices that will ease the computations
         U = jnp.ones((ensemble_dim, ensemble_dim))/ensemble_dim
         I = jnp.identity(ensemble_dim)
 
         # The ensemble is inflated (rho=1.0 is no inflation)
-        #ISSUE: this can be applied with a single multiply below - see Hunt et al. (2007)
         Xb_pert = Xb @ (I-U)
         Xb = Xb_pert + Xb @ U
 
@@ -176,7 +169,6 @@ class ETKF(dacycler.DACycler):
         # Initialize the ensemble in observation space
         if Yb is None:
             Yb = jnp.empty((observation_dim, ensemble_dim))
-            # Yb.fill(jnp.nan) # Commenting out on 5/24, don't think this is needed
 
             # Map every ensemble member into observation space
             Yb = self._apply_obsop(Xb, H, h)
@@ -189,43 +181,27 @@ class ETKF(dacycler.DACycler):
         Yb_pert = Yb @ (I-U)
 
         # Compute the analysis
-        # Only do this part if we have observations on this chunk (parallel case)
         if len(R) > 0:
             Rinv = jnp.linalg.pinv(R, rcond=1e-15)
 
-            Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert,
+            Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I
+                                     + Yb_pert.T @ Rinv @ Yb_pert,
                                      rcond=1e-15)
-            Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)  # matrix square root (symmetric)
+            Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)
             Wa = Wa.real
-#             if Wa.imag.max() > jnp.finfo(float).eps*100:
-#                 raise ValueError('Wa has a non-neglible imaginary component, max of {}'.format(Wa.imag.max()))
         else:
-            Rinv = jnp.zeros_like(R,dtype=R.dtype)
+            Rinv = jnp.zeros_like(R, dtype=R.dtype)
             Pa_ens = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
             Wa = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
 
-        try:
-            wa = Pa_ens @ Yb_pert.T @ Rinv @ (y.flatten()-yb_bar)
-        except TypeError:
-            print('Pa_ens.shape = {}, Yb_pert.shape = {} Rinv.shape = {}, y.shape = {}, yb_bar.shape = {}'.format(Pa_ens.shape, Yb_pert.shape, Rinv.shape, y.shape, yb_bar.shape))
-            print('If y.shape is incorrect, make sure that the S operator is defined correctly at input.')
-            raise
+        wa = Pa_ens @ Yb_pert.T @ Rinv @ (y.flatten()-yb_bar)
 
         Xa_pert = Xb_pert @ Wa
 
-        try:
-            xa_bar = xb_bar + jnp.ravel(Xb_pert @ wa)
-        except TypeError:
-            print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
-            raise
+        xa_bar = xb_bar + jnp.ravel(Xb_pert @ wa)
 
         v = jnp.ones((1, ensemble_dim))
-        try:
-            Xa = Xa_pert + xa_bar[:, None] @ v
-        except TypeError:
-            print('Xa_pert.shape = {}, xa_bar.shape = {} v.shape = {}'.format(Xa_pert.shape,xa_bar.shape,v.shape))
-            print('xb_bar.shape = {}, Xb_pert.shape = {} wa.shape = {}'.format(xb_bar.shape,Xb_pert.shape,wa.shape))
-            raise
+        Xa = Xa_pert + xa_bar[:, None] @ v
 
         return Xa
 
@@ -237,12 +213,18 @@ class ETKF(dacycler.DACycler):
         obs_error_sd = state_obs_tuple[4]
 
         # 2. Calculate analysis
-        new_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0], len(filtered_idx))
-        new_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices, filtered_idx[0], len(filtered_idx))
-        analysis, kh = self.step_cycle(vector.StateVector(values=cur_state_vals, store_as_jax=True),
-                                       vector.ObsVector(values=new_obs_vals, location_indices=new_obs_loc_indices, error_sd=obs_error_sd, store_as_jax=True))
+        new_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0],
+                                                    len(filtered_idx))
+        new_obs_loc_indices = jax.lax.dynamic_slice_in_dim(
+                obs_loc_indices, filtered_idx[0], len(filtered_idx))
+        analysis, kh = self._step_cycle(
+                vector.StateVector(values=cur_state_vals, store_as_jax=True),
+                vector.ObsVector(values=new_obs_vals,
+                                 location_indices=new_obs_loc_indices,
+                                 error_sd=obs_error_sd, store_as_jax=True)
+                )
         # 3. Forecast next timestep
-        cur_state = self.step_forecast(analysis)
+        cur_state = self._step_forecast(analysis)
 
         return (cur_state.values, obs_vals, obs_times, obs_loc_indices,
                 obs_error_sd), cur_state.values
@@ -258,18 +240,20 @@ class ETKF(dacycler.DACycler):
 
         Args:
             input_state (vector.StateVector): Input state.
-            obs_vector (vector.ObsVector): Observations vector.
-            obs_error_sd (float): Standard deviation of observation error.
-                Typically not known, so provide a best-guess.
             start_time (float or datetime-like): Starting time.
+            obs_vector (vector.ObsVector): Observations vector.
             timesteps (int): Number of timesteps, in model time.
-            analysi_window (float): Time window from which to gather
-                observations for DA Cycle. Takes observations that are +/-
-                obs_time_window from time of each analysis step.
+            analysis_window (float): Time window from which to gather
+                observations for DA Cycle.
+            analysis_time_in_window (float): Where within analysis_window
+                to perform analysis. For example, 0.0 is the start of the
+                window. Default is None, which selects the middle of the
+                window.
 
         Returns:
             vector.StateVector of analyses and times.
         """
+
         if obs_error_sd is None:
             obs_error_sd = obs_vector.error_sd
         self.analysis_window = analysis_window
