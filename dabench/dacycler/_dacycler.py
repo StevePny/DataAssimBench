@@ -90,9 +90,9 @@ class DACycler():
 
             if obs_vec_timefilt.values.shape[0] > 0:
                 # 2. Calculate analysis
-                analysis, kh = self.step_cycle(cur_state, obs_vec_timefilt)
+                analysis, kh = self._step_cycle(cur_state, obs_vec_timefilt)
                 # 3. Forecast next timestep
-                cur_state = self.step_forecast(analysis)
+                cur_state = self._step_forecast(analysis)
                 # 4. Save outputs
                 all_analyses.append(analysis.values)
                 all_times.append(cur_time)
