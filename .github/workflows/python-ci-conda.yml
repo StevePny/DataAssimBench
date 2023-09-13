@@ -36,7 +36,7 @@ jobs:
         conda create --name dab
         conda activate dab
         conda install conda-libmamba-solver
-        conda env update --f environment.yml --solver=libmamba
+        conda env update --file environment.yml --solver=libmamba
         conda install -c conda-forge pyqg --solver=libmamba
       if: steps.cache.outputs.cache-hit != 'true'
 
