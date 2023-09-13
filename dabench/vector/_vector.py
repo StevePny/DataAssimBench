@@ -127,7 +127,10 @@ class _Vector():
             start_inclusive, end_inclusive = True, True
 
         if start is not None:
-            times_equal = np.isclose(self.times, start, rtol=0)
+            if isinstance(start, np.datetime64):
+                times_equal = (self.times == start)
+            else:
+                times_equal = np.isclose(self.times, start, rtol=0)
             if start_inclusive:
                 filtered_idx = (self.times > start) + times_equal
             else:
@@ -136,7 +139,10 @@ class _Vector():
             filtered_idx = jnp.ones(self.times.shape[0])
 
         if end is not None:
-            times_equal = np.isclose(self.times, end)
+            if isinstance(end, np.datetime64):
+                times_equal = (self.times == end)
+            else:
+                times_equal = np.isclose(self.times, end, rtol=0)
             if end_inclusive:
                 filtered_idx *= (self.times < end) + times_equal
             else:
