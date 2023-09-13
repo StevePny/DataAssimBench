@@ -33,7 +33,8 @@ jobs:
       
     - name: Update environment
       run: |
-        conda env update --file environment.yml --name base
+        conda install -n base conda-libmamba-solver
+        conda env update --file environment.yml --name base --solver=libmamba
         conda install -c conda-forge pyqg
       if: steps.cache.outputs.cache-hit != 'true'
 
