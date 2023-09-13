@@ -27,15 +27,16 @@ jobs:
 
     - uses: actions/cache@v2
       with:
-        path: /usr/share/miniconda3/envs/base/
+        path: /usr/share/miniconda3/envs/dab/
         key: conda-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
       id: cache
       
     - name: Update environment
       run: |
-        conda install -n base conda-libmamba-solver pytest
-        conda env update --file environment.yml --name base --solver=libmamba
-        conda install -c conda-forge pyqg
+        conda install -n base conda-libmamba-solver
+        conda create -f environment.yml --name dab --solver=libmamba
+        conda activate dab
+        conda install -c conda-forge pyqg --solver=libmamba
       if: steps.cache.outputs.cache-hit != 'true'
 
     - name: Lint with flake8
@@ -48,4 +49,5 @@ jobs:
         
     - name: Test with pytest
       run: |
+        conda install pytest
         python -m pytest
