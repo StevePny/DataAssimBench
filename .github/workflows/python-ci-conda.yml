@@ -33,10 +33,9 @@ jobs:
       
     - name: Update environment
       run: |
-        conda install -n base conda-libmamba-solver
-        conda config --set solver libmamba
-        conda env update --file environment.yml --name base
-        conda install -c conda-forge pyqg pytest
+        conda install -n base conda-libmamba-solver pytest
+        conda env update --file environment.yml --name base --solver=libmamba
+        conda install -c conda-forge pyqg
       if: steps.cache.outputs.cache-hit != 'true'
 
     - name: Lint with flake8
