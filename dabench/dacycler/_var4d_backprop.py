@@ -1,11 +1,11 @@
-"""Class for 4D Backpropagation  Data Assimilation Cycler object"""
+"""Class for Var 4D Backpropagation Data Assimilation Cycler object"""
 
 import inspect
 
 import numpy as np
 import jax.numpy as jnp
 import jax.scipy as jscipy
-from jax import value_and_grad, grad
+from jax import grad
 import jax
 
 from dabench import dacycler, vector
@@ -252,13 +252,13 @@ class Var4DBackprop(dacycler.DACycler):
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
 
-        # NOTE: This is clumsy, but it sets up jax.lax.scan, which is VERY fast
-        # Working on a better way of setting it up
+        # Set up for jax.lax.scan, which is very fast
         all_times = (
                 jnp.repeat(start_time + analysis_time_in_window, timesteps)
                 + jnp.arange(0, timesteps*analysis_window,
                              analysis_window)
                      )
+        # Get the obs vectors for each analysis window
         all_filtered_idx = jnp.stack([jnp.where(
             # Greater than start of window
             (obs_vector.times > cur_time - analysis_window/2)
