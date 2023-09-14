@@ -2,6 +2,7 @@
 
 import logging
 from copy import deepcopy
+import pickle
 
 from scipy import sparse, stats, linalg
 import numpy as np
@@ -494,3 +495,22 @@ class RCModel(model.Model):
             new_vec = vector.StateVector(values=r_full, store_as_jax=True)
 
         return new_vec
+
+    def save_weights(self, pkl_path):
+        """Save RC reservoir weights as pkl file.
+
+        Args:
+            pkl_path (str): Filepath for saving with .pkl extension
+        """
+        with open(pkl_path, 'wb') as pkl:
+            pickle.dump(self.Wout, pkl)
+
+    def load_weights(self, pkl_path):
+        """Load RC reservoir weights from pkl file.
+
+        Args:
+            pkl_path (str): Filepath with save weight matrix.
+        """
+        with open(pkl_path, 'rb') as pkl:
+            self.Wout = pickle.load(pkl)
+        
