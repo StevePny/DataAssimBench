@@ -258,7 +258,7 @@ class ETKF(dacycler.DACycler):
             obs_error_sd = obs_vector.error_sd
         self.analysis_window = analysis_window
         all_times = (jnp.repeat(start_time, timesteps)
-                     + jnp.arange(0, timesteps))
+                     + (jnp.arange(0, timesteps)*self.delta_t))
         all_filtered_idx = jnp.stack([jnp.where(
             (obs_vector.times
              >= jnp.round(cur_time - self.analysis_window/2, 3))
