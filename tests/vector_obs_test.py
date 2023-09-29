@@ -42,7 +42,8 @@ def obsvec_dt():
               'times': np.array(['2005-01-01', '2005-02-01',
                                  '2006-02-03', '2005-06-01'],
                                 dtype='datetime64'),
-              'errors': np.array([0.1, -0.15, 0.05, 0.2])
+              'errors': np.array([0.1, -0.15, 0.05, 0.2]),
+              'location_indices':  np.array([[0, 0], [0, 1], [1, 1], [2, 2]])
               }
 
     return ObsVector(**params)

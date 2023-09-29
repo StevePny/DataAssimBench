@@ -30,6 +30,10 @@ class ObsVector(_vector._Vector):
             values from which observations were made. Default is None.
         errors (array): 1d array of errors associated with each observation
         error_dist (str): String describing error distribution (e.g. Gaussian)
+        error_sd (float): If applicable, standard deviation of Gaussian dist
+            from which errors were sampled. Default is None.
+        error_bias (float): If applicable,mean of Gaussian dist from which
+            errors were sampled. Default is None.
         times (array): 1d array of times associated with each observation
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
@@ -43,12 +47,16 @@ class ObsVector(_vector._Vector):
                  time_indices=None,
                  location_indices=None,
                  errors=None,
+                 error_sd=None,
+                 error_bias=None,
                  times=None,
                  store_as_jax=False,
                  **kwargs):
 
         self.num_obs = num_obs
         self.error_dist = error_dist
+        self.error_sd = error_sd
+        self.error_bias = error_bias
         self.time_indices = time_indices
         self.location_indices = location_indices
 
@@ -73,6 +81,34 @@ class ObsVector(_vector._Vector):
 
         self.coords = coords
         self.errors = errors
+
+    def __getitem__(self, subscript):
+        if self.values is None:
+            raise AttributeError('Object does not contain any data values.\n'
+                                 'Run .generate() or .load() and try again')
+
+        if isinstance(subscript, slice):
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.times = new_copy.times[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.location_indices = new_copy.location_indices[subscript]
+            if new_copy.errors is not None:
+                new_copy.errors = new_copy.errors[subscript]
+            if new_copy.coords is not None:
+                new_copy.coords = new_copy.coords[subscript]
+            return new_copy
+        else:
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[subscript]
+            new_copy.times = new_copy.times[subscript]
+            new_copy.location_indices = new_copy.location_indices[subscript]
+            if new_copy.errors is not None:
+                new_copy.errors = new_copy.errors[subscript]
+            if new_copy.coords is not None:
+                new_copy.coords = new_copy.coords[subscript]
+            return new_copy
 
     @property
     def values(self):
@@ -141,50 +177,3 @@ class ObsVector(_vector._Vector):
     @errors.deleter
     def errors(self):
         del self._errors
-
-    def filter_times(self, start, end, inclusive=True):
-        """Filter observations to within a time range, returns copy of object
-
-        Args:
-            start (datetime or float): Start of time range. Type must match
-                type of times (e.g. datetime if times are datetimes, float if
-                times are floats). Default is None, which includes all
-                values up to "end". If neither start nor end are specified,
-                time_filter does nothing.
-            end (datetime or float): Start of time range. See "start" for
-                more information. Default is None, which includes all values
-                after "start".
-            inclusive (bool): If True, includes times that are equal to start
-                or end. If False, excludes times equal to start/end Default is
-                True.
-
-        Returns:
-            Copy of object with filtered values.
-        """
-        new_vec = copy.deepcopy(self)
-        if start is not None:
-            if inclusive:
-                filtered_idx = new_vec.times >= start
-            else:
-                filtered_idx = new_vec.times > start
-            new_vec.times = new_vec.times[filtered_idx]
-            new_vec.values = new_vec.values[filtered_idx]
-            if new_vec.errors is not None:
-                new_vec.errors = new_vec.errors[filtered_idx]
-            if new_vec.coords is not None:
-                new_vec.coords = new_vec.coords[filtered_idx]
-
-        if end is not None:
-            if inclusive:
-                filtered_idx = new_vec.times <= end
-            else:
-                filtered_idx = new_vec.times < end
-            new_vec.times = new_vec.times[filtered_idx]
-            new_vec.values = new_vec.values[filtered_idx]
-            if new_vec.errors is not None:
-                new_vec.errors = new_vec.errors[filtered_idx]
-            if new_vec.coords is not None:
-                new_vec.coords = new_vec.coords[filtered_idx]
-
-        return new_vec
-

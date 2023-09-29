@@ -1,4 +1,6 @@
 """Base class for data generator objects"""
+
+import copy
 import numpy as np
 import jax.numpy as jnp
 import xarray as xr
@@ -47,6 +49,7 @@ class Data():
         # values and x0 atts are properties to better convert between jax/numpy
         self._values = values
         self._x0 = x0
+        self._times = None
 
         if original_dim is None:
             self.original_dim = (system_dim,)
@@ -55,6 +58,29 @@ class Data():
 
         self._values_gridded = None
         self._x0_gridded = None
+
+    def __getitem__(self, subscript):
+        if self.values is None:
+            raise AttributeError('Object does not contain any data values.\n'
+                                 'Run .generate() or .load() and try again')
+
+        if isinstance(subscript, slice):
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.times = new_copy.times[
+                    subscript.start:subscript.stop:subscript.step]
+            new_copy.time_dim = new_copy.times.shape[0]
+            return new_copy
+        else:
+            new_copy = copy.deepcopy(self)
+            new_copy.values = new_copy.values[subscript]
+            new_copy.times = new_copy.times[subscript]
+            if isinstance(subscript, int):
+                new_copy.time_dim = 1
+            else:
+                new_copy.time_dim = new_copy.times.shape[0]
+            return new_copy
 
     @property
     def values(self):
@@ -77,6 +103,24 @@ class Data():
     @property
     def x0(self):
         return self._x0
+
+    @property
+    def times(self):
+        return self._times
+
+    @times.setter
+    def times(self, vals):
+        if vals is None:
+            self._times = None
+        else:
+            if self.store_as_jax:
+                self._times = jnp.asarray(vals)
+            else:
+                self._times = np.asarray(vals)
+
+    @times.deleter
+    def times(self):
+        del self._times
 
     @x0.setter
     def x0(self, x0_vals):
@@ -222,7 +266,10 @@ class Data():
                              self.system_dim)
                             )
 
-            return M
+            if self.store_as_jax:
+                return M
+            else:
+                return np.array(M)
 
     def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
                           years_select=None, dates_select=None,
@@ -599,3 +646,31 @@ class Data():
                                                    rescale_time=rescale_time,
                                                    x0=x0,
                                                    convergence=convergence)[-1]
+
+    def split_train_valid_test(self, train_size, valid_size, test_size):
+        """Splits data into train, validation, and test sets by time
+
+        Args:
+            train_size, valid_size, test_size (float or int): Size of sets.
+                If < 1, represents the fraction of the time series to use.
+                If > 1, represents the number of timesteps.
+
+        Returns:
+            (train_obj, valid_obj, test_obj): Data objects
+        """
+
+        if 0 < train_size < 1:
+            train_size = round(train_size*self.time_dim)
+        if 0 < valid_size < 1:
+            valid_size = round(valid_size*self.time_dim)
+        if 0 < test_size < 1:
+            test_size = round(test_size*self.time_dim)
+
+        # Round up train_size
+        if train_size + valid_size + test_size < self.time_dim:
+            train_size = self.time_dim - valid_size - test_size
+
+        train_end = train_size
+        valid_end = train_size + valid_size
+
+        return self[:train_end], self[train_end:valid_end], self[valid_end:]

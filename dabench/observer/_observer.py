@@ -59,6 +59,9 @@ class Observer():
             False.
         random_seed (int): Random seed for sampling times and locations.
             Default is 99.
+        store_as_jax (bool): Store values as jax array instead of numpy array.
+            Default is False (store as numpy).
+
     """
 
     def __init__(self,
@@ -74,6 +77,7 @@ class Observer():
                  error_sd=0.,
                  error_positive_only=False,
                  random_seed=99,
+                 store_as_jax=False,
                  ):
 
         self.data_obj = data_obj
@@ -95,6 +99,7 @@ class Observer():
         self.error_sd = error_sd
         self.error_positive_only = error_positive_only
         self.random_seed = random_seed
+        self.store_as_jax = store_as_jax
 
     def _generate_time_indices(self, rng):
         if self.random_time_count is not None:
@@ -187,8 +192,9 @@ class Observer():
                     :, self.location_indices]
                 + errors_vector)
         else:
+            values_gridded = self.data_obj.values_gridded
             values_vector = np.array([
-                self.data_obj.values_gridded[t][tuple(self.location_indices.T)]
+                values_gridded[t][tuple(self.location_indices.T)]
                 for t in self.time_indices]) + errors_vector
         return values_vector
 
@@ -199,8 +205,9 @@ class Observer():
                     [self.location_indices[i]] + errors_vector[i])
                 for i in range(self.time_dim)], dtype=object)
         else:
+            values_gridded = self.data_obj.values_gridded
             values_vector = np.array(
-                [self.data_obj.values_gridded[self.time_indices[i]][
+                [values_gridded[self.time_indices[i]][
                     tuple(self.location_indices[i].T)]
                  + errors_vector[i] for i in range(self.time_dim)],
                 dtype=object)
@@ -326,5 +333,8 @@ class Observer():
                          obs_dims=self.location_dim,
                          num_obs=values_vector.shape[0],
                          errors=errors_vector,
-                         error_dist='normal'
+                         error_dist='normal',
+                         error_sd=self.error_sd,
+                         error_bias=self.error_bias,
+                         store_as_jax=self.store_as_jax,
                          )
