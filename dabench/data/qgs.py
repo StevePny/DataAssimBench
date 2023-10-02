@@ -67,6 +67,8 @@ class QGS(_data.Data):
 
         if model_params is None:
             self.model_params = self._create_default_qgparams()
+        else:
+            self.model_params = model_params
         self.random_seed = random_seed
         self._rng = np.random.default_rng(self.random_seed)
 
