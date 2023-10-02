@@ -37,6 +37,7 @@ jobs:
         # Slightly awkward way of adding an optional package to our environment
         echo "  - pyqg" >> environment.yml
         conda env update --name base --file environment.yml --solver=libmamba
+        pip install qgs
       if: steps.cache.outputs.cache-hit != 'true'
 
     - name: Lint with flake8
