@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def aws_small():
     """Defines aws object for rest of tests"""
     aws_obj = AWS(months=['01', '02'])
@@ -14,7 +14,7 @@ def aws_small():
     return aws_obj
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def aws_multivar():
     """Defines aws object for rest of tests"""
     aws_obj = AWS(variables=['air_temperature_at_2_metres',
