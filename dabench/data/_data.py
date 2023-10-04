@@ -248,6 +248,7 @@ class Data():
         # Otherwise, use integrate from dabench.support.utils
         else:
             y, t = integrate(f, x0, t_final, self.delta_t, stride=stride,
+                             jax_comps=self.store_as_jax,
                              **kwargs)
 
         # The generate method specifically stores data in the object,

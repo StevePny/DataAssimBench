@@ -1,13 +1,16 @@
 """Utils for data generator integration"""
 
 import logging
+import numpy as np
 import jax.numpy as jnp
+from scipy.integrate import odeint as spodeint
 from jax.experimental.ode import odeint
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
 def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
+              jax_comps=True,
               **kwargs):
     """ Integrate forward in time.
 
@@ -29,13 +32,20 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
 
     if method == 'odeint':
         # Define timesteps
-        t = jnp.arange(0.0, t_final, delta_t)
+        if jax_comps:
+            t = jnp.arange(0.0, t_final, delta_t)
+        else:
+            t = np.arange(0.0, t_final, delta_t)
         # If stride is defined, remove timesteps that are not on stride steps
         if stride is not None:
             assert stride > 1 and isinstance(stride, int), \
                 'integrate: stride = {}, must be > 1 and an int'.format(stride)
             t = t[::stride]
-        y = odeint(function, x0, t, **kwargs)
+        if jax_comps:
+            y = odeint(function, x0, t, **kwargs)
+        else:
+            y = spodeint(function, x0, t, **kwargs)
+            
     else:
         raise 'integration method {} not supported'.format(method)
 

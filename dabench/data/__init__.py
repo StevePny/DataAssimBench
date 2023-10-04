@@ -8,6 +8,7 @@ from .gcp import GCP
 from .pyqg import PyQG
 from .barotropic import Barotropic
 from .enso_indices import ENSOIndices
+from .qgs import QGS
 
 __all__ = [
     'Data',
@@ -18,5 +19,6 @@ __all__ = [
     'GCP',
     'PyQG',
     'Barotropic',
-    'ENSOIndices'
+    'ENSOIndices',
+    'QGS'
     ]
