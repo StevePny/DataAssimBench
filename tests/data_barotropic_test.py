@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def barotropic():
     """Defines class Barotropic object for rest of tests."""
     barotropic_obj = Barotropic()

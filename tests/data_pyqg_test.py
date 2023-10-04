@@ -6,7 +6,7 @@ import pytest
 from dabench.data import PyQG
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def pyqg():
     """Defines class PYQ object for rest of tests."""
     pyqg_obj = PyQG()
