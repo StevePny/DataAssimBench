@@ -223,7 +223,7 @@ class RCModel(model.Model):
 
         try:
             if self.sigma_bias != 0:
-                u = jnp.concatenate(([1.0], u))
+                u = jnp.concatenate((jnp.array([1.0]), u))
             p = A @ r.T + Win @ u
             q = self.leak_rate * jnp.tanh(p) + (1 - self.leak_rate) * r
         except TypeError as err:
