@@ -95,11 +95,13 @@ class Var4DBackprop(dacycler.DACycler):
         Binv = jscipy.linalg.inv(B)
 
         @jax.jit
-        def loss_4dvarcost(x0, xb0):
-            # Make prediction based on current r
+        def loss_4dvarcost(x0):
             pred_x = self.step_forecast(
                     vector.StateVector(values=x0, store_as_jax=True),
                     n_steps=n_steps).values
+
+            # Make prediction based on current r
+            xb0 = pred_x[0]
 
             # Apply observation operator to map to obs spcae
             pred_obs = time_sel_matrix @ pred_x @ H
@@ -123,18 +125,15 @@ class Var4DBackprop(dacycler.DACycler):
                 jnp.arange(time_sel_matrix.shape[0]), obs_steps_inds].set(1)
         return time_sel_matrix
 
-    def _make_backprop_epoch(self, loss_func, optimizer):
+    def _make_backprop_epoch(self, optimizer):
 
         @jax.jit
         def _backprop_epoch(x0_opt_state_tuple, i):
-            x0, xb0, i, opt_state = x0_opt_state_tuple
-#             xb0 = jax.lax.cond(i % 5 == 0, lambda: x0, lambda: xb0)
-            loss_val, dx0 = value_and_grad(loss_func, argnums=0)(x0, xb0)
+            x0, dx0, i, opt_state = x0_opt_state_tuple
             updates, opt_state = optimizer.update(dx0, opt_state)
-            xb0 = x0
             x0_new = optax.apply_updates(x0, updates)
 
-            return (x0_new, xb0, i+1, opt_state), loss_val
+            return (x0_new, dx0, i+1, opt_state), x0_new
 
         return _backprop_epoch
 
@@ -167,21 +166,25 @@ class Var4DBackprop(dacycler.DACycler):
         lr = optax.exponential_decay(
                 self.learning_rate,
                 self.num_epochs, self.lr_decay)
-        optimizer = optax.sgd(lr)
+        optimizer = optax.adam(lr)
         opt_state = optimizer.init(x0)
 
-        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer)
-        x0_opt_state_tuple, loss_vals = jax.lax.scan(
-                backprop_epoch_func, init=(x0, x0, 0, opt_state),
+        # Make initial forecast and calculate loss
+        loss_val, dx0 = value_and_grad(loss_func, argnums=0)(x0)
+        backprop_epoch_func = self._make_backprop_epoch(optimizer)
+        x0_opt_state_tuple, x0_vals = jax.lax.scan(
+                backprop_epoch_func, init=(x0, dx0, 0, opt_state),
                 xs=None, length=self.num_epochs)
 
-        x0, xb0, i, opt_state = x0_opt_state_tuple
+        x0, dx0, i, opt_state = x0_opt_state_tuple
 
+        # Analysis
+        loss_val_end, dx0 = value_and_grad(loss_func, argnums=0)(x0)
         xa = self.step_forecast(
                 vector.StateVector(values=x0, store_as_jax=True),
                 n_steps=n_steps)
 
-        return xa, loss_vals
+        return xa, jnp.array([loss_val, loss_val_end])
 
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1,
                    obs_window_indices=[0]):
