@@ -9,6 +9,8 @@ from jax import grad, value_and_grad
 from jax.scipy import optimize
 import jax
 import optax
+from timeit import default_timer as timer
+
 
 from dabench import dacycler, vector
 
@@ -89,7 +91,7 @@ class Var4DBackprop(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _make_loss(self, xb0, obs_vals, init_pred_obs, Ht, B, R, time_sel_matrix, M_obs, n_steps):
+    def _make_loss(self, xb0, obs_vals,  Ht, B, R, time_sel_matrix, n_steps):
         """Define loss function based on 4dvar cost"""
         Rinv = jscipy.linalg.inv(R)
         Binv = jscipy.linalg.inv(B)
@@ -99,15 +101,18 @@ class Var4DBackprop(dacycler.DACycler):
             # Get initial departure
             db0 = (x0.ravel() - xb0.ravel())
 
-            # Get approximate new observations
-            pred_obs = M_obs @ db0 + init_pred_obs
+            # Make new prediction
+            pred_x = self.step_forecast(
+                    vector.StateVector(values=x0, store_as_jax=True),
+                    n_steps).values
+            pred_obs = time_sel_matrix @ pred_x @ Ht
 
             # Calculate observation term of J_0
             resid = (pred_obs.ravel() - obs_vals.ravel())
-            obs_term = 0.5*np.sum(resid.T @ Rinv @ resid)
+            obs_term = np.sum(resid.T @ Rinv @ resid)
 
             # Calculate initial departure term of J_0 based on original x0
-            initial_term = 0.5*(db0.T @ Binv @ db0)
+            initial_term = (db0.T @ Binv @ db0)
 
             # Cost is the sum of the two terms
             return initial_term + obs_term
@@ -165,12 +170,9 @@ class Var4DBackprop(dacycler.DACycler):
                 B = self.B
 
         # Get initial observations and jacobian
-        M_obs, pred_obs = jax.jacrev(
-                self._gen_forecast_obs, has_aux=True, argnums=0)(
-                        x0, Ht, time_sel_matrix)
 
-        loss_func = self._make_loss(x0, obs_values, pred_obs, Ht, B, R,
-                                    time_sel_matrix, M_obs,
+        loss_func = self._make_loss(x0, obs_values, Ht, B, R,
+                                    time_sel_matrix,
                                     n_steps=n_steps)
 
         lr = optax.exponential_decay(
