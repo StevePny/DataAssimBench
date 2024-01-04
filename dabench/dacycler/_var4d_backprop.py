@@ -61,6 +61,7 @@ class Var4DBackprop(dacycler.DACycler):
                  num_epochs=20,
                  steps_per_window=1,
                  obs_window_indices=[0],
+                 loss_growth_limit=1e3,
                  **kwargs
                  ):
 
@@ -69,6 +70,7 @@ class Var4DBackprop(dacycler.DACycler):
         self.lr_decay = lr_decay
         self.steps_per_window = steps_per_window
         self.obs_window_indices = obs_window_indices
+        self.loss_growth_limit = loss_growth_limit
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
@@ -92,8 +94,11 @@ class Var4DBackprop(dacycler.DACycler):
     def _raise_nan_error(self):
         raise ValueError('Loss value is nan, exiting optimization')
         
-    def _callback_raise_error(self, loss_val):
-        jax.debug.callback(self._raise_nan_error)
+    def _raise_loss_growth_error(self):
+        raise ValueError('Loss value has exceeded self.loss_growth_limit, exiting optimization')
+
+    def _callback_raise_error(self, error_method, loss_val):
+        jax.debug.callback(error_method)
         return loss_val
 
     def _make_loss(self, xb0, obs_vals,  Ht, B, R, time_sel_matrix, n_steps):
@@ -123,7 +128,7 @@ class Var4DBackprop(dacycler.DACycler):
             loss_val = initial_term + obs_term
             return jax.lax.cond(
                     jnp.isnan(loss_val),
-                    lambda: self._callback_raise_error(loss_val),
+                    lambda: self._callback_raise_error(self._raise_nan_error, loss_val),
                     lambda: loss_val)
 
         return loss_4dvarcost
@@ -139,13 +144,22 @@ class Var4DBackprop(dacycler.DACycler):
         loss_value_grad = value_and_grad(loss_func, argnums=0)
 
         @jax.jit
-        def _backprop_epoch(x0_opt_state_tuple, i):
-            x0, xb0, i, opt_state = x0_opt_state_tuple
+        def _backprop_epoch(epoch_state_tuple, _):
+            x0, xb0, init_loss, i, opt_state = epoch_state_tuple
             loss_val, dx0 = loss_value_grad(x0)
+            init_loss = jax.lax.cond(
+                    i==0,
+                    lambda: loss_val,
+                    lambda: init_loss)
+            loss_val = jax.lax.cond(
+                    loss_val/init_loss > self.loss_growth_limit,
+                    lambda: self._callback_raise_error(self._raise_loss_growth_error, loss_val),
+                    lambda: loss_val)
+                    
             updates, opt_state = optimizer.update(dx0, opt_state)
             x0_new = optax.apply_updates(x0, updates)
 
-            return (x0_new, x0, i+1, opt_state), loss_val
+            return (x0_new, x0, init_loss, i+1, opt_state), loss_val
 
         return _backprop_epoch
 
@@ -195,11 +209,11 @@ class Var4DBackprop(dacycler.DACycler):
 
         # Make initial forecast and calculate loss
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer)
-        x0_opt_state_tuple, loss_vals = jax.lax.scan(
-                backprop_epoch_func, init=(x0, x0, 0, opt_state),
+        epoch_state_tuple, loss_vals = jax.lax.scan(
+                backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
                 xs=None, length=self.num_epochs)
 
-        x0, xb0, i, opt_state = x0_opt_state_tuple
+        x0, xb0, init_loss, i, opt_state = epoch_state_tuple
 
         xa = self.step_forecast(
                 vector.StateVector(values=x0, store_as_jax=True),
