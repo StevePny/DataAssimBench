@@ -10,7 +10,6 @@ from jax.scipy import optimize
 import jax
 import optax
 
-
 from dabench import dacycler, vector
 
 
@@ -64,6 +63,7 @@ class Var4DBackprop(dacycler.DACycler):
                  obs_window_indices=[0],
                  **kwargs
                  ):
+        config.update("jax_debug_nans", True)
 
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
@@ -90,6 +90,13 @@ class Var4DBackprop(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
+    def _raise_nan_error(self):
+        raise ValueError('Loss value is nan, exiting optimization')
+        
+    def _callback_raise_error(self, loss_val):
+        jax.debug.callback(self._raise_nan_error)
+        return loss_val
+
     def _make_loss(self, xb0, obs_vals,  Ht, B, R, time_sel_matrix, n_steps):
         """Define loss function based on 4dvar cost"""
         Rinv = jscipy.linalg.inv(R)
@@ -114,7 +121,11 @@ class Var4DBackprop(dacycler.DACycler):
             initial_term = (db0.T @ Binv @ db0)
 
             # Cost is the sum of the two terms
-            return initial_term + obs_term
+            loss_val = initial_term + obs_term
+            return jax.lax.cond(
+                    jnp.isnan(loss_val),
+                    lambda: self._callback_raise_error(loss_val),
+                    lambda: loss_val)
 
         return loss_4dvarcost
 
