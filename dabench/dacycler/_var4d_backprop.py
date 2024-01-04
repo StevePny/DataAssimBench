@@ -63,7 +63,6 @@ class Var4DBackprop(dacycler.DACycler):
                  obs_window_indices=[0],
                  **kwargs
                  ):
-        config.update("jax_debug_nans", True)
 
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
