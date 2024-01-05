@@ -61,7 +61,7 @@ class Var4DBackprop(dacycler.DACycler):
                  num_epochs=20,
                  steps_per_window=1,
                  obs_window_indices=[0],
-                 loss_growth_limit=1e3,
+                 loss_growth_limit=10,
                  **kwargs
                  ):
 
