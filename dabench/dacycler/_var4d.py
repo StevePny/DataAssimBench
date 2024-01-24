@@ -9,6 +9,7 @@ from jax import grad
 import jax
 from jax.scipy.sparse.linalg import bicgstab
 from copy import deepcopy
+from functools import partial
 
 from dabench import dacycler, vector
 
@@ -85,6 +86,28 @@ class Var4D(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
+    def _make_outerloop_4d(self, xb0,  H, B, Rinv,
+                           obs_values, obs_window_indices,
+                           n_steps):
+
+        def _outerloop_4d(x0, _):
+            # Get TLM and current forecast trajectory
+            # Based on current best guess for x0
+            M, x = self.model_obj.compute_tlm(
+                n_steps=n_steps,
+                state_vec=vector.StateVector(values=x0,
+                                             store_as_jax=True)
+            )
+
+            # 4D-Var inner loop
+            x0 = self._innerloop_4d(self.system_dim, x, xb0,
+                                    obs_values, H, B,
+                                    Rinv, M, obs_window_indices)
+
+            return x0, x0
+
+        return _outerloop_4d
+
     def _cycle_obsop(self, xb0, obs_values, obs_loc_indices,
                      obs_error_sd, H=None, h=None, R=None, B=None,
                      obs_window_indices=None, n_steps=1):
@@ -113,23 +136,30 @@ class Var4D(dacycler.DACycler):
         # Best guess for x0 starts as background
         x0 = deepcopy(xb0)
 
-        # Outer Loop
-        for i in range(self.n_outer_loops):
-            assert x0 is not None, 'x0 is None in cycle i={}'.format(i)
 
-            # Get TLM and current forecast trajectory
-            # Based on current best guess for x0
-            M, x = self.model_obj.compute_tlm(
-                n_steps=n_steps,
-                state_vec=vector.StateVector(values=x0,
-                                             store_as_jax=True)
-            )
+        outerloop_4d_func = self._make_outerloop_4d(
+                xb0,  H, B, Rinv, obs_values, obs_window_indices, n_steps)
 
-            # 4D-Var inner loop
-            x0 = self._innerloop_4d(self.system_dim, x, xb0,
-                                    obs_values, H, B,
-                                    Rinv, M, obs_window_indices)
+        x0, all_x0s =  jax.lax.scan(outerloop_4d_func, init=x0,
+                xs=None, length=self.n_outer_loops)
 
+#         # Outer Loop
+#         for i in range(self.n_outer_loops):
+#             assert x0 is not None, 'x0 is None in cycle i={}'.format(i)
+# 
+#             # Get TLM and current forecast trajectory
+#             # Based on current best guess for x0
+#             M, x = self.model_obj.compute_tlm(
+#                 n_steps=n_steps,
+#                 state_vec=vector.StateVector(values=x0,
+#                                              store_as_jax=True)
+#             )
+# 
+#             # 4D-Var inner loop
+#             x0 = self._innerloop_4d(self.system_dim, x, xb0,
+#                                     obs_values, H, B,
+#                                     Rinv, M, obs_window_indices)
+# 
 
         # forecast
         x = self.step_forecast(
@@ -170,6 +200,7 @@ class Var4D(dacycler.DACycler):
                     out.append(xi)
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
+    @partial(jax.jit, static_argnums=[0,1])
     def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
                       obs_window_indices=[0]):
         """4DVar innerloop
@@ -225,6 +256,7 @@ class Var4D(dacycler.DACycler):
 
         return x0_new
 
+    @partial(jax.jit, static_argnums=0)
     def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
         """Solve the 4D-Var linear optimization
 
@@ -254,6 +286,7 @@ class Var4D(dacycler.DACycler):
 
         return dx0
 
+    @partial(jax.jit, static_argnums=0)
     def _cycle_and_forecast(self, cur_state_vals, filtered_idx):
         obs_vals = self._obs_vector.values
         obs_loc_indices = self._obs_vector.location_indices
