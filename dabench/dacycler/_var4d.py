@@ -143,24 +143,6 @@ class Var4D(dacycler.DACycler):
         x0, all_x0s =  jax.lax.scan(outerloop_4d_func, init=x0,
                 xs=None, length=self.n_outer_loops)
 
-#         # Outer Loop
-#         for i in range(self.n_outer_loops):
-#             assert x0 is not None, 'x0 is None in cycle i={}'.format(i)
-# 
-#             # Get TLM and current forecast trajectory
-#             # Based on current best guess for x0
-#             M, x = self.model_obj.compute_tlm(
-#                 n_steps=n_steps,
-#                 state_vec=vector.StateVector(values=x0,
-#                                              store_as_jax=True)
-#             )
-# 
-#             # 4D-Var inner loop
-#             x0 = self._innerloop_4d(self.system_dim, x, xb0,
-#                                     obs_values, H, B,
-#                                     Rinv, M, obs_window_indices)
-# 
-
         # forecast
         x = self.step_forecast(
             n_steps=n_steps,
