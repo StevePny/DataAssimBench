@@ -52,7 +52,6 @@ class PyQGJax(_data.Data):
         filterfac (float): amplitdue of the spectral spherical filter
             (originally 18.4, later changed to 23.6).
         delta_t (float): Numerical timestep. Units: seconds.
-        twrite (int): Interval for cfl writeout. Units: number of timesteps.
         tmax (float): Total time of integration (overwritten by t_final).
             Units: seconds.
         ntd (int): Number of threads to use. Should not exceed the number of
@@ -69,11 +68,9 @@ class PyQGJax(_data.Data):
                  U1=0.025,
                  U2=0.0,
                  x0=None,
-                 twrite=10000,
                  nx=64,
                  ny=None,
                  delta_t=7200,
-                 ntd=1,
                  time_dim=None,
                  values=None,
                  times=None,
@@ -95,16 +92,13 @@ class PyQGJax(_data.Data):
 
         self._base_model = pyqg_jax.qg_model.QGModel(
                 beta=beta, rd=rd, delta=delta, H1=H1,
-                U1=U1, U2=U2, nx=nx, ny=ny, 
+                U1=U1, U2=U2, nx=nx, ny=ny,
                 precision=pyqg_jax.state.Precision.DOUBLE, **kwargs)
-        self._param_model = pyqg_jax.parameterizations.smagorinsky.apply_parameterization(
-            self._base_model, constant=0.08,
-            )
 
         self._stepper = pyqg_jax.steppers.AB3Stepper(dt=delta_t)
 
         self.m = pyqg_jax.steppers.SteppedModel(
-                self._param_model, self._stepper
+                self._base_model, self._stepper
                 )
         system_dim = self._base_model.nx * self._base_model.ny * self._base_model.nz
         original_dim = (self._base_model.nz, self._base_model.nx, self._base_model.ny)
@@ -142,7 +136,7 @@ class PyQGJax(_data.Data):
         https://pyqg.readthedocs.io/en/latest/api.html?highlight=spec_var#pyqg.Model.spec_var
         """
 
-        var_dens = 2. * np.abs(ph)**2 / self.M**2
+        var_dens = 2. * np.abs(ph)**2 / self._base_model.M**2
         # only half of coefs [0] and [nx/2+1] due to symmetry in real fft2
         var_dens[..., 0] = var_dens[...,0]/2.
         var_dens[..., -1] = var_dens[...,-1]/2.
@@ -191,6 +185,7 @@ class PyQGJax(_data.Data):
                         'dimension must be for this 2-layer QG model')
             else:
                 print('Initial condition not set. Start with random IC.')
+
                 fk = self._base_model.wv != 0
                 ckappa = np.zeros_like(self._base_model.wv2)
                 ckappa[fk] = np.sqrt(
@@ -202,29 +197,19 @@ class PyQGJax(_data.Data):
                 Pi_hat = (np.random.randn(nhx, nhy)*ckappa + 1j *
                           np.random.randn(nhx, nhy)*ckappa)
 
-                Pi = jnp.fft.ifft(Pi_hat[jnp.newaxis, :, :])
+                Pi = np.repeat(jnp.fft.irfft2(Pi_hat[np.newaxis,:,:]),self._base_model.nz,  axis=0)
                 Pi = Pi - Pi.mean()
-                Pi_hat = jax.fft.fftfft(Pi)
+                Pi_hat = jnp.fft.rfft2(Pi)
                 KEaux = self._spec_var(self._base_model.wv * Pi_hat)
-
                 pih = (Pi_hat/np.sqrt(KEaux))
                 qih = -self._base_model.wv2*pih
-                x0 = jax.fft.ifft(qih)
+                x0 = jnp.fft.irfft2(qih)
 
-#         init_state = self._template_state.update(
-#                 state=self._template_state.state.model_state.update(
-#                     q=x0
-#                     )
-#                 )
         init_state = self._template_state.update(
-            state = pyqg_jax.parameterizations.ParameterizedModelState(
-                model_state = self._template_state.state.model_state.update(
+                state=self._template_state.state.update(
                     q=x0
                     )
-                ),
-                param_aux=pyqg_jax.steppers.NoStepValue(None)
                 )
-        ) 
 
         self.x0 = x0.flatten()
 
