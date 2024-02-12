@@ -7,6 +7,7 @@ import logging
 import numpy as np
 from copy import deepcopy
 import jax
+import functools
 import jax.numpy as jnp
 
 from dabench.data import _data
@@ -92,24 +93,29 @@ class PyQGJax(_data.Data):
                 'https://pyqg.readthedocs.io/en/latest/installation.html'
                 )
 
-        self._base_model = pyqg_jax.qg_modelQGModel(
+        self._base_model = pyqg_jax.qg_model.QGModel(
                 beta=beta, rd=rd, delta=delta, H1=H1,
-                U1=U1, U2=U2, twrite=twrite, ntd=ntd, nx=nx,
-                ny=ny, **kwargs)
+                U1=U1, U2=U2, nx=nx, ny=ny, 
+                precision=pyqg_jax.state.Precision.DOUBLE, **kwargs)
+        self._param_model = pyqg_jax.parameterizations.smagorinsky.apply_parameterization(
+            self._base_model, constant=0.08,
+            )
+
         self._stepper = pyqg_jax.steppers.AB3Stepper(dt=delta_t)
 
         self.m = pyqg_jax.steppers.SteppedModel(
-                self._base_model, self._stepper
+                self._param_model, self._stepper
                 )
-        system_dim = self.m.nx * self.m.ny * self.m.nz
-        
+        system_dim = self._base_model.nx * self._base_model.ny * self._base_model.nz
+        original_dim = (self._base_model.nz, self._base_model.nx, self._base_model.ny)
+
         # For pyqg-jax, setting x0 requires a "template" init_state.
         self._template_state = self.m.create_initial_state(
                 jax.random.PRNGKey(0)
                 )
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, times=times, delta_t=delta_t,
-                         store_as_jax=store_as_jax, x0=x0,
+        super().__init__(system_dim=system_dim, original_dim=original_dim,
+                         time_dim=time_dim, values=values, times=times,
+                         delta_t=delta_t, store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
     @functools.partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -120,7 +126,7 @@ class PyQGJax(_data.Data):
 
         def loop_fn(carry, _x):
             current_state = carry
-            next_state = stepped_model.step_model(current_state)
+            next_state = self.m.step_model(current_state)
             return next_state, next_state
 
         _final_carry, traj_steps = jax.lax.scan(
@@ -185,13 +191,13 @@ class PyQGJax(_data.Data):
                         'dimension must be for this 2-layer QG model')
             else:
                 print('Initial condition not set. Start with random IC.')
-                fk = self.m.model.wv != 0
-                ckappa = np.zeros_like(self.m.model.wv2)
+                fk = self._base_model.wv != 0
+                ckappa = np.zeros_like(self._base_model.wv2)
                 ckappa[fk] = np.sqrt(
-                    self.m.model.wv2[fk]
-                    * (1. + (self.m.model.wv2[fk]/36.) ** 2)) ** -1
+                    self._base_model.wv2[fk]
+                    * (1. + (self._base_model.wv2[fk]/36.) ** 2)) ** -1
 
-                nhx, nhy = self.m.model.wv2.shape
+                nhx, nhy = self._base_model.wv2.shape
 
                 Pi_hat = (np.random.randn(nhx, nhy)*ckappa + 1j *
                           np.random.randn(nhx, nhy)*ckappa)
@@ -199,18 +205,26 @@ class PyQGJax(_data.Data):
                 Pi = jnp.fft.ifft(Pi_hat[jnp.newaxis, :, :])
                 Pi = Pi - Pi.mean()
                 Pi_hat = jax.fft.fftfft(Pi)
-                KEaux = self._spec_var(self.m.model.wv * Pi_hat)
+                KEaux = self._spec_var(self._base_model.wv * Pi_hat)
 
                 pih = (Pi_hat/np.sqrt(KEaux))
-                qih = -self.m.model.wv2*pih
+                qih = -self._base_model.wv2*pih
                 x0 = jax.fft.ifft(qih)
 
+#         init_state = self._template_state.update(
+#                 state=self._template_state.state.model_state.update(
+#                     q=x0
+#                     )
+#                 )
         init_state = self._template_state.update(
-                self._template_state.update(
-                    state=self._template_state.state.update(
-                        q=x0)
+            state = pyqg_jax.parameterizations.ParameterizedModelState(
+                model_state = self._template_state.state.model_state.update(
+                    q=x0
                     )
+                ),
+                param_aux=pyqg_jax.steppers.NoStepValue(None)
                 )
+        ) 
 
         self.x0 = x0.flatten()
 
@@ -222,7 +236,6 @@ class PyQGJax(_data.Data):
         qs = traj.state.q
 
         # Save values
-        self.original_dim = qs.shape[1:]
         self.time_dim = qs.shape[0]
         self.values = qs.reshape((self.time_dim, -1))
 
