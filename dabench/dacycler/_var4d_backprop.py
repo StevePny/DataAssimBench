@@ -35,7 +35,7 @@ class Var4DBackprop(dacycler.DACycler):
         h (function): Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
         num_epochs (int): Number of epochs for backpropagation per analysis
-            cycle. Default is 20.
+            cycle. Default is 3.
         steps_per_window (int): Number of timesteps per analysis window.
         learning_rate (float): LR for backpropogation. Default is 1e-5, but
             DA results can be quite sensitive to this parameter.
@@ -58,7 +58,7 @@ class Var4DBackprop(dacycler.DACycler):
                  h=None,
                  learning_rate=1e-5,
                  lr_decay=1.0,
-                 num_epochs=20,
+                 num_epochs=3,
                  steps_per_window=1,
                  obs_window_indices=[0],
                  loss_growth_limit=10,
