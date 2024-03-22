@@ -142,11 +142,14 @@ class Var4DBackprop(dacycler.DACycler):
     def _make_backprop_epoch(self, loss_func, optimizer):
 
         loss_value_grad = value_and_grad(loss_func, argnums=0)
+        hessian = jax.hessian(loss_func, argnums=0)
 
         @jax.jit
         def _backprop_epoch(epoch_state_tuple, _):
             x0, xb0, init_loss, i, opt_state = epoch_state_tuple
             loss_val, dx0 = loss_value_grad(x0)
+            hess_inv = jscipy.linalg.inv(hessian(x0))
+            dx0_hess = hess_inv @ dx0
             init_loss = jax.lax.cond(
                     i==0,
                     lambda: loss_val,
@@ -156,7 +159,7 @@ class Var4DBackprop(dacycler.DACycler):
                     lambda: self._callback_raise_error(self._raise_loss_growth_error, loss_val),
                     lambda: loss_val)
                     
-            updates, opt_state = optimizer.update(dx0, opt_state)
+            updates, opt_state = optimizer.update(dx0_hess, opt_state)
             x0_new = optax.apply_updates(x0, updates)
 
             return (x0_new, x0, init_loss, i+1, opt_state), loss_val
