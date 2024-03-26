@@ -80,8 +80,8 @@ class Var4DBackprop(dacycler.DACycler):
                          B=B, R=R, H=H, h=h)
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
-        H = jnp.zeros((obs_values.flatten().shape[0], self.system_dim))
-        H = H.at[jnp.arange(H.shape[0]), obs_loc_indices.flatten()
+        H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
+        H = H.at[jnp.arange(H.shape[0]), obs_loc_indices[0]
                  ].set(1)
         return H
 
@@ -101,7 +101,7 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
-    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, time_sel_matrix, n_steps):
+    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, obs_window_indices, n_steps):
         """Define loss function based on 4dvar cost"""
 
         @jax.jit
@@ -113,11 +113,14 @@ class Var4DBackprop(dacycler.DACycler):
             pred_x = self.step_forecast(
                     vector.StateVector(values=x0, store_as_jax=True),
                     n_steps).values
-            pred_obs = time_sel_matrix @ pred_x @ Ht
 
             # Calculate observation term of J_0
-            resid = (pred_obs.ravel() - obs_vals.ravel())
-            obs_term = np.sum(resid.T @ Rinv @ resid)
+            obs_term = 0
+            for i, j in enumerate(obs_window_indices):
+                pred_obs = pred_x[j] @ Ht
+                resid = pred_obs.ravel() - obs_vals[i].ravel()
+
+                obs_term += np.sum(resid.T @ Rinv @ resid)
 
             # Calculate initial departure term of J_0 based on original x0
             initial_term = (db0.T @ Binv @ db0)
@@ -131,11 +134,6 @@ class Var4DBackprop(dacycler.DACycler):
 
         return loss_4dvarcost
 
-    def _calc_time_sel_matrix(self, obs_steps_inds, n_pred_steps):
-        time_sel_matrix = jnp.zeros((len(obs_steps_inds), n_pred_steps))
-        time_sel_matrix = time_sel_matrix.at[
-                jnp.arange(time_sel_matrix.shape[0]), obs_steps_inds].set(1)
-        return time_sel_matrix
 
     def _make_backprop_epoch(self, loss_func, optimizer, hessian_inv):
 
@@ -162,14 +160,9 @@ class Var4DBackprop(dacycler.DACycler):
 
         return _backprop_epoch
 
-    def _gen_forecast_obs(self, x0, Ht, time_sel_matrix):
-        pred_x = self.step_forecast(
-                vector.StateVector(values=x0, store_as_jax=True), 11).values
-        pred_obs = time_sel_matrix @ pred_x @ Ht
-        return pred_obs, pred_obs
 
     def _cycle_obsop(self, x0, obs_values, obs_loc_indices, obs_error_sd,
-                     H=None, h=None, R=None, B=None, time_sel_matrix=None,
+                     H=None, h=None, R=None, B=None, obs_window_indices=None,
                      n_steps=1):
         if H is None and h is None:
             if self.H is None:
@@ -197,10 +190,8 @@ class Var4DBackprop(dacycler.DACycler):
         Rinv = jscipy.linalg.inv(R)
         Binv = jscipy.linalg.inv(B)
 
-        Rinv_singletimestep = Rinv[:round(Rinv.shape[0]/3), :round(Rinv.shape[1]/3)]
-
         # Compute Hessian
-        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv_singletimestep @ H)
+        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv @ H)
 
         # Get initial observations and jacobian
 
@@ -210,7 +201,7 @@ class Var4DBackprop(dacycler.DACycler):
                 Ht,
                 Binv,
                 Rinv,
-                time_sel_matrix,
+                obs_window_indices,
                 n_steps=n_steps)
 
         lr = optax.exponential_decay(
@@ -237,15 +228,13 @@ class Var4DBackprop(dacycler.DACycler):
     def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1,
                    obs_window_indices=[0]):
         """Perform one step of DA Cycle"""
-        time_sel_matrix = self._calc_time_sel_matrix(obs_window_indices,
-                                                     n_steps)
         if H is not None or h is None:
             return self._cycle_obsop(
                     xb.values, yo.values, yo.location_indices, yo.error_sd,
-                    H, R, B, time_sel_matrix=time_sel_matrix, n_steps=n_steps)
+                    H, R, B, obs_window_indices=obs_window_indices, n_steps=n_steps)
         else:
             return self._cycle_obsop(
-                    xb, yo, h, R, B, time_sel_matrix=time_sel_matrix,
+                    xb, yo, h, R, B, obs_window_indices=obs_window_indices,
                     n_steps=n_steps)
 
     def step_forecast(self, xa, n_steps=1):
