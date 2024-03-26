@@ -101,10 +101,8 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
-    def _make_loss(self, xb0, obs_vals,  Ht, B, R, time_sel_matrix, n_steps):
+    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, time_sel_matrix, n_steps):
         """Define loss function based on 4dvar cost"""
-        Rinv = jscipy.linalg.inv(R)
-        Binv = jscipy.linalg.inv(B)
 
         @jax.jit
         def loss_4dvarcost(x0):
@@ -139,17 +137,17 @@ class Var4DBackprop(dacycler.DACycler):
                 jnp.arange(time_sel_matrix.shape[0]), obs_steps_inds].set(1)
         return time_sel_matrix
 
-    def _make_backprop_epoch(self, loss_func, optimizer):
+    def _make_backprop_epoch(self, loss_func, optimizer, hessian_inv):
 
         loss_value_grad = value_and_grad(loss_func, argnums=0)
-        hessian = jax.hessian(loss_func, argnums=0)
+#         hessian = jax.hessian(loss_func, argnums=0)
 
         @jax.jit
         def _backprop_epoch(epoch_state_tuple, _):
             x0, xb0, init_loss, i, opt_state = epoch_state_tuple
             loss_val, dx0 = loss_value_grad(x0)
-            hess_inv = jscipy.linalg.inv(hessian(x0))
-            dx0_hess = hess_inv @ dx0
+#             hessian_inv = jscipy.linalg.inv(hessian(x0))
+            dx0_hess = hessian_inv @ dx0
             init_loss = jax.lax.cond(
                     i==0,
                     lambda: loss_val,
@@ -197,11 +195,25 @@ class Var4DBackprop(dacycler.DACycler):
             else:
                 B = self.B
 
+
+        Rinv = jscipy.linalg.inv(R)
+        Binv = jscipy.linalg.inv(B)
+
+        Rinv_singletimestep = Rinv[:round(Rinv.shape[0]/3), :round(Rinv.shape[1]/3)]
+
+        # Compute Hessian
+        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv_singletimestep @ H)
+
         # Get initial observations and jacobian
 
-        loss_func = self._make_loss(x0, obs_values, Ht, B, R,
-                                    time_sel_matrix,
-                                    n_steps=n_steps)
+        loss_func = self._make_loss(
+                x0,
+                obs_values,
+                Ht,
+                Binv,
+                Rinv,
+                time_sel_matrix,
+                n_steps=n_steps)
 
         lr = optax.exponential_decay(
                 self.learning_rate,
@@ -211,7 +223,7 @@ class Var4DBackprop(dacycler.DACycler):
         opt_state = optimizer.init(x0)
 
         # Make initial forecast and calculate loss
-        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer)
+        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer, hessian_inv)
         epoch_state_tuple, loss_vals = jax.lax.scan(
                 backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
                 xs=None, length=self.num_epochs)
