@@ -34,7 +34,7 @@ class Var4DBackprop(dacycler.DACycler):
             If not provided will be calculated automatically.
         h (function): Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
-        num_epochs (int): Number of epochs for backpropagation per analysis
+        num_iters (int): Number of iterations for backpropagation per analysis
             cycle. Default is 3.
         steps_per_window (int): Number of timesteps per analysis window.
         learning_rate (float): LR for backpropogation. Default is 1e-5, but
@@ -58,14 +58,14 @@ class Var4DBackprop(dacycler.DACycler):
                  h=None,
                  learning_rate=1e-5,
                  lr_decay=1.0,
-                 num_epochs=3,
+                 num_iters=3,
                  steps_per_window=1,
                  obs_window_indices=[0],
                  loss_growth_limit=10,
                  **kwargs
                  ):
 
-        self.num_epochs = num_epochs
+        self.num_iters = num_iters
         self.learning_rate = learning_rate
         self.lr_decay = lr_decay
         self.steps_per_window = steps_per_window
@@ -215,7 +215,7 @@ class Var4DBackprop(dacycler.DACycler):
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer, hessian_inv)
         epoch_state_tuple, loss_vals = jax.lax.scan(
                 backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
-                xs=None, length=self.num_epochs)
+                xs=None, length=self.num_iters)
 
         x0, xb0, init_loss, i, opt_state = epoch_state_tuple
 
