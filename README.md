@@ -36,7 +36,7 @@ conda activate dab
 
 #### Install dabench
 ```bash
-pip install .
+pip install -e .
 ```
 
 #### Install dependencies (optional)
@@ -44,6 +44,12 @@ The user may have to manually install:
 ```bash
 conda install -c conda-forge jax  
 conda install -c conda-forge pyqg  
+```
+or
+https://jax.readthedocs.io/en/latest/installation.html
+```
+pip install --upgrade pip
+pip install --upgrade "jax[cpu]"
 ```
 
 ## Quick Start

@@ -36,7 +36,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
-from jax.config import config
+from jax import config
 from functools import partial
 from importlib import resources
 
