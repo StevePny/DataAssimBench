@@ -100,11 +100,11 @@ class Var4D(dacycler.DACycler):
             )
 
             # 4D-Var inner loop
-            x0 = self._innerloop_4d(self.system_dim, x, xb0,
+            x0, loss = self._innerloop_4d(self.system_dim, x, xb0,
                                     obs_values, H, B,
                                     Rinv, M, obs_window_indices)
 
-            return x0, x0
+            return x0, (x0, loss)
 
         return _outerloop_4d
 
@@ -136,11 +136,10 @@ class Var4D(dacycler.DACycler):
         # Best guess for x0 starts as background
         x0 = deepcopy(xb0)
 
-
         outerloop_4d_func = self._make_outerloop_4d(
                 xb0,  H, B, Rinv, obs_values, obs_window_indices, n_steps)
 
-        x0, all_x0s =  jax.lax.scan(outerloop_4d_func, init=x0,
+        x0, all_x0s_losses = jax.lax.scan(outerloop_4d_func, init=x0,
                 xs=None, length=self.n_outer_loops)
 
         # forecast
@@ -149,8 +148,7 @@ class Var4D(dacycler.DACycler):
             x0=vector.StateVector(values=x0, store_as_jax=True)
         ).values
 
-
-        return x, None
+        return x, all_x0s_losses[1] #None
 
     def step_cycle(self, x0, yo, obs_window_indices=[0],
                    H=None, h=None, R=None, B=None,
@@ -215,6 +213,7 @@ class Var4D(dacycler.DACycler):
         # Set up Variables
         SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
         SumMtHtRinvHM = jnp.zeros_like(B)             # A input
+        obs_term = 0
 
         # Loop over observations
         for i, j in enumerate(obs_window_indices):
@@ -226,9 +225,12 @@ class Var4D(dacycler.DACycler):
             # The Jo Term (b)
             D = y[i] - (H @ x[j])
             SumMtHtRinvD += MtHtRinv @ D[:, None]
+            obs_term += jnp.sum(D.T @ Rinv @ D)
 
         # Compute initial departure
         db0 = xb0 - x0_last
+        initial_term = (db0.T @ jscipy.linalg.inv(B) @ db0)
+        loss_val = initial_term + obs_term
 
         # Solve Ax=b for the initial perturbation
         dx0 = self._solve(db0, SumMtHtRinvHM, SumMtHtRinvD, B)
@@ -236,7 +238,7 @@ class Var4D(dacycler.DACycler):
         # New x0 guess is the last guess plus the analyzed delta
         x0_new = x0_last + dx0.ravel()
 
-        return x0_new
+        return x0_new, loss_val
 
     @partial(jax.jit, static_argnums=0)
     def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
@@ -279,7 +281,7 @@ class Var4D(dacycler.DACycler):
         cur_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices,
                                                            filtered_idx[0],
                                                            len(filtered_idx))
-        analysis, kh = self.step_cycle(
+        analysis, losses = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
                                  location_indices=cur_obs_loc_indices,
@@ -289,7 +291,7 @@ class Var4D(dacycler.DACycler):
                 obs_window_indices=self.obs_window_indices)
 
 
-        return analysis[-1], analysis[:-1]
+        return analysis[-1], (analysis[:-1], losses)
 
     def cycle(self,
               input_state,
@@ -348,6 +350,6 @@ class Var4D(dacycler.DACycler):
                 self._cycle_and_forecast,
                 init=input_state.values,
                 xs=all_filtered_idx)
+        losses = all_values[1]
 
-        return vector.StateVector(values=jnp.vstack(all_values),
-                                  store_as_jax=True)
+        return vector.StateVector(values=jnp.vstack(all_values[0]), store_as_jax=True)
