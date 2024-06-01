@@ -71,6 +71,7 @@ class PyQGJax(_data.Data):
                  nx=64,
                  ny=None,
                  delta_t=7200,
+                 random_seed=37,
                  time_dim=None,
                  values=None,
                  times=None,
@@ -89,6 +90,9 @@ class PyQGJax(_data.Data):
                 'For more information: '
                 'https://pyqg.readthedocs.io/en/latest/installation.html'
                 )
+
+        self.random_seed = random_seed
+        self._rng = np.random.default_rng(self.random_seed)
 
         self._base_model = pyqg_jax.qg_model.QGModel(
                 beta=beta, rd=rd, delta=delta, H1=H1,
@@ -160,11 +164,6 @@ class PyQGJax(_data.Data):
                 provided when initializing model object. If provided by
                 both, the generate() arg takes precedence.
         """
-
-        # Set seed
-        np.random.seed(37)
-
-        # Checks
         # Check that n_steps or t_final is supplied
         if n_steps is not None:
             t_final = n_steps * self.delta_t
@@ -194,8 +193,8 @@ class PyQGJax(_data.Data):
 
                 nhx, nhy = self._base_model.wv2.shape
 
-                Pi_hat = (np.random.randn(nhx, nhy)*ckappa + 1j *
-                          np.random.randn(nhx, nhy)*ckappa)
+                Pi_hat = (self._rng.standard_normal((nhx, nhy))*ckappa + 1j *
+                          self._rng.standard_normal((nhx, nhy))*ckappa)
 
                 Pi = np.repeat(jnp.fft.irfft2(Pi_hat[np.newaxis,:,:]),self._base_model.nz,  axis=0)
                 Pi = Pi - Pi.mean()
@@ -214,7 +213,7 @@ class PyQGJax(_data.Data):
         self.x0 = x0.flatten()
 
         # Store step times
-        self.times = np.arange(0, t_final, self.delta_t)
+        self.times = jnp.arange(0, t_final, self.delta_t)
 
         # Run simulation
         traj = self._roll_out_state(init_state, num_steps=n_steps)
