@@ -259,12 +259,16 @@ class ETKF(dacycler.DACycler):
         self.analysis_window = analysis_window
         all_times = (jnp.repeat(start_time, timesteps)
                      + (jnp.arange(0, timesteps)*self.delta_t))
+        # Get the obs vectors for each analysis window
         all_filtered_idx = jnp.stack([jnp.where(
-            (obs_vector.times
-             >= jnp.round(cur_time - self.analysis_window/2, 3))
-            * (obs_vector.times
-               < jnp.round(cur_time + self.analysis_window/2, 3)))[0]
-            for cur_time in all_times])
+            # Greater than start of window
+            (obs_vector.times > cur_time - analysis_window/2)
+            # AND Less than end of window
+            * (obs_vector.times < cur_time + analysis_window/2)
+            # OR Equal to start of window
+            + jnp.isclose(obs_vector.times, cur_time - analysis_window/2,
+                          rtol=0)
+            )[0] for cur_time in all_times])
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
                 (input_state.values, obs_vector.values, obs_vector.times,
