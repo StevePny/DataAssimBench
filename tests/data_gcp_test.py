@@ -8,7 +8,7 @@ import pytest
 import numpy as np
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def gcp_small():
     """Defines gcp object for rest of tests"""
     gcp_obj = GCP(data_type='single-level-reanalysis',
@@ -18,7 +18,7 @@ def gcp_small():
     return gcp_obj
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def gcp_multivar():
     """Defines gcp object for rest of tests"""
     gcp_obj = GCP(data_type='single-level-forecast',

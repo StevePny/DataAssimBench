@@ -30,23 +30,19 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
         (time_dim, system_dim) and t is time array with shape (time_dim)
     """
     if method == 'odeint':
+        # Define timesteps
         if jax_comps:
-            # Define timesteps
             t = jnp.arange(0.0, t_final, delta_t)
-            # If stride is defined, remove steps that are not on stride steps
-            if stride is not None:
-                assert stride > 1 and isinstance(stride, int), \
-                    'integrate: stride = {}, must be > 1 and an int'.format(
-                            stride)
-            t = t[::stride]
-            y = odeint(function, x0, t, **kwargs)
         else:
             t = np.arange(0.0, t_final, delta_t)
-            if stride is not None:
-                assert stride > 1 and isinstance(stride, int), \
-                    'integrate: stride = {}, must be > 1 and an int'.format(
-                            stride)
+        # If stride is defined, remove timesteps that are not on stride steps
+        if stride is not None:
+            assert stride > 1 and isinstance(stride, int), \
+                'integrate: stride = {}, must be > 1 and an int'.format(stride)
             t = t[::stride]
+        if jax_comps:
+            y = odeint(function, x0, t, **kwargs)
+        else:
             y = spodeint(function, x0, t, **kwargs)
     else:
         raise 'integration method {} not supported'.format(method)

@@ -8,6 +8,15 @@ The field of data assimilation (DA) studies the integration of theory with obser
 
 Today, applied DA has matured in operational weather forecasting to include the entire online cycled process of continually ingesting numerous disparate observational data sources and integrating them with numerical prediction models to make regular forecasts, while estimating errors and uncertainties in this process and accounting for them along the way. The process can also include correcting inaccuracies in the model formulations or applying post-processing to forecasts to improve agreement with observations.  
 
+Most of the software here was adapted from code developed for the following publications. Please cite these works when using this software package: 
+
+- Penny, S. G., Smith, T. A., Chen, T.-C., Platt, J. A., Lin, H.-Y., Goodliff, M., & Abarbanel, H. D. I. (2022). Integrating recurrent neural networks with data assimilation for scalable data-driven state estimation. Journal of Advances in Modeling Earth Systems, 14, e2021MS002843. https://doi.org/10.1029/2021MS002843  
+
+- Smith, T. A., Penny, S. G., Platt, J. A., & Chen, T.-C. (2023). Temporal subsampling diminishes small spatial scales in recurrent neural network emulators of geophysical turbulence. Journal of Advances in Modeling Earth Systems, 15, e2023MS003792. https://doi.org/10.1029/2023MS003792  
+
+- Platt, J.A., S.G. Penny, T.A. Smith, T.-C. Chen, H.D.I. Abarbanel, (2022). A systematic exploration of reservoir computing for forecasting complex spatiotemporal dynamics,
+Neural Networks,Volume 153, 530-552, ISSN 0893-6080, https://doi.org/10.1016/j.neunet.2022.06.025.
+
 
 ## Installation
 
