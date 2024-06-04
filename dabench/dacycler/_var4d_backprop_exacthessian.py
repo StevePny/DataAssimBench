@@ -13,7 +13,7 @@ import optax
 from dabench import dacycler, vector
 
 
-class Var4DBackprop(dacycler.DACycler):
+class Var4DBackpropExactHessian(dacycler.DACycler):
     """Class for building Backpropagation 4D DA Cycler
 
     Attributes:
@@ -135,14 +135,16 @@ class Var4DBackprop(dacycler.DACycler):
         return loss_4dvarcost
 
 
-    def _make_backprop_epoch(self, loss_func, optimizer, hessian_inv):
+    def _make_backprop_epoch(self, loss_func, optimizer):
 
         loss_value_grad = value_and_grad(loss_func, argnums=0)
+        hessian = jax.hessian(loss_func, argnums=0)
 
         @jax.jit
         def _backprop_epoch(epoch_state_tuple, _):
             x0, xb0, init_loss, i, opt_state = epoch_state_tuple
             loss_val, dx0 = loss_value_grad(x0)
+            hessian_inv = jscipy.linalg.inv(hessian(x0))
             dx0_hess = hessian_inv @ dx0
             init_loss = jax.lax.cond(
                     i==0,
@@ -190,11 +192,6 @@ class Var4DBackprop(dacycler.DACycler):
         Rinv = jscipy.linalg.inv(R)
         Binv = jscipy.linalg.inv(B)
 
-        # Compute Hessian
-        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv @ H)
-
-        # Get initial observations and jacobian
-
         loss_func = self._make_loss(
                 x0,
                 obs_values,
@@ -212,7 +209,7 @@ class Var4DBackprop(dacycler.DACycler):
         opt_state = optimizer.init(x0)
 
         # Make initial forecast and calculate loss
-        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer, hessian_inv)
+        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer)
         epoch_state_tuple, loss_vals = jax.lax.scan(
                 backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
                 xs=None, length=self.num_iters)

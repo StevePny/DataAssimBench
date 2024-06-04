@@ -220,6 +220,7 @@ def test_obs_pyqg():
                           np.array([7200, 21600, 28800, 36000, 50400, 64800]))
 
 
+@pytest.mark.skip(reason="AWS removed ERA5 data.")
 def test_obs_aws():
     """Tests observer for AWS downloaded ERA5 data"""
     aws = data.AWS()

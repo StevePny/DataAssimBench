@@ -4,6 +4,8 @@ from dabench.data import AWS
 import pytest
 import numpy as np
 
+pytestmark = pytest.mark.skip('AWS removed ERA5 data.')
+
 
 @pytest.fixture(scope='module')
 def aws_small():

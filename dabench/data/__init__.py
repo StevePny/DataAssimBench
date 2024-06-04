@@ -6,6 +6,7 @@ from .sqgturb import SQGTurb
 from .aws import AWS
 from .gcp import GCP
 from .pyqg import PyQG
+from .pyqg_jax import PyQGJax
 from .barotropic import Barotropic
 from .enso_indices import ENSOIndices
 from .qgs import QGS
@@ -18,6 +19,7 @@ __all__ = [
     'AWS',
     'GCP',
     'PyQG',
+    'PyQGJax',
     'Barotropic',
     'ENSOIndices',
     'QGS'

@@ -29,7 +29,6 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
         Tuple of (y, t) where y is ndarray of state at each timestep with shape
         (time_dim, system_dim) and t is time array with shape (time_dim)
     """
-
     if method == 'odeint':
         # Define timesteps
         if jax_comps:
@@ -45,7 +44,6 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
             y = odeint(function, x0, t, **kwargs)
         else:
             y = spodeint(function, x0, t, **kwargs)
-            
     else:
         raise 'integration method {} not supported'.format(method)
 

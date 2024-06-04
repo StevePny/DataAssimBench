@@ -1,29 +1,30 @@
-"""Class for Var 4D Backpropagation Data Assimilation Cycler object"""
+"""Class for Var 4D Data Assimilation Cycler object"""
 
 import inspect
 
 import numpy as np
 import jax.numpy as jnp
 import jax.scipy as jscipy
-from jax import grad, value_and_grad
-from jax.scipy import optimize
+from jax import grad
 import jax
-import optax
+from jax.scipy.sparse.linalg import bicgstab
+from copy import deepcopy
+from functools import partial
 
 from dabench import dacycler, vector
 
 
-class Var4DBackprop(dacycler.DACycler):
-    """Class for building Backpropagation 4D DA Cycler
+class Var4D(dacycler.DACycler):
+    """Class for building 4D DA Cycler
 
     Attributes:
         system_dim (int): System dimension.
         delta_t (float): The timestep of the model (assumed uniform)
         model_obj (dabench.Model): Forecast model object.
         in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
-            Always True for Var4DBackprop.
+            Always True for Var4D.
         ensemble (bool): True for ensemble-based data assimilation techniques
-            (ETKF). Always False for Var4DBackprop.
+            (ETKF). Always False for Var4D.
         B (ndarray): Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
@@ -34,13 +35,11 @@ class Var4DBackprop(dacycler.DACycler):
             If not provided will be calculated automatically.
         h (function): Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
-        num_iters (int): Number of iterations for backpropagation per analysis
-            cycle. Default is 3.
+        solver (str): Name of solver to use. Default is 'bicgstab'.
+        n_outer_loops (int): Number of times to run through outer loop over
+            4DVar. Increasing this may result in higher accuracy but slower
+            performance. Default is 1.
         steps_per_window (int): Number of timesteps per analysis window.
-        learning_rate (float): LR for backpropogation. Default is 1e-5, but
-            DA results can be quite sensitive to this parameter.
-        lr_decay (float): Exponential learning rate decay. If set to 1,
-            no decay. Default is 1.
         obs_window_indices (list): Timestep indices where observations fall
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
@@ -56,21 +55,17 @@ class Var4DBackprop(dacycler.DACycler):
                  R=None,
                  H=None,
                  h=None,
-                 learning_rate=1e-5,
-                 lr_decay=1.0,
-                 num_iters=3,
+                 solver='bicgstab',
+                 n_outer_loops=1,
                  steps_per_window=1,
                  obs_window_indices=[0],
-                 loss_growth_limit=10,
                  **kwargs
                  ):
 
-        self.num_iters = num_iters
-        self.learning_rate = learning_rate
-        self.lr_decay = lr_decay
         self.steps_per_window = steps_per_window
         self.obs_window_indices = obs_window_indices
-        self.loss_growth_limit = loss_growth_limit
+        self.n_outer_loops = n_outer_loops
+        self.solver = solver
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
@@ -91,79 +86,31 @@ class Var4DBackprop(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _raise_nan_error(self):
-        raise ValueError('Loss value is nan, exiting optimization')
-        
-    def _raise_loss_growth_error(self):
-        raise ValueError('Loss value has exceeded self.loss_growth_limit, exiting optimization')
+    def _make_outerloop_4d(self, xb0,  H, B, Rinv,
+                           obs_values, obs_window_indices,
+                           n_steps):
 
-    def _callback_raise_error(self, error_method, loss_val):
-        jax.debug.callback(error_method)
-        return loss_val
+        def _outerloop_4d(x0, _):
+            # Get TLM and current forecast trajectory
+            # Based on current best guess for x0
+            M, x = self.model_obj.compute_tlm(
+                n_steps=n_steps,
+                state_vec=vector.StateVector(values=x0,
+                                             store_as_jax=True)
+            )
 
-    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, obs_window_indices, n_steps):
-        """Define loss function based on 4dvar cost"""
+            # 4D-Var inner loop
+            x0 = self._innerloop_4d(self.system_dim, x, xb0,
+                                    obs_values, H, B,
+                                    Rinv, M, obs_window_indices)
 
-        @jax.jit
-        def loss_4dvarcost(x0):
-            # Get initial departure
-            db0 = (x0.ravel() - xb0.ravel())
+            return x0, x0
 
-            # Make new prediction
-            pred_x = self.step_forecast(
-                    vector.StateVector(values=x0, store_as_jax=True),
-                    n_steps).values
+        return _outerloop_4d
 
-            # Calculate observation term of J_0
-            obs_term = 0
-            for i, j in enumerate(obs_window_indices):
-                pred_obs = pred_x[j] @ Ht
-                resid = pred_obs.ravel() - obs_vals[i].ravel()
-
-                obs_term += np.sum(resid.T @ Rinv @ resid)
-
-            # Calculate initial departure term of J_0 based on original x0
-            initial_term = (db0.T @ Binv @ db0)
-
-            # Cost is the sum of the two terms
-            loss_val = initial_term + obs_term
-            return jax.lax.cond(
-                    jnp.isnan(loss_val),
-                    lambda: self._callback_raise_error(self._raise_nan_error, loss_val),
-                    lambda: loss_val)
-
-        return loss_4dvarcost
-
-
-    def _make_backprop_epoch(self, loss_func, optimizer, hessian_inv):
-
-        loss_value_grad = value_and_grad(loss_func, argnums=0)
-
-        @jax.jit
-        def _backprop_epoch(epoch_state_tuple, _):
-            x0, xb0, init_loss, i, opt_state = epoch_state_tuple
-            loss_val, dx0 = loss_value_grad(x0)
-            dx0_hess = hessian_inv @ dx0
-            init_loss = jax.lax.cond(
-                    i==0,
-                    lambda: loss_val,
-                    lambda: init_loss)
-            loss_val = jax.lax.cond(
-                    loss_val/init_loss > self.loss_growth_limit,
-                    lambda: self._callback_raise_error(self._raise_loss_growth_error, loss_val),
-                    lambda: loss_val)
-                    
-            updates, opt_state = optimizer.update(dx0_hess, opt_state)
-            x0_new = optax.apply_updates(x0, updates)
-
-            return (x0_new, x0, init_loss, i+1, opt_state), loss_val
-
-        return _backprop_epoch
-
-
-    def _cycle_obsop(self, x0, obs_values, obs_loc_indices, obs_error_sd,
-                     H=None, h=None, R=None, B=None, obs_window_indices=None,
-                     n_steps=1):
+    def _cycle_obsop(self, xb0, obs_values, obs_loc_indices,
+                     obs_error_sd, H=None, h=None, R=None, B=None,
+                     obs_window_indices=None, n_steps=1):
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
@@ -172,86 +119,154 @@ class Var4DBackprop(dacycler.DACycler):
                     h = self.h
             else:
                 H = self.H
-        Ht = H.T
-
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
             else:
                 R = self.R
-
         if B is None:
             if self.B is None:
                 B = self._calc_default_B()
             else:
                 B = self.B
 
-
+        # Static Variables
         Rinv = jscipy.linalg.inv(R)
-        Binv = jscipy.linalg.inv(B)
 
-        # Compute Hessian
-        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv @ H)
+        # Best guess for x0 starts as background
+        x0 = deepcopy(xb0)
 
-        # Get initial observations and jacobian
+        outerloop_4d_func = self._make_outerloop_4d(
+                xb0,  H, B, Rinv, obs_values, obs_window_indices, n_steps)
 
-        loss_func = self._make_loss(
-                x0,
-                obs_values,
-                Ht,
-                Binv,
-                Rinv,
-                obs_window_indices,
-                n_steps=n_steps)
+        x0, all_x0s = jax.lax.scan(outerloop_4d_func, init=x0,
+                xs=None, length=self.n_outer_loops)
 
-        lr = optax.exponential_decay(
-                self.learning_rate,
-                1,
-                self.lr_decay)
-        optimizer = optax.sgd(lr)
-        opt_state = optimizer.init(x0)
+        # forecast
+        x = self.step_forecast(
+            n_steps=n_steps,
+            x0=vector.StateVector(values=x0, store_as_jax=True)
+        ).values
 
-        # Make initial forecast and calculate loss
-        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer, hessian_inv)
-        epoch_state_tuple, loss_vals = jax.lax.scan(
-                backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
-                xs=None, length=self.num_iters)
+        return x, None
 
-        x0, xb0, init_loss, i, opt_state = epoch_state_tuple
-
-        xa = self.step_forecast(
-                vector.StateVector(values=x0, store_as_jax=True),
-                n_steps=n_steps)
-
-        return xa, loss_vals
-
-    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1,
-                   obs_window_indices=[0]):
+    def step_cycle(self, x0, yo, obs_window_indices=[0],
+                   H=None, h=None, R=None, B=None,
+                   n_steps=1):
         """Perform one step of DA Cycle"""
         if H is not None or h is None:
             return self._cycle_obsop(
-                    xb.values, yo.values, yo.location_indices, yo.error_sd,
-                    H, R, B, obs_window_indices=obs_window_indices, n_steps=n_steps)
+                    x0.values, yo.values, yo.location_indices, yo.error_sd,
+                    H, R, B, obs_window_indices=obs_window_indices,
+                    n_steps=n_steps)
         else:
             return self._cycle_obsop(
-                    xb, yo, h, R, B, obs_window_indices=obs_window_indices,
+                    x0.values, yo.values, yo.location_indices, yo.error_sd, h,
+                    R, B, obs_window_indices=obs_window_indices,
                     n_steps=n_steps)
 
-    def step_forecast(self, xa, n_steps=1):
+    def step_forecast(self, x0, n_steps=1):
         """Perform forecast using model object"""
         if 'n_steps' in inspect.getfullargspec(self.model_obj.forecast).args:
-            return self.model_obj.forecast(xa, n_steps=n_steps)
+            return self.model_obj.forecast(x0, n_steps=n_steps)
         else:
             if n_steps == 1:
-                return self.model_obj.forecast(xa)
+                return self.model_obj.forecast(x0)
             else:
-                out = [xa]
-                xi = xa
+                out = [x0]
+                xi = x0
                 for s in range(n_steps):
                     xi = self.model.forecast(xi)
                     out.append(xi)
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
+    @partial(jax.jit, static_argnums=[0,1])
+    def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
+                      obs_window_indices=[0]):
+        """4DVar innerloop
+
+        Args:
+            system_dim (int): The dimension of the system state.
+            x (ndarray): Current best guess for trajectory. Updated each outer
+                loop. (time_dim, system_dim)
+            xb0 (ndarray): Initial background estimate for initial conditions.
+                Stays constant throughout analysis cycle. Shape: (system_dim,)
+            y (ndarray): Time array of observation. Shape: (num_obs, obs_dim)
+            H (ndarray): Observation operator matrix. Shape:
+                (obs_dim, system_dim)
+            B (ndarray): Background/forecast error covariance matrix. Shape:
+                (system_dim, system_dim)
+            Rinv (ndarray): Inverted observation error covariance matrix. Shape:
+                (obs_dim, obs_dim)]
+            M (ndarray): List of TLMs for each model timestep. Shape:
+                (time_dim,system_dim, system_dim)
+            obs_window_indices (ndarray): Indices of observations w.r.t. model
+                timesteps in analysis window.
+
+        Returns:
+            xa0 (ndarray): inner loop estimate of optimal initial conditions.
+                Shape: (system_dim,)
+
+        """
+        x0_last = x[0]
+
+        # Set up Variables
+        SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
+        SumMtHtRinvHM = jnp.zeros_like(B)             # A input
+
+        # Loop over observations
+        for i, j in enumerate(obs_window_indices):
+            # The Jb Term (A)
+            HM = H @ M[j, :, :]
+            MtHtRinv = HM.T @ Rinv
+            SumMtHtRinvHM += MtHtRinv @ HM
+
+            # The Jo Term (b)
+            D = y[i] - (H @ x[j])
+            SumMtHtRinvD += MtHtRinv @ D[:, None]
+
+        # Compute initial departure
+        db0 = xb0 - x0_last
+
+        # Solve Ax=b for the initial perturbation
+        dx0 = self._solve(db0, SumMtHtRinvHM, SumMtHtRinvD, B)
+
+        # New x0 guess is the last guess plus the analyzed delta
+        x0_new = x0_last + dx0.ravel()
+
+        return x0_new
+
+    @partial(jax.jit, static_argnums=0)
+    def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
+        """Solve the 4D-Var linear optimization
+
+        Notes:
+            Solves Ax=b for x when:
+            A = B^{-1} + SumMtHtRinvHM
+            b = SumMtHtRinvD + db0[:,None]
+        """
+
+        # Initialize b array
+        system_dim = B.shape[1]
+
+        # Set identity matrix
+        I_mat = jnp.identity(B.shape[0])
+
+        # Solve 4D-Var cost function
+        if self.solver == 'bicgstab':
+            # Compute A,b inputs to linear minimizer
+            b1 = B @ SumMtHtRinvD + db0[:, None]
+
+            A = I_mat + B @ SumMtHtRinvHM
+
+            dx0, _ = bicgstab(A, b1, x0=jnp.zeros((system_dim, 1)), tol=1e-05)
+
+        else:
+            raise ValueError("Solver not recognized. Options: 'bicgstab'")
+
+        return dx0
+
+    @partial(jax.jit, static_argnums=0)
     def _cycle_and_forecast(self, cur_state_vals, filtered_idx):
         obs_vals = self._obs_vector.values
         obs_loc_indices = self._obs_vector.location_indices
@@ -262,7 +277,7 @@ class Var4DBackprop(dacycler.DACycler):
         cur_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices,
                                                            filtered_idx[0],
                                                            len(filtered_idx))
-        analysis, loss_vals = self.step_cycle(
+        analysis, kh = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
                                  location_indices=cur_obs_loc_indices,
@@ -271,7 +286,8 @@ class Var4DBackprop(dacycler.DACycler):
                 n_steps=self.steps_per_window,
                 obs_window_indices=self.obs_window_indices)
 
-        return analysis.values[-1], (analysis.values[:-1], loss_vals)
+
+        return analysis[-1], analysis[:-1]
 
     def cycle(self,
               input_state,
@@ -330,10 +346,6 @@ class Var4DBackprop(dacycler.DACycler):
                 self._cycle_and_forecast,
                 init=input_state.values,
                 xs=all_filtered_idx)
-        all_losses = all_values[1]
-        print(all_losses[:, -3:])
-        all_values = all_values[0]
 
-        return vector.StateVector(
-                values=jnp.vstack(all_values),
-                store_as_jax=True)
+        return vector.StateVector(values=jnp.vstack(all_values),
+                                  store_as_jax=True)
