@@ -43,8 +43,12 @@ pyqg = [
     "pyqg-jax"
 ]
 
+qgs = [
+    "qgs"
+]
+
 full = [
-    "dabench[pyqg, examples]"
+    "dabench[pyqg, examples, qgs]"
 ]
 
 
