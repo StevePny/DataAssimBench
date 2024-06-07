@@ -313,8 +313,8 @@ class Data():
                           'stall, or crash.'.format(size_gb))
 
         # Get dims
-        dims = ds.dims
-        dims_names = list(ds.dims)
+        dims = ds.sizes
+        dims_names = list(ds.sizes)
 
         # Set times
         time_key = None
@@ -402,7 +402,7 @@ class Data():
                           )
 
         # Gather values and set dimensions
-        temp_values = np.moveaxis(np.array(ds.to_array()), 0, -1)
+        temp_values = np.moveaxis(ds.to_dataarray().to_numpy(), 0, -1)
         self.original_dim = temp_values.shape[1:]
         if self.original_dim[-1] == 1 and len(self.original_dim) > 2:
             self.original_dim = self.original_dim[:-1]
@@ -449,21 +449,13 @@ class Data():
         """
         if filepath is None:
             # Use importlib.resources to get the default netCDF from dabench
-            with resources.open_binary(
-                    _suppl_data, 'era5_japan_slp.nc') as nc_file:
-                with xr.open_dataset(nc_file, decode_coords='all') as ds:
-                    self._import_xarray_ds(
-                        ds, include_vars=include_vars,
-                        exclude_vars=exclude_vars,
-                        years_select=years_select, dates_select=dates_select,
-                        lat_sorting=lat_sorting)
-        else:
-            with xr.open_dataset(filepath, decode_coords='all') as ds:
-                self._import_xarray_ds(
-                    ds, include_vars=include_vars,
-                    exclude_vars=exclude_vars,
-                    years_select=years_select, dates_select=dates_select,
-                    lat_sorting=lat_sorting)
+            filepath = resources.files(_suppl_data).joinpath('era5_japan_slp.nc')
+        with xr.open_dataset(filepath, decode_coords='all') as ds:
+            self._import_xarray_ds(
+                ds, include_vars=include_vars,
+                exclude_vars=exclude_vars,
+                years_select=years_select, dates_select=dates_select,
+                lat_sorting=lat_sorting)
 
     def save_netcdf(self, filename):
         """Saves values in values attribute to netCDF file
