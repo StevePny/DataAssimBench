@@ -275,6 +275,7 @@ class Data():
     def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
                           years_select=None, dates_select=None,
                           lat_sorting=None):
+        ds = ds.as_numpy()
         if dates_select is not None:
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
