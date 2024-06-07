@@ -36,7 +36,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.numpy.fft import rfft2, irfft2
-from jax.config import config
 from functools import partial
 from importlib import resources
 
@@ -44,7 +43,7 @@ from dabench.data import _data
 from dabench import _suppl_data
 
 # Set to enable 64bit floats in Jax
-config.update('jax_enable_x64', True)
+jax.config.update('jax_enable_x64', True)
 
 
 class SQGTurb(_data.Data):
