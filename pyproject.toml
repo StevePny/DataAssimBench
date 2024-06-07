@@ -17,6 +17,36 @@ classifiers = [
     "License :: OSI Approved :: Apache-2.0",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "jax",
+    "numpy",
+    "scipy",
+    "optax",
+    "xarray"
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest"
+]
+
+examples = [
+    "notebook"
+]
+
+dev = [
+    "dabench[tests]"
+]
+
+pyqg = [
+    "pyqg",
+    "pyqg-jax"
+]
+
+full = [
+    "dabench[pyqg, examples]"
+]
+
 
 [project.urls]
 "Homepage" = "https://github.com/StevePny/DataAssimBench"
