@@ -275,7 +275,7 @@ class ENSOIndices(_data.Data):
             all_vals[v] = all_vals[v][np.sort(indices)]
             all_years[v] = all_years[v][np.sort(indices)]
             # Append common_vals
-            common_vals.append(all_vals[v][jnp.in1d(all_years[v],
+            common_vals.append(all_vals[v][jnp.isin(all_years[v],
                                                     common_years)])
         for f in common_vals:
             print(f.shape)
