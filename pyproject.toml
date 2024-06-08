@@ -34,6 +34,12 @@ examples = [
     "notebook"
 ]
 
+cloud = [
+    "zarr",
+    "fsspec",
+    "aiohttp"
+]
+
 dev = [
     "dabench[tests]"
 ]
@@ -48,7 +54,7 @@ qgs = [
 ]
 
 full = [
-    "dabench[pyqg, examples, qgs]"
+    "dabench[pyqg, examples, qgs, cloud]"
 ]
 
 
