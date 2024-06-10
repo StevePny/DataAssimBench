@@ -41,7 +41,7 @@ cloud = [
 ]
 
 dev = [
-    "dabench[tests]"
+    "dabench[tests, qgs, cloud]"
 ]
 
 pyqg = [
