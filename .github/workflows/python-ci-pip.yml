@@ -24,6 +24,8 @@ jobs:
     - name: Install package and requirements
       run: |
         python3 -m pip install -e ".[dev]"
+        python3 -m pip install Cython==0.29.37
+        python3 -m pip install pyqg==0.7.2 --no-build-isolation --use-deprecated=legacy-resolver
 
     - name: Lint with flake8
       run: |
