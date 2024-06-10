@@ -42,12 +42,11 @@ cloud = [
 ]
 
 dev = [
-    "dabench[tests, qgs, cloud]",
+    "dabench[tests, qgs, pyqg, cloud]",
     "flake8"
 ]
 
 pyqg = [
-    "pyqg",
     "pyqg-jax"
 ]
 
@@ -56,7 +55,7 @@ qgs = [
 ]
 
 full = [
-    "dabench[pyqg, examples, qgs, cloud]"
+    "dabench[pyqg, examples, qgs, cloud, tests]"
 ]
 
 
