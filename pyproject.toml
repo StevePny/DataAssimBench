@@ -37,7 +37,8 @@ examples = [
 cloud = [
     "zarr",
     "fsspec",
-    "aiohttp"
+    "aiohttp",
+    "dask"
 ]
 
 dev = [
