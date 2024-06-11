@@ -34,7 +34,8 @@ examples = [
     "notebook",
     "ray[train,tune]",
     "pandas",
-    "matplotlib"
+    "matplotlib",
+    "hyperopt"
 ]
 
 cloud = [
