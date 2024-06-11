@@ -31,7 +31,10 @@ tests = [
 ]
 
 examples = [
-    "notebook"
+    "notebook",
+    "ray[train,tune]",
+    "pandas",
+    "matplotlib"
 ]
 
 cloud = [
