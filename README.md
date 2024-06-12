@@ -20,30 +20,22 @@ Neural Networks,Volume 153, 530-552, ISSN 0893-6080, https://doi.org/10.1016/j.n
 
 ## Installation
 
+We recommend setting up a virtual environment using either [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) or [virtualenv](https://virtualenv.pypa.io/en/latest/user_guide.html).
 #### Clone Repo:
 
 ```bash
 git clone git@github.com:StevePny/DataAssimBench.git
 ```
 
-#### Set Up Conda Environment
-
-```bash
-cd DataAssimBench
-conda env create -f environment.yml
-conda activate dab
-```
-
 #### Install dabench
 ```bash
-pip install .
+pip install -e ".[full]"
 ```
 
-#### Install dependencies (optional)
-The user may have to manually install:  
+Note: this will create a full installation including the ability to access cloud data or interface with other packages such as qgs. For a minimal installation, run:
+
 ```bash
-conda install -c conda-forge jax  
-conda install -c conda-forge pyqg  
+pip install -e .
 ```
 
 ## Quick Start
@@ -76,7 +68,7 @@ All data objects are customizable.
 
 For data-generators (e.g. numerical models such as Lorenz63, Lorenz96, SQGTurb), this means you can change initial conditions, model parameters, timestep size, number of timesteps, etc.
 
-For data-downloaders (e.g. ENSOIDX, AWS, GCP), this means changing which variables you download, the lat/lon bounding box, the time period, etc.
+For data-downloaders (e.g. ENSOIDX, GCP), this means changing which variables you download, the lat/lon bounding box, the time period, etc.
 
 The recommended way of specifying options is to pass a keyword argument (kwargs) dictionary. The exact options vary between the different types of data objects, so be sure to check the specific documentation for your chosen generator/downloader more info.
 
@@ -91,13 +83,14 @@ l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
 l96_obj.values # View the output values
 ```
 
-- For example, for the Amazon Web Services (AWS) ERA5 data-downloader, we can select our variables and time period like this:
+- For example, for the Google Cloud (GCP) ERA5 data-downloader, we can select our variables and time period like this:
 
 ```python
-aws_options = {'variables': ['air_pressure_at_mean_sea_level', 'sea_surface_temperature'],
-               'years': [1984, 1985]}
-aws_obj = data.AWS(**aws_options) # Create data generator object
-aws_obj.load() # Loads data. Can also use aws_obj.generate()
-aws_obj.values # View the output values
+gcp_options = {'variables': ['2m_temperature', 'sea_surface_temperature'],
+               'date_start': '2020-06-01'
+               'date_end': '2020-06-07'}
+gcp_obj = data.GCP(**gcp_options) # Create data generator object
+gcp_obj.load() # Loads data. Can also use aws_obj.generate()
+gcp_obj.values # View the output values
 ```
 
