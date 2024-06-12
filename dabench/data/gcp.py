@@ -50,8 +50,8 @@ class GCP(_data.Data):
     def __init__(
             self,
             variables=['2m_temperature'],
-            date_start='2020-06-01',
-            date_end='2020-9-30',
+            date_start='2020-01-01',
+            date_end='2020-12-31',
             min_lat=19.8554808619,
             max_lat=23.1886107447,
             min_lon=-84.9749110583,
@@ -79,7 +79,7 @@ class GCP(_data.Data):
     def _load_gcp_era5(self):
         """Load ERA5 data from Google Cloud Platform"""
 
-        url =  'http://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
+        url = 'http://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
 
         ds = xr.open_zarr(url, chunks={'time': 48}, consolidated=True, decode_coords='all')
 
@@ -112,8 +112,6 @@ class GCP(_data.Data):
                 subset_max_lon += 360
             # Subset by lon boundaries
             ds = ds.sel(longitude=slice(subset_min_lon, subset_max_lon))
-
-        print(ds)
 
         self._import_xarray_ds(ds)
 
