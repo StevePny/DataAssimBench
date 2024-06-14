@@ -129,8 +129,8 @@ class GCP(_data.Data):
         if self.min_lat is not None and self.max_lat is not None:
             # Subset by lat boundaries
             ds = ds.where(
-                (ds.latitude < self.max_lat) &
-                (ds.latitude > self.min_lat),
+                ((ds.latitude < self.max_lat) &
+                 (ds.latitude > self.min_lat)).compute(),
                 drop=True)
         if self.min_lon is not None and self.max_lon is not None:
             # Convert west longs to degrees east
@@ -142,8 +142,8 @@ class GCP(_data.Data):
                 subset_max_lon += 360
             # Subset by lon boundaries
             ds = ds.where(
-                (ds.longitude < subset_max_lon) &
-                (ds.longitude > subset_min_lon),
+                ((ds.longitude < subset_max_lon) &
+                 (ds.longitude > subset_min_lon)).compute(),
                 drop=True)
 
         self._import_xarray_ds(ds)

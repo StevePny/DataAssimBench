@@ -17,6 +17,52 @@ classifiers = [
     "License :: OSI Approved :: Apache-2.0",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "jax",
+    "numpy",
+    "scipy",
+    "optax",
+    "xarray"
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest"
+]
+
+examples = [
+    "notebook",
+    "ray[train,tune]",
+    "pandas",
+    "matplotlib",
+    "hyperopt",
+    "cftime"
+]
+
+cloud = [
+    "zarr",
+    "fsspec",
+    "aiohttp",
+    "dask"
+]
+
+dev = [
+    "dabench[tests, qgs, pyqg, cloud]",
+    "flake8"
+]
+
+pyqg = [
+    "pyqg-jax"
+]
+
+qgs = [
+    "qgs"
+]
+
+full = [
+    "dabench[pyqg, examples, qgs, cloud, tests]"
+]
+
 
 [project.urls]
 "Homepage" = "https://github.com/StevePny/DataAssimBench"

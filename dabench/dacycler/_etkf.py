@@ -265,6 +265,9 @@ class ETKF(dacycler.DACycler):
             (obs_vector.times > cur_time - analysis_window/2)
             # AND Less than end of window
             * (obs_vector.times < cur_time + analysis_window/2)
+            # AND not equal to end of window
+            * (1-jnp.isclose(obs_vector.times, cur_time + analysis_window/2,
+                             rtol=0))
             # OR Equal to start of window
             + jnp.isclose(obs_vector.times, cur_time - analysis_window/2,
                           rtol=0)

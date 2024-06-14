@@ -29,7 +29,7 @@ class ObsOp():
             self.h = self._index_state_vec
         else:
             # Check custom h
-            custom_args = inspect.getargspec(h).args
+            custom_args = inspect.signature(h).parameters
             if 'state_vec' not in custom_args or 'obs_vec' not in custom_args:
                 raise ValueError('User-specified h does not accept the '
                                  'required args for h: "state_vec" and '
