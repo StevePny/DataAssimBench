@@ -196,7 +196,10 @@ def test_obs_l96_moving():
 
 def test_obs_pyqg():
     """Tests observer for PyQG"""
+    pytest.importorskip("pyqg")
+
     pyqg = data.PyQG()
+
     pyqg.generate(n_steps=10)
 
     obs = observer.Observer(
