@@ -29,7 +29,6 @@ class GCP(_data.Data):
         time_dim (int): Total time steps
         variables (list of strings): Names of ERA5 variables to
             load. For description of variables, see:
-            to, see:
             https://github.com/google-research/arco-era5?tab=readme-ov-file#full_37-1h-0p25deg-chunk-1zarr-v3
             Default is ['2m_temperature'] (Air temperature at 2 metres)
         date_start (string): Start of time range to download, in 'yyyy-mm-dd'
