@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-
 try:
     import pyqg
 except ModuleNotFoundError:
-    pytest.skip('PyQG not installed', allow_module_level=True)
+    pytest.skip('pyqg not installed', allow_module_level=True)
 
 from dabench.data import PyQG
+
 
 @pytest.fixture(scope='module')
 def pyqg():
