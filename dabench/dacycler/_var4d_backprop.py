@@ -101,7 +101,7 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
-    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, obs_window_indices, n_steps):
+    def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, obs_window_indices, obs_mask, n_steps):
         """Define loss function based on 4dvar cost"""
 
         @jax.jit
@@ -120,7 +120,8 @@ class Var4DBackprop(dacycler.DACycler):
                 pred_obs = pred_x[j] @ Ht
                 resid = pred_obs.ravel() - obs_vals[i].ravel()
 
-                obs_term += np.sum(resid.T @ Rinv @ resid)
+                # Don't include if masked out
+                obs_term += obs_mask[i]*np.sum(resid.T @ Rinv @ resid)
 
             # Calculate initial departure term of J_0 based on original x0
             initial_term = (db0.T @ Binv @ db0)
@@ -161,7 +162,7 @@ class Var4DBackprop(dacycler.DACycler):
         return _backprop_epoch
 
 
-    def _cycle_obsop(self, x0, obs_values, obs_loc_indices, obs_error_sd,
+    def _cycle_obsop(self, x0, obs_values, obs_loc_indices, obs_error_sd, obs_mask=None,
                      H=None, h=None, R=None, B=None, obs_window_indices=None,
                      n_steps=1):
         if H is None and h is None:
@@ -193,8 +194,6 @@ class Var4DBackprop(dacycler.DACycler):
         # Compute Hessian
         hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv @ H)
 
-        # Get initial observations and jacobian
-
         loss_func = self._make_loss(
                 x0,
                 obs_values,
@@ -202,6 +201,7 @@ class Var4DBackprop(dacycler.DACycler):
                 Binv,
                 Rinv,
                 obs_window_indices,
+                obs_mask,
                 n_steps=n_steps)
 
         lr = optax.exponential_decay(
@@ -225,12 +225,12 @@ class Var4DBackprop(dacycler.DACycler):
 
         return xa, loss_vals
 
-    def step_cycle(self, xb, yo, H=None, h=None, R=None, B=None, n_steps=1,
+    def step_cycle(self, xb, yo, obs_mask, H=None, h=None, R=None, B=None, n_steps=1,
                    obs_window_indices=[0]):
         """Perform one step of DA Cycle"""
         if H is not None or h is None:
             return self._cycle_obsop(
-                    xb.values, yo.values, yo.location_indices, yo.error_sd,
+                    xb.values, yo.values, yo.location_indices, yo.error_sd, obs_mask,
                     H, R, B, obs_window_indices=obs_window_indices, n_steps=n_steps)
         else:
             return self._cycle_obsop(
@@ -257,6 +257,10 @@ class Var4DBackprop(dacycler.DACycler):
         obs_loc_indices = self._obs_vector.location_indices
         obs_error_sd = self._obs_error_sd
 
+        # Calculate obs_mask and restore filtered_idx to original values
+        obs_mask = filtered_idx > 0
+        filtered_idx = filtered_idx - 1
+
         cur_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0],
                                                     len(filtered_idx))
         cur_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices,
@@ -268,10 +272,24 @@ class Var4DBackprop(dacycler.DACycler):
                                  location_indices=cur_obs_loc_indices,
                                  error_sd=obs_error_sd,
                                  store_as_jax=True),
+                obs_mask=obs_mask,
                 n_steps=self.steps_per_window,
                 obs_window_indices=self.obs_window_indices)
 
         return analysis.values[-1], (analysis.values[:-1], loss_vals)
+
+    def _pad_indices(self, idx):
+
+        def resize(row, size):
+            new = np.array(row) + 1
+            new.resize(size)
+            return new
+
+        # find longest row length
+        row_length = max(idx, key=len).__len__()
+        mat = np.array([resize(row, row_length) for row in idx] )
+
+        return jnp.array(mat)
 
     def cycle(self,
               input_state,
@@ -311,7 +329,7 @@ class Var4DBackprop(dacycler.DACycler):
                              analysis_window)
                      )
         # Get the obs vectors for each analysis window
-        all_filtered_idx = jnp.stack([jnp.where(
+        all_filtered_idx = [jnp.where(
             # Greater than start of window
             (obs_vector.times > cur_time - analysis_window/2)
             # AND Less than end of window
@@ -322,14 +340,16 @@ class Var4DBackprop(dacycler.DACycler):
             # OR Equal to end of window
             + jnp.isclose(obs_vector.times, cur_time + analysis_window/2,
                           rtol=0)
-            )[0] for cur_time in all_times])
+            )[0] for cur_time in all_times]
+
+        all_filtered_padded = self._pad_indices(all_filtered_idx)
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
                 init=input_state.values,
-                xs=all_filtered_idx)
+                xs=all_filtered_padded)
         all_losses = all_values[1]
         print(all_losses[:, -3:])
         all_values = all_values[0]
