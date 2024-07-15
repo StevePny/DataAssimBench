@@ -1,6 +1,7 @@
 """Utils for data assimilation cyclers"""
 
 import jax.numpy as jnp
+import numpy as np
 
 
 def _get_all_times(
@@ -97,12 +98,12 @@ def _pad_indices(
     """
 
     def resize(row, size, add_one):
-        new = jnp.array(row) + add_one
+        new = np.array(row) + add_one
         new.resize(size)
         return new
 
     # find longest row length
     row_length = max(obs_indices, key=len).__len__()
-    padded_indices = jnp.array([resize(row, row_length, add_one) for row in obs_indices])
+    padded_indices = np.array([resize(row, row_length, add_one) for row in obs_indices])
 
     return padded_indices
