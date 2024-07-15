@@ -68,6 +68,12 @@ def _get_obs_indices(
         (obs_times > cur_time - analysis_window/2)
         # AND Less than end of window
         * (obs_times < cur_time + analysis_window/2)
+        # AND not equal to start of window
+        * (1-(1-start_inclusive)*jnp.isclose(obs_times, cur_time - analysis_window/2,
+                                             rtol=0))
+        # AND not equal to end of window
+        * (1-(1-end_inclusive)*jnp.isclose(obs_times, cur_time + analysis_window/2,
+                                           rtol=0))
         # OR Equal to start of window end
         + start_inclusive*jnp.isclose(obs_times, cur_time - analysis_window/2,
                                       rtol=0)
