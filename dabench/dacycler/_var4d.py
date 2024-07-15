@@ -81,7 +81,7 @@ class Var4D(dacycler.DACycler):
         return H
 
     def _calc_default_R(self, obs_values, obs_error_sd):
-        return jnp.identity(obs_values.flatten().shape[0])*(obs_error_sd**2)
+        return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
 
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
