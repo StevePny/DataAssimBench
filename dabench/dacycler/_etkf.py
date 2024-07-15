@@ -7,6 +7,7 @@ import jax.numpy as jnp
 from jax.scipy import linalg
 
 from dabench import dacycler, vector
+import dabench.dacycler._utils as dac_utils
 
 
 class ETKF(dacycler.DACycler):
@@ -221,10 +222,8 @@ class ETKF(dacycler.DACycler):
         filtered_idx = filtered_idx - 1
 
         # 2. Calculate analysis
-        new_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0],
-                                                    len(filtered_idx))
-        new_obs_loc_indices = jax.lax.dynamic_slice_in_dim(
-                obs_loc_indices, filtered_idx[0], len(filtered_idx))
+        new_obs_vals = obs_vals[filtered_idx]
+        new_obs_loc_indices = obs_loc_indices[filtered_idx]
         analysis, kh = self._step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=new_obs_vals,
@@ -237,19 +236,6 @@ class ETKF(dacycler.DACycler):
 
         return (cur_state.values, obs_vals, obs_times, obs_loc_indices,
                 obs_error_sd), cur_state.values
-
-    def _pad_indices(self, idx):
-
-        def resize(row, size):
-            new = np.array(row) + 1
-            new.resize(size)
-            return new
-
-        # find longest row length
-        row_length = max(idx, key=len).__len__()
-        mat = np.array([resize(row, row_length) for row in idx] )
-
-        return jnp.array(mat)
 
     def cycle(self,
               input_state,
@@ -279,23 +265,21 @@ class ETKF(dacycler.DACycler):
         if obs_error_sd is None:
             obs_error_sd = obs_vector.error_sd
         self.analysis_window = analysis_window
-        all_times = (jnp.repeat(start_time, timesteps)
-                     + (jnp.arange(0, timesteps)*self.delta_t))
+
+        # Set up for jax.lax.scan, which is very fast
+        all_times = dac_utils._get_all_times(start_time, self.delta_t,
+                                             timesteps,
+                                             analysis_time_in_window=0)
         # Get the obs vectors for each analysis window
-        all_filtered_idx = [jnp.where(
-            # Greater than start of window
-            (obs_vector.times > cur_time - analysis_window/2)
-            # AND Less than end of window
-            * (obs_vector.times < cur_time + analysis_window/2)
-            # AND not equal to end of window
-            * (1-jnp.isclose(obs_vector.times, cur_time + analysis_window/2,
-                             rtol=0))
-            # OR Equal to start of window
-            + jnp.isclose(obs_vector.times, cur_time - analysis_window/2,
-                          rtol=0)
-            )[0] for cur_time in all_times]
+        all_filtered_idx = dac_utils._get_obs_indices(
+            obs_times=obs_vector.times,
+            analysis_times=all_times,
+            start_inclusive=True,
+            end_inclusive=False,
+            analysis_window=analysis_window
+        )
         
-        all_filtered_padded = self._pad_indices(all_filtered_idx)
+        all_filtered_padded = dac_utils._pad_indices(all_filtered_idx, add_one=True)
 
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
