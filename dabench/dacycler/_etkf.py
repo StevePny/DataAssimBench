@@ -185,11 +185,11 @@ class ETKF(dacycler.DACycler):
 
         # Compute the analysis
         if len(R) > 0:
-            Rinv = jnp.linalg.pinv(R, rcond=1e-15)
+            Rinv = jnp.linalg.pinv(R, rtol=1e-15)
 
             Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I
                                      + Yb_pert.T @ Rinv @ Yb_pert,
-                                     rcond=1e-15)
+                                     rtol=1e-15)
             Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)
             Wa = Wa.real
         else:
