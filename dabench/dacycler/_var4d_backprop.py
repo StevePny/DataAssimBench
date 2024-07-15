@@ -11,6 +11,7 @@ import jax
 import optax
 
 from dabench import dacycler, vector
+import dabench.dacycler._utils as dac_utils
 
 
 class Var4DBackprop(dacycler.DACycler):
@@ -117,8 +118,8 @@ class Var4DBackprop(dacycler.DACycler):
             # Calculate observation term of J_0
             obs_term = 0
             for i, j in enumerate(obs_window_indices):
-                pred_obs = pred_x[j] @ Ht
-                resid = pred_obs.ravel() - obs_vals[i].ravel()
+                pred_obs = obs_mask[i]*pred_x[j] @ Ht
+                resid = obs_mask[i]*pred_obs.ravel() - obs_vals[i].ravel()
 
                 # Don't include if masked out
                 obs_term += obs_mask[i]*np.sum(resid.T @ Rinv @ resid)
@@ -318,31 +319,20 @@ class Var4DBackprop(dacycler.DACycler):
         Returns:
             vector.StateVector of analyses and times.
         """
-
-        if analysis_time_in_window is None:
-            analysis_time_in_window = analysis_window/2
-
         # Set up for jax.lax.scan, which is very fast
-        all_times = (
-                jnp.repeat(start_time + analysis_time_in_window, timesteps)
-                + jnp.arange(0, timesteps*analysis_window,
-                             analysis_window)
-                     )
-        # Get the obs vectors for each analysis window
-        all_filtered_idx = [jnp.where(
-            # Greater than start of window
-            (obs_vector.times > cur_time - analysis_window/2)
-            # AND Less than end of window
-            * (obs_vector.times < cur_time + analysis_window/2)
-            # OR Equal to start of window end
-            + jnp.isclose(obs_vector.times, cur_time - analysis_window/2,
-                          rtol=0)
-            # OR Equal to end of window
-            + jnp.isclose(obs_vector.times, cur_time + analysis_window/2,
-                          rtol=0)
-            )[0] for cur_time in all_times]
+        all_times = dac_utils._get_all_times(start_time, analysis_window,
+                                             timesteps, analysis_time_in_window)
 
-        all_filtered_padded = self._pad_indices(all_filtered_idx)
+        # Get the obs vectors for each analysis window
+        all_filtered_idx = dac_utils._get_obs_indices(
+            obs_times=obs_vector.times,
+            analysis_times=all_times,
+            start_inclusive=True,
+            end_inclusive=True,
+            analysis_window=analysis_window
+        )
+
+        all_filtered_padded = dac_utils._pad_indices(all_filtered_idx)
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
