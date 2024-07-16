@@ -183,6 +183,17 @@ class Var4D(dacycler.DACycler):
                     out.append(xi)
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
+
+    def _calc_J_term(self, i, j, H, M, Rinv, y, x):
+            # The Jb Term (A)
+            HM =  H @ M[j, :, :]
+            MtHtRinv = HM.T @ Rinv
+
+            # The Jo Term (b)
+            D = (y[i] - (H @ x[j]))
+            return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
+
+
     @partial(jax.jit, static_argnums=[0,1])
     def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
                       obs_mask, obs_window_indices=[0]):
@@ -214,20 +225,18 @@ class Var4D(dacycler.DACycler):
         x0_last = x[0]
 
         # Set up Variables
-        SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
         SumMtHtRinvHM = jnp.zeros_like(B)             # A input
+        SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
 
         # Loop over observations
         for i, j in enumerate(obs_window_indices):
-            # The Jb Term (A)
-            HM = obs_mask[i] * H @ M[j, :, :]
-            MtHtRinv = obs_mask[i] * HM.T @ Rinv
-            SumMtHtRinvHM += obs_mask[i] * MtHtRinv @ HM
-
-            # The Jo Term (b)
-            D = obs_mask[i] * (y[i] - (H @ x[j]))
-            SumMtHtRinvD += obs_mask[i] * MtHtRinv @ D[:, None]
-
+            Jb, Jo = jax.lax.cond(
+                    obs_mask[i],
+                    lambda: self._calc_J_term(i, j, H, M, Rinv, y, x),
+                    lambda: (jnp.zeros_like(SumMtHtRinvHM), jnp.zeros_like(SumMtHtRinvD))
+                    )
+            SumMtHtRinvHM += Jb
+            SumMtHtRinvD += Jo
         # Compute initial departure
         db0 = xb0 - x0_last
 
