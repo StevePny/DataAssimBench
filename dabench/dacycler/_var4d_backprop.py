@@ -268,11 +268,9 @@ class Var4DBackprop(dacycler.DACycler):
         obs_mask = filtered_idx > 0
         filtered_idx = filtered_idx - 1
 
-        cur_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0],
-                                                    len(filtered_idx))
-        cur_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices,
-                                                           filtered_idx[0],
-                                                           len(filtered_idx))
+        cur_obs_vals = jnp.array(obs_vals).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(obs_loc_indices).at[filtered_idx].get()
+
         analysis, loss_vals = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
@@ -329,6 +327,7 @@ class Var4DBackprop(dacycler.DACycler):
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
+
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
                 init=input_state.values,
