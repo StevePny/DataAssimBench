@@ -102,6 +102,12 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
+    def _calc_obs_term(self, i, j, pred_x, obs_vals, Ht, Rinv):
+            pred_obs = pred_x[j] @ Ht
+            resid = pred_obs.ravel() - obs_vals[i].ravel()
+
+            return jnp.sum(resid.T @ Rinv @ resid)
+
     def _make_loss(self, xb0, obs_vals,  Ht, Binv, Rinv, obs_window_indices, obs_mask, n_steps):
         """Define loss function based on 4dvar cost"""
 
@@ -118,11 +124,11 @@ class Var4DBackprop(dacycler.DACycler):
             # Calculate observation term of J_0
             obs_term = 0
             for i, j in enumerate(obs_window_indices):
-                pred_obs = obs_mask[i]*pred_x[j] @ Ht
-                resid = obs_mask[i]*pred_obs.ravel() - obs_vals[i].ravel()
-
-                # Don't include if masked out
-                obs_term += obs_mask[i]*np.sum(resid.T @ Rinv @ resid)
+                obs_term += jax.lax.cond(
+                        obs_mask[i],
+                        lambda: self._calc_obs_term(i, j, pred_x, obs_vals, Ht, Rinv),
+                        lambda: 0.0
+                        )
 
             # Calculate initial departure term of J_0 based on original x0
             initial_term = (db0.T @ Binv @ db0)
