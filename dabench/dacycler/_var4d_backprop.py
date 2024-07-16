@@ -234,8 +234,8 @@ class Var4DBackprop(dacycler.DACycler):
 
         return xa, loss_vals
 
-    def step_cycle(self, xb, yo, obs_mask, H=None, h=None, R=None, B=None, n_steps=1,
-                   obs_window_indices=[0]):
+    def step_cycle(self, xb, yo, obs_mask, obs_window_indices, H=None, h=None, R=None, B=None,
+                   n_steps=1):
         """Perform one step of DA Cycle"""
         if H is not None or h is None:
             return self._cycle_obsop(
@@ -280,7 +280,7 @@ class Var4DBackprop(dacycler.DACycler):
                 jnp.argmin(jnp.abs(obs_time - cur_model_timesteps)) for obs_time in cur_obs_times
             ])
         else:
-            obs_window_indices = self.obs_window_indices
+            obs_window_indices = jnp.array(self.obs_window_indices)
         analysis, loss_vals = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
