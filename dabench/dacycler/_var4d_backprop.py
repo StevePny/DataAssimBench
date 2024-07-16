@@ -61,7 +61,7 @@ class Var4DBackprop(dacycler.DACycler):
                  lr_decay=1.0,
                  num_iters=3,
                  steps_per_window=1,
-                 obs_window_indices=[0],
+                 obs_window_indices=None,
                  loss_growth_limit=10,
                  **kwargs
                  ):
@@ -79,6 +79,8 @@ class Var4DBackprop(dacycler.DACycler):
                          in_4d=True,
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
+
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
         H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
@@ -259,18 +261,26 @@ class Var4DBackprop(dacycler.DACycler):
                     out.append(xi)
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
-    def _cycle_and_forecast(self, cur_state_vals, filtered_idx):
-        obs_vals = self._obs_vector.values
-        obs_loc_indices = self._obs_vector.location_indices
+    def _cycle_and_forecast(self, cur_state_vals_time_tuple, filtered_idx):
+        cur_state_vals, cur_time = cur_state_vals_time_tuple
         obs_error_sd = self._obs_error_sd
 
         # Calculate obs_mask and restore filtered_idx to original values
         obs_mask = filtered_idx > 0
         filtered_idx = filtered_idx - 1
 
-        cur_obs_vals = jnp.array(obs_vals).at[filtered_idx].get()
-        cur_obs_loc_indices = jnp.array(obs_loc_indices).at[filtered_idx].get()
+        cur_obs_vals = jnp.array(self._obs_vector.values).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(self._obs_vector.location_indices).at[filtered_idx].get()
+        cur_obs_times = jnp.array(self._obs_vector.times).at[filtered_idx].get()
 
+        # Calculate obs window indices: closest model timesteps that match obs
+        if self.obs_window_indices is None:
+            cur_model_timesteps = cur_time + self._model_timesteps
+            obs_window_indices = jnp.array([
+                jnp.argmin(jnp.abs(obs_time - cur_model_timesteps)) for obs_time in cur_obs_times
+            ])
+        else:
+            obs_window_indices = self.obs_window_indices
         analysis, loss_vals = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
@@ -279,9 +289,10 @@ class Var4DBackprop(dacycler.DACycler):
                                  store_as_jax=True),
                 obs_mask=obs_mask,
                 n_steps=self.steps_per_window,
-                obs_window_indices=self.obs_window_indices)
+                obs_window_indices=obs_window_indices)
+        new_time = cur_time + self.analysis_window
 
-        return analysis.values[-1], (analysis.values[:-1], loss_vals)
+        return (analysis.values[-1], new_time), (analysis.values[:-1], loss_vals)
 
     def cycle(self,
               input_state,
@@ -310,6 +321,7 @@ class Var4DBackprop(dacycler.DACycler):
         Returns:
             vector.StateVector of analyses and times.
         """
+        self.analysis_window = analysis_window
         # Set up for jax.lax.scan, which is very fast
         all_times = dac_utils._get_all_times(start_time, analysis_window,
                                              timesteps, analysis_time_in_window)
@@ -330,7 +342,7 @@ class Var4DBackprop(dacycler.DACycler):
 
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
-                init=input_state.values,
+                init=(input_state.values, start_time),
                 xs=all_filtered_padded)
         all_losses = all_values[1]
         print(all_losses[:, -3:])
