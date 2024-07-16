@@ -279,19 +279,6 @@ class Var4DBackprop(dacycler.DACycler):
 
         return analysis.values[-1], (analysis.values[:-1], loss_vals)
 
-    def _pad_indices(self, idx):
-
-        def resize(row, size):
-            new = np.array(row) + 1
-            new.resize(size)
-            return new
-
-        # find longest row length
-        row_length = max(idx, key=len).__len__()
-        mat = np.array([resize(row, row_length) for row in idx] )
-
-        return jnp.array(mat)
-
     def cycle(self,
               input_state,
               start_time,
