@@ -370,5 +370,5 @@ class Var4D(dacycler.DACycler):
                 init=(input_state.values, start_time),
                 xs=all_filtered_padded)
 
-        return vector.StateVector(values=jnp.vstack(all_values[0]),
+        return vector.StateVector(values=jnp.vstack(all_values),
                                   store_as_jax=True)
