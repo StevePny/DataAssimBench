@@ -233,7 +233,7 @@ class Var4D(dacycler.DACycler):
         # Loop over observations
         for i, j in enumerate(obs_window_indices):
             Jb, Jo = jax.lax.cond(
-                    obs_mask[i],
+                    obs_mask.at[i].get(mode='fill', fill_value=0),
                     lambda: self._calc_J_term(i, j, H, M, Rinv, y, x),
                     lambda: (jnp.zeros_like(SumMtHtRinvHM), jnp.zeros_like(SumMtHtRinvD))
                     )
