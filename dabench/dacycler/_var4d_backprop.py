@@ -127,7 +127,7 @@ class Var4DBackprop(dacycler.DACycler):
             obs_term = 0
             for i, j in enumerate(obs_window_indices):
                 obs_term += jax.lax.cond(
-                        obs_mask[i],
+                        obs_mask.at[i].get(mode='fill', fill_value=0),
                         lambda: self._calc_obs_term(i, j, pred_x, obs_vals, Ht, Rinv),
                         lambda: 0.0
                         )
@@ -340,13 +340,12 @@ class Var4DBackprop(dacycler.DACycler):
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
 
-        cur_state, all_values = jax.lax.scan(
+        cur_state, all_results = jax.lax.scan(
                 self._cycle_and_forecast,
                 init=(input_state.values, start_time),
                 xs=all_filtered_padded)
-        all_losses = all_values[1]
-        print(all_losses[:, -3:])
-        all_values = all_values[0]
+        self.loss_values = all_results[1]
+        all_values = all_results[0]
 
         return vector.StateVector(
                 values=jnp.vstack(all_values),
