@@ -75,7 +75,7 @@ def var4d_backprop_cycler(l96_fc_model):
         system_dim=6,
         delta_t=0.01,
         model_obj=l96_fc_model,
-        obs_window_indices=None, #[0,5, 10, 15, 20, 25],
+        obs_window_indices=[0,5, 10],
         steps_per_window=11,
         learning_rate=0.1,
         lr_decay=0.5,
@@ -111,14 +111,12 @@ def test_var4d_l96(lorenz96, obs_vec_l96, var4d_cycler):
     assert jnp.allclose(
         out_sv.values[0,:], 
         jnp.array([4.5784335 , 10.70937771,  3.97859892,  0.25609285, -1.89681598,
-                   -1.34747704]),
-                   rtol=1e-3
+                   -1.34747704])
     )
     assert jnp.allclose(
         out_sv.values[-1,:],
         jnp.array([-2.32350141,  2.66564733,  9.1592932 ,  0.26887161, -2.72295144,
-                    1.24513147]),
-                    rtol=1e-3
+                    1.24513147])
     )
 
 def test_var4d_backprop_l96(lorenz96, obs_vec_l96, var4d_backprop_cycler):
