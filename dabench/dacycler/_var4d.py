@@ -296,7 +296,6 @@ class Var4D(dacycler.DACycler):
         # Calculate obs window indices: closest model timesteps that match obs
         if self.obs_window_indices is None:
             cur_model_timesteps = cur_time + self._model_timesteps
-            obs_window_indices = jnp.array([0,5,10])
             obs_window_indices = jnp.array([
                 jnp.argmin(jnp.abs(obs_time - cur_model_timesteps)) for obs_time in cur_obs_times
             ])
@@ -315,7 +314,7 @@ class Var4D(dacycler.DACycler):
 
         new_time = cur_time + self.analysis_window
 
-        return (analysis[-1], new_time), (analysis[:-1], obs_window_indices)
+        return (analysis[-1], new_time), analysis[:-1]
 
     def cycle(self,
               input_state,
@@ -371,6 +370,5 @@ class Var4D(dacycler.DACycler):
                 init=(input_state.values, start_time),
                 xs=all_filtered_padded)
 
-        print(all_values[1].dtype)
         return vector.StateVector(values=jnp.vstack(all_values[0]),
                                   store_as_jax=True)
