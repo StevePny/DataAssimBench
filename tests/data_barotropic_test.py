@@ -4,6 +4,13 @@ from dabench.data import Barotropic
 import numpy as np
 import pytest
 
+try:
+    import pyqg
+except ModuleNotFoundError:
+    pytest.skip('pyqg not installed', allow_module_level=True)
+
+from dabench.data import Barotropic
+
 
 @pytest.fixture(scope='module')
 def barotropic():
