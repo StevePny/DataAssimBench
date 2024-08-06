@@ -413,4 +413,5 @@ class Observer():
                          error_sd=self.error_sd,
                          error_bias=self.error_bias,
                          store_as_jax=self.store_as_jax,
+                         stationary_observers=self.stationary_observers
                          )
