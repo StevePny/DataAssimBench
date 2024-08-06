@@ -343,6 +343,15 @@ class Var4D(dacycler.DACycler):
         Returns:
             vector.StateVector of analyses and times.
         """
+        if (not obs_vector.stationary_observers and
+            (self.H is not None or self.R is not None)):
+            raise ValueError(
+                "When providing a custom H and/or R matrix, Var4DBackprop"
+                "DA cycler currently only functions with stationary "
+                "observers.\n Try again with an observer where"
+                "stationary_observers=True or without specifying H or R "
+                "matricei(default diagonal matrices will be used)."
+            )
         self.analysis_window = analysis_window
 
         if analysis_time_in_window is None:
@@ -360,7 +369,7 @@ class Var4D(dacycler.DACycler):
             analysis_window=analysis_window
         )
 
-        all_filtered_padded = jnp.array(dac_utils._pad_indices(all_filtered_idx))
+        all_filtered_padded = jnp.array(dac_utils._pad_time_indices(all_filtered_idx))
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
