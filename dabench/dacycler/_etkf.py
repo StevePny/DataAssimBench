@@ -61,11 +61,12 @@ class ETKF(dacycler.DACycler):
                          ensemble=True,
                          B=B, R=R, H=H, h=h)
 
-    def _step_cycle(self, xb, yo, obs_mask, obs_loc_mask, H=None, h=None, R=None, B=None):
+    def _step_cycle(self, xb, yo, obs_time_mask, obs_loc_mask,
+                    H=None, h=None, R=None, B=None):
         if H is not None or h is None:
             vals, kh = self._cycle_obsop(
-                    xb.values, yo.values, yo.location_indices, yo.error_sd, obs_mask, obs_loc_mask,
-                    H, R, B)
+                    xb.values, yo.values, yo.location_indices, yo.error_sd, obs_time_mask,
+                    obs_loc_mask, H, R, B)
             return vector.StateVector(values=vals, store_as_jax=True), kh
         else:
             return self._cycle_general_obsop(xb, yo, h, R, B)
@@ -83,7 +84,8 @@ class ETKF(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _cycle_obsop(self, Xbt, obs_values, obs_loc_indices, obs_error_sd, obs_mask, obs_loc_mask,
+    def _cycle_obsop(self, Xbt, obs_values, obs_loc_indices, obs_error_sd,
+                     obs_time_mask, obs_loc_mask,
                      H=None, h=None, R=None, B=None):
         if H is None and h is None:
             if self.H is None:
@@ -110,7 +112,7 @@ class ETKF(dacycler.DACycler):
                     self.ensemble_dim, self.system_dim)
 
         # Apply obs masks to H
-        H = jnp.where(obs_mask, H.T, 0).T
+        H = jnp.where(obs_time_mask, H.T, 0).T
         H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Analysis cycles over all obs in data_obs
@@ -217,30 +219,30 @@ class ETKF(dacycler.DACycler):
         obs_vals = state_obs_tuple[1]
         obs_times = state_obs_tuple[2]
         obs_loc_indices = state_obs_tuple[3]
-        obs_loc_mask = state_obs_tuple[4]
+        obs_loc_masks = state_obs_tuple[4]
         obs_error_sd = state_obs_tuple[5]
 
-        # 1-b. Calculate obs_mask and restore filtered_idx to original values
-        obs_mask = jnp.repeat(filtered_idx > 0, obs_loc_indices.shape[1])
+        # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
+        obs_time_mask = jnp.repeat(filtered_idx > 0, obs_loc_indices.shape[1])
         filtered_idx = filtered_idx - 1
 
         # 2. Calculate analysis
         new_obs_vals = obs_vals[filtered_idx]
         new_obs_loc_indices = obs_loc_indices[filtered_idx]
-        new_obs_loc_mask = obs_loc_mask[filtered_idx]
+        new_obs_loc_mask = obs_loc_masks[filtered_idx]
         analysis, kh = self._step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=new_obs_vals,
                                  location_indices=new_obs_loc_indices,
                                  error_sd=obs_error_sd, store_as_jax=True),
                 obs_loc_mask=new_obs_loc_mask,
-                obs_mask=obs_mask
+                obs_time_mask=obs_time_mask
                 )
         # 3. Forecast next timestep
         cur_state = self._step_forecast(analysis)
 
-        return (cur_state.values, obs_vals, obs_times, obs_loc_indices, obs_loc_mask,
-                obs_error_sd), cur_state.values
+        return (cur_state.values, obs_vals, obs_times, obs_loc_indices,
+                obs_loc_masks, obs_error_sd), cur_state.values
 
     def cycle(self,
               input_state,
@@ -284,17 +286,25 @@ class ETKF(dacycler.DACycler):
             analysis_window=analysis_window
         )
         
-        all_filtered_padded = dac_utils._pad_indices(all_filtered_idx, add_one=True)
+        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx, add_one=True)
 
 
         # Padding observations
-        obs_loc_mask = self.obs_loc_mask
+        if obs_vector.stationary_observers:
+            obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
+            cur_state, all_values = jax.lax.scan(
+                    self._cycle_and_forecast,
+                    (input_state.values, obs_vector.values, obs_vector.times,
+                    obs_vector.location_indices, obs_loc_masks, obs_error_sd),
+                    all_filtered_padded)
+        else:
+            obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
+            cur_state, all_values = jax.lax.scan(
+                    self._cycle_and_forecast,
+                    (input_state.values, obs_vals, obs_vector.times,
+                    obs_locs, obs_loc_masks, obs_error_sd),
+                    all_filtered_padded)
 
-        cur_state, all_values = jax.lax.scan(
-                self._cycle_and_forecast,
-                (input_state.values, obs_vector.values, obs_vector.times,
-                 obs_vector.location_indices, obs_loc_mask, obs_error_sd),
-                all_filtered_padded)
 
         return vector.StateVector(values=jnp.stack(all_values),
                                   times=all_times)

@@ -85,7 +85,7 @@ def _get_obs_indices(
     return all_filtered_idx
 
 
-def _pad_indices(
+def _pad_time_indices(
     obs_indices,
     add_one=True
     ):
@@ -113,3 +113,38 @@ def _pad_indices(
     padded_indices = np.array([resize(row, row_length, add_one) for row in obs_indices])
 
     return padded_indices
+
+
+def _pad_obs_locs(obs_vec):
+    """Pad observation location indices to equal spacing
+
+    Args:
+        obs_vec (dabench.vector.ObsVector): Observation vector
+            object containing times, locations, and values of obs.
+
+    Returns:
+        (vals, locs, masks): Tuple containing padded arrays of obs
+            values and locations, and binary array masks where 1 is
+            a valid observation value/location and 0 is not.
+    """
+
+    def resize(row, size):
+        new_vals_locs = np.array(np.stack(row), order='F')
+        new_vals_locs.resize((new_vals_locs.shape[0], size))
+        mask = np.ones_like(new_vals_locs[0]).astype(int)
+        if size > len(row[0]):
+            mask[-(size-len(row[0])):] = 0
+        return np.vstack([new_vals_locs, mask]).T
+
+    # Find longest row length
+    row_length = max(obs_vec.values, key=len).__len__()
+    padded_arrays_masks = np.array([resize(row, row_length) for row in 
+                                    np.stack([obs_vec.values,
+                                              obs_vec.location_indices],
+                                              axis=1)], dtype=float)
+    vals, locs, masks = (padded_arrays_masks[...,0],
+                         padded_arrays_masks[...,1].astype(int),
+                         padded_arrays_masks[...,2].astype(bool))
+
+
+    return vals, locs, masks
