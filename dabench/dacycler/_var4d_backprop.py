@@ -82,9 +82,11 @@ class Var4DBackprop(dacycler.DACycler):
 
         self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
-    def _calc_default_H(self, obs_values):
+    def _calc_default_H(self, obs_values, obs_loc_indices):
         H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
-        return H
+        H_init = H.at[jnp.arange(H.shape[0]), obs_loc_indices[0]
+                 ].set(1)
+        return H, H_init
 
     def _calc_default_R(self, obs_values, obs_error_sd):
         return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
@@ -184,11 +186,12 @@ class Var4DBackprop(dacycler.DACycler):
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
-                    H = self._calc_default_H(obs_values, obs_loc_indices)
+                    H, H_init = self._calc_default_H(obs_values, obs_loc_indices)
                 else:
                     h = self.h
             else:
                 H = self.H
+                H_init = self.H
         Ht = H.T
 
         if R is None:
@@ -208,7 +211,8 @@ class Var4DBackprop(dacycler.DACycler):
         Binv = jscipy.linalg.inv(B)
 
         # Compute Hessian
-        hessian_inv = jscipy.linalg.inv(Binv + Ht @ Rinv @ H)
+        Ht_init = jnp.where(obs_loc_mask[0], H_init.T, 0)
+        hessian_inv = jscipy.linalg.inv(Binv + Ht_init @ Rinv @ Ht_init.T)
 
         loss_func = self._make_loss(
                 x0,
