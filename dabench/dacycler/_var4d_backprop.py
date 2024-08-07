@@ -105,7 +105,7 @@ class Var4DBackprop(dacycler.DACycler):
         return loss_val
 
     def _calc_obs_term(self, i, j, pred_x, obs_vals, Ht, Rinv, obs_loc_mask, obs_loc_indices, obs_helper_mask):
-            Ht = Ht.at[obs_loc_indices[i].astype(int), obs_helper_mask].set(1)
+            Ht = Ht.at[obs_loc_indices[i], obs_helper_mask].set(1)
             Ht = jnp.where(obs_loc_mask[i], Ht, 0)
             pred_obs = pred_x[j] @ Ht
             resid = pred_obs.ravel() - obs_vals[i].ravel()
