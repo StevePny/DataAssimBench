@@ -391,12 +391,12 @@ class Var4D(dacycler.DACycler):
         self._obs_error_sd = obs_error_sd
 
         # Padding observations
-        # if obs_vector.stationary_observers:
-        #     obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
-        # else:
-        obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
-        self._obs_vector.values = obs_vals
-        self._obs_vector.location_indices = obs_locs
+        if obs_vector.stationary_observers:
+            obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
+        else:
+            obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
+            self._obs_vector.values = obs_vals
+            self._obs_vector.location_indices = obs_locs
 
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
