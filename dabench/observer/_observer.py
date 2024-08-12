@@ -101,7 +101,17 @@ class Observer():
         self.stationary_observers = stationary_observers
 
         self.random_seed = random_seed
-        self.store_as_jax = store_as_jax
+        if (store_as_jax and self.random_location_density != 1. and
+                not self.stationary_observers):
+            warnings.warn(
+                "store_as_jax=True is not compatible with irregular"
+                "observations (i.e. stationary_observers = False AND"
+                "random_location_density != 1. Setting store_ax_jax"
+                " to False and proceeding.")
+            self.store_as_jax = False
+        else:
+            self.store_as_jax = store_as_jax
+
 
         self.error_bias = error_bias
         self.error_sd = error_sd
