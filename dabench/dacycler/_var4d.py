@@ -1,6 +1,7 @@
 """Class for Var 4D Data Assimilation Cycler object"""
 
 import inspect
+import warnings
 
 import numpy as np
 import jax.numpy as jnp
@@ -358,13 +359,15 @@ class Var4D(dacycler.DACycler):
             vector.StateVector of analyses and times.
         """
         if (not obs_vector.stationary_observers and
-            (self.H is not None or self.R is not None)):
-            raise ValueError(
-                "When providing a custom H and/or R matrix, Var4DBackprop"
-                "DA cycler currently only functions with stationary "
-                "observers.\n Try again with an observer where"
-                "stationary_observers=True or without specifying H or R "
-                "matricei(default diagonal matrices will be used)."
+            (self.H is not None or self.h is not None)):
+            warnings.warn(
+                "Provided obs vector has nonstationary observers. When"
+                " providing a custom obs operator (H/h), the Var4DBackprop"
+                "DA cycler may not function properly. If you encounter "
+                "errors, try again with an observer where"
+                "stationary_observers=True or without specifying H or h (a "
+                "default H matrix will be used to map observations to system "
+                "space)."
             )
         self.analysis_window = analysis_window
 

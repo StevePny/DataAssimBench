@@ -1,6 +1,7 @@
 """Class for Var 4D Backpropagation Data Assimilation Cycler object"""
 
 import inspect
+import warnings
 
 import numpy as np
 import jax.numpy as jnp
@@ -104,7 +105,8 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
-    def _calc_obs_term(self, i, j, pred_x, obs_vals, Ht, Rinv, obs_loc_mask, obs_loc_indices, obs_helper_mask):
+    def _calc_obs_term(self, i, j, pred_x, obs_vals, Ht, Rinv, obs_loc_mask,
+                       obs_loc_indices, obs_helper_mask):
             Ht = Ht.at[obs_loc_indices[i], obs_helper_mask].set(1)
             Ht = jnp.where(obs_loc_mask[i], Ht, 0)
             pred_obs = pred_x[j] @ Ht
@@ -117,6 +119,7 @@ class Var4DBackprop(dacycler.DACycler):
                    obs_time_mask, obs_loc_mask, n_steps):
         """Define loss function based on 4dvar cost"""
 
+        # Used as fixed binary mask (all true) for creating H within scan
         obs_helper_mask = jnp.arange(obs_loc_mask.shape[1])
 
         @jax.jit
@@ -253,8 +256,9 @@ class Var4DBackprop(dacycler.DACycler):
         """Perform one step of DA Cycle"""
         if H is not None or h is None:
             return self._cycle_obsop(
-                    xb.values, yo.values, yo.location_indices, yo.error_sd, obs_time_mask,
-                    obs_loc_mask, H, R, B, obs_window_indices=obs_window_indices, n_steps=n_steps)
+                    xb.values, yo.values, yo.location_indices, yo.error_sd,
+                    obs_time_mask, obs_loc_mask, H, R, B,
+                    obs_window_indices=obs_window_indices, n_steps=n_steps)
         else:
             return self._cycle_obsop(
                     xb, yo, h, R, B, obs_window_indices=obs_window_indices,
@@ -338,13 +342,15 @@ class Var4DBackprop(dacycler.DACycler):
             vector.StateVector of analyses and times.
         """
         if (not obs_vector.stationary_observers and
-            (self.H is not None or self.R is not None)):
-            raise ValueError(
-                "When providing a custom H and/or R matrix, Var4DBackprop"
-                "DA cycler currently only functions with stationary "
-                "observers.\n Try again with an observer where"
-                "stationary_observers=True or without specifying H or R "
-                "matricei(default diagonal matrices will be used)."
+            (self.H is not None or self.h is not None)):
+            warnings.warn(
+                "Provided obs vector has nonstationary observers. When"
+                " providing a custom obs operator (H/h), the Var4DBackprop"
+                "DA cycler may not function properly. If you encounter "
+                "errors, try again with an observer where"
+                "stationary_observers=True or without specifying H or h (a "
+                "default H matrix will be used to map observations to system "
+                "space)."
             )
         self.analysis_window = analysis_window
         # Set up for jax.lax.scan, which is very fast
@@ -364,6 +370,7 @@ class Var4DBackprop(dacycler.DACycler):
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
+
         # Padding observations
         if obs_vector.stationary_observers:
             obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
