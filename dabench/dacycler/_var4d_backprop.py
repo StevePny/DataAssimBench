@@ -119,7 +119,7 @@ class Var4DBackprop(dacycler.DACycler):
                    obs_time_mask, obs_loc_mask, n_steps):
         """Define loss function based on 4dvar cost"""
 
-        # Used as fixed binary mask (all true) for creating H within scan
+        # Used as column indexer for creating Ht
         obs_helper_mask = jnp.arange(obs_loc_mask.shape[1])
 
         @jax.jit
