@@ -79,7 +79,8 @@ class Var4D(dacycler.DACycler):
         self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
     def _calc_default_H(self, obs_values):
-        H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
+        H = jnp.zeros((obs_values[0].shape[0], self.system_dim),
+                      dtype=int)
         return H
 
     def _calc_default_R(self, obs_values, obs_error_sd):

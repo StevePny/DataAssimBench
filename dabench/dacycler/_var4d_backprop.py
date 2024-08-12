@@ -84,7 +84,8 @@ class Var4DBackprop(dacycler.DACycler):
         self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
-        H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
+        H = jnp.zeros((obs_values[0].shape[0], self.system_dim),
+                      dtype=int)
         H_init = H.at[jnp.arange(H.shape[0]), obs_loc_indices[0]
                  ].set(1)
         return H, H_init
