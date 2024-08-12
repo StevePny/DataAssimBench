@@ -143,8 +143,9 @@ def _pad_obs_locs(obs_vec):
                                               obs_vec.location_indices],
                                               axis=1)], dtype=float)
     vals, locs, masks = (padded_arrays_masks[...,0],
-                         padded_arrays_masks[...,1].astype(int),
+                         padded_arrays_masks[...,1:-1].astype(int),
                          padded_arrays_masks[...,2].astype(bool))
-
+    if locs.shape[-1] == 1:
+        locs = locs[..., 0]
 
     return vals, locs, masks
