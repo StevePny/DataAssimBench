@@ -53,52 +53,81 @@ class DACycler():
               input_state,
               start_time,
               obs_vector,
-              timesteps,
+              n_cycles,
               analysis_window,
-              analysis_time_in_window=None):
+              analysis_time_in_window=None,
+              return_forecast=False):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
             input_state (vector.StateVector): Input state.
             start_time (float or datetime-like): Starting time.
             obs_vector (vector.ObsVector): Observations vector.
-            timesteps (int): Number of timesteps, in model time.
+            n_cycles (int): Number of analysis cycles to run, each of length
+                analysis_window.
             analysis_window (float): Time window from which to gather
                 observations for DA Cycle.
             analysis_time_in_window (float): Where within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
                 window. Default is None, which selects the middle of the
                 window.
+            return_forecast (bool): If True, returns forecast at each model
+                timestep. If False, returns only analyses, one per analysis
+                cycle. Default is False.
 
         Returns:
             vector.StateVector of analyses and times.
         """
 
+        # If don't specify analysis_time_in_window, is assumed to be middle
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
 
+
+        # Time offset from middle of time window, for gathering observations
+        _time_offset = (analysis_window/2) - analysis_time_in_window
+
+        # Number of model steps to run per window
+        steps_per_window = round(analysis_window/self.delta_t)
+
         # For storing outputs
-        all_analyses = []
+        all_output_states = []
         all_times = []
-        cur_time = start_time + analysis_time_in_window
+        cur_time = start_time
         cur_state = input_state
 
-        for i in range(timesteps):
-            # 1. Filter observations to plus/minus 0.1 from that time
+        for i in range(n_cycles):
+            # 1. Filter observations to plus/minus half of analysis window
+            window_middle = cur_time + _time_offset
+            window_start = window_middle - analysis_window/2
+            window_end = window_middle + analysis_window/2
             obs_vec_timefilt = obs_vector.filter_times(
-                cur_time - analysis_window/2, cur_time + analysis_window/2)
+                window_start, window_end
+            )
 
             if obs_vec_timefilt.values.shape[0] > 0:
                 # 2. Calculate analysis
                 analysis, kh = self._step_cycle(cur_state, obs_vec_timefilt)
-                # 3. Forecast next timestep
-                cur_state = self._step_forecast(analysis)
+                # 3. Forecast through analysis window
+                forecast_states = self._step_forecast(analysis, n_steps=steps_per_window)
                 # 4. Save outputs
-                all_analyses.append(analysis.values)
-                all_times.append(cur_time)
+                if return_forecast:
+                    # Append forecast to current state, excluding last step
+                    all_output_states.append(np.vstack(
+                        [analysis.values, forecast_states.values[:-1]]
+                        )
+                    )
+                    all_times.append(
+                        np.arange(steps_per_window)*self.delta_t + cur_time
+                        )
+                else:
+                    all_output_states.append(analysis.values[np.newaxis])
+                    all_times.append([cur_time])
 
-            cur_time += self.delta_t
+            # Starting point for next cycle is last step of forecast
+            cur_state = forecast_states[-1]
+            cur_time += analysis_window
 
-        return vector.StateVector(values=np.stack(all_analyses),
-                                  times=np.array(all_times))
+        return vector.StateVector(values=np.concatenate(all_output_states),
+                                  times=np.concatenate(all_times))
 
