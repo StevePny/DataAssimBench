@@ -83,12 +83,11 @@ class DACycler():
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
 
-
         # Time offset from middle of time window, for gathering observations
         _time_offset = (analysis_window/2) - analysis_time_in_window
 
         # Number of model steps to run per window
-        steps_per_window = round(analysis_window/self.delta_t)
+        steps_per_window = round(analysis_window/self.delta_t) + 1
 
         # For storing outputs
         all_output_states = []
@@ -97,7 +96,7 @@ class DACycler():
         cur_state = input_state
 
         for i in range(n_cycles):
-            # 1. Filter observations to plus/minus half of analysis window
+            # 1. Filter observations to inside analysis window
             window_middle = cur_time + _time_offset
             window_start = window_middle - analysis_window/2
             window_end = window_middle + analysis_window/2
@@ -109,16 +108,14 @@ class DACycler():
                 # 2. Calculate analysis
                 analysis, kh = self._step_cycle(cur_state, obs_vec_timefilt)
                 # 3. Forecast through analysis window
-                forecast_states = self._step_forecast(analysis, n_steps=steps_per_window)
+                forecast_states = self._step_forecast(analysis,
+                                                      n_steps=steps_per_window)
                 # 4. Save outputs
                 if return_forecast:
                     # Append forecast to current state, excluding last step
-                    all_output_states.append(np.vstack(
-                        [analysis.values, forecast_states.values[:-1]]
-                        )
-                    )
+                    all_output_states.append(forecast_states.values[:-1])
                     all_times.append(
-                        np.arange(steps_per_window)*self.delta_t + cur_time
+                        np.arange(steps_per_window-1)*self.delta_t + cur_time
                         )
                 else:
                     all_output_states.append(analysis.values[np.newaxis])

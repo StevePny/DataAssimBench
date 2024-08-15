@@ -245,9 +245,7 @@ class ETKF(dacycler.DACycler):
         next_state = forecast_states.values[-1]
 
         return (next_state, obs_vals, obs_times, obs_loc_indices,
-                obs_loc_masks, obs_error_sd), (
-                    next_state,
-                    jnp.vstack([analysis.values[jnp.newaxis], forecast_states.values[:-1]]))
+                obs_loc_masks, obs_error_sd), forecast_states.values[:-1]
 
     def cycle(self,
               input_state,
@@ -288,7 +286,8 @@ class ETKF(dacycler.DACycler):
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
 
-        self.steps_per_window = round(analysis_window/self.delta_t)
+        # Steps per window + 1 to include start
+        self.steps_per_window = round(analysis_window/self.delta_t) + 1
 
         # Time offset from middle of time window, for gathering observations
         _time_offset = (analysis_window/2) - analysis_time_in_window
@@ -334,8 +333,10 @@ class ETKF(dacycler.DACycler):
                 n_cycles*analysis_window,
                 self.delta_t
                 ) + start_time
-            return vector.StateVector(values=jnp.concatenate(all_values[1]),
+            return vector.StateVector(values=jnp.concatenate(all_values),
                                       times=all_times_forecast)
         else:
-            return vector.StateVector(values=jnp.stack(all_values[0]),
+            return vector.StateVector(values=jnp.vstack([
+                forecast[0][jnp.newaxis] for forecast in all_values]
+                ),
                                       times=all_times)
