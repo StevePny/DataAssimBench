@@ -335,9 +335,10 @@ class Var4D(dacycler.DACycler):
               start_time,
               obs_vector,
               obs_error_sd,
-              timesteps,
+              n_cycles,
               analysis_window,
-              analysis_time_in_window=None):
+              analysis_time_in_window=0,
+              return_forecast=False):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
@@ -346,13 +347,17 @@ class Var4D(dacycler.DACycler):
             obs_error_sd (float): Standard deviation of observation error.
                 Typically not known, so provide a best-guess.
             start_time (float or datetime-like): Starting time.
-            timesteps (int): Number of timesteps, in model time.
+            n_cycles (int): Number of analysis cycles to run, each of length
+                analysis_window.
             analysis_window (float): Time window from which to gather
                 observations for DA Cycle.
             analysis_time_in_window (float): Where within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
                 window. Default is None, which selects the middle of the
-                window.
+                window
+            return_forecast (bool): If True, returns forecast at each model
+                timestep. If False, returns only analyses, one per analysis
+                cycle. Default is False.
 
         Returns:
             vector.StateVector of analyses and times.
@@ -370,22 +375,30 @@ class Var4D(dacycler.DACycler):
             )
         self.analysis_window = analysis_window
 
+        # If don't specify analysis_time_in_window, is assumed to be middle
         if analysis_time_in_window is None:
-            analysis_time_in_window = analysis_window/2
+            analysis_time_in_window = self.analysis_window/2
+
+        # Time offset from middle of time window, for gathering observations
+        _time_offset = (analysis_window/2) - analysis_time_in_window
+
         # Set up for jax.lax.scan, which is very fast
         all_times = dac_utils._get_all_times(start_time, analysis_window,
-                                             timesteps, analysis_time_in_window)
+                                             n_cycles)
+
+        self.steps_per_window = round(analysis_window/self.delta_t) + 1
+
 
         # Get the obs vectors for each analysis window
         all_filtered_idx = dac_utils._get_obs_indices(
             obs_times=obs_vector.times,
-            analysis_times=all_times,
+            analysis_times=all_times+_time_offset,
             start_inclusive=True,
             end_inclusive=True,
             analysis_window=analysis_window
         )
 
-        all_filtered_padded = jnp.array(dac_utils._pad_time_indices(all_filtered_idx))
+        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx)
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
@@ -398,10 +411,22 @@ class Var4D(dacycler.DACycler):
             self._obs_vector.values = obs_vals
             self._obs_vector.location_indices = obs_locs
 
+
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
                 init=(input_state.values, start_time, obs_loc_masks),
                 xs=all_filtered_padded)
 
-        return vector.StateVector(values=jnp.vstack(all_values),
-                                  store_as_jax=True)
+        if return_forecast:
+            all_times_forecast = jnp.arange(
+                0,
+                n_cycles*analysis_window,
+                self.delta_t
+                ) + start_time
+            return vector.StateVector(values=jnp.concatenate(all_values),
+                                      times=all_times_forecast)
+        else:
+            return vector.StateVector(values=jnp.vstack([
+                forecast[0] for forecast in all_values]
+                ),
+                                      times=all_times)
