@@ -38,10 +38,9 @@ def l96_fc_model():
 
     class L96Model(dab.model.Model):                                                                       
         """Defines model wrapper for Lorenz96 to test forecasting."""
-        def forecast(self, state_vec):
-            # NOTE: n_steps = 2 because the initial state counts as a "step"
-            self.model_obj.generate(x0=state_vec.values[:,0], n_steps=2)
-            new_vals = self.model_obj.values[-1] 
+        def forecast(self, state_vec, n_steps):
+            self.model_obj.generate(x0=state_vec.values, n_steps=n_steps)
+            new_vals = self.model_obj.values[:n_steps] 
 
             new_vec = dab.vector.StateVector(values=new_vals, store_as_jax=True)
 
@@ -72,16 +71,19 @@ def test_var3d_l96(lorenz96, obs_vec_l96, var3d_cycler):
         input_state = init_state,
         start_time = start_time,
         obs_vector = obs_vec_l96,
-        timesteps=10, 
-        analysis_window=0.25)
+        n_cycles=10,
+        analysis_window=0.25,
+        return_forecast=False)
 
-    assert out_sv.values.shape == (10, 6, 1)
+    assert out_sv.values.shape == (10, 6)
     assert jnp.allclose(
-        out_sv.values[0,:,0], 
+        out_sv.values[0],
         # Presaved results
-        jnp.array([-0.90632236, 1.20601681, 1.64865068, 5.03383547, 0.60286713, -3.75779771])
+        jnp.array([-0.90632236, -1.20861455, 1.64865068,
+                   5.11034063, 4.399881, -3.75779771])
     )
     assert jnp.allclose(
-        out_sv.values[-1,:,0],
-        jnp.array([2.4359271 , 6.33357301, 3.1125237, -3.13591255, 0.6081794, 1.51721364])
+        out_sv.values[-1],
+        jnp.array([3.92060079, 3.97290102, -0.763032,
+                   -1.5979558, -0.0086728, 2.60395146])
     )

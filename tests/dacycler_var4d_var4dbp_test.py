@@ -97,8 +97,9 @@ def test_var4d_l96(lorenz96, obs_vec_l96, var4d_cycler):
         start_time = start_time,
         obs_vector = obs_vec_l96,
         obs_error_sd=obs_vec_l96.error_sd*1.5,
-        timesteps=10,  
-        analysis_window=0.1)
+        n_cycles=10,  
+        analysis_window=0.1,
+        return_forecast=True)
 
     assert out_sv.values.shape == (100, 6)
 
@@ -132,8 +133,9 @@ def test_var4d_backprop_l96(lorenz96, obs_vec_l96, var4d_backprop_cycler):
         start_time = start_time,
         obs_vector = obs_vec_l96,
         obs_error_sd=obs_vec_l96.error_sd*1.5,
-        timesteps=10,  
-        analysis_window=0.1)
+        n_cycles=10,  
+        analysis_window=0.1,
+        return_forecast=True)
 
     assert out_sv.values.shape == (100, 6)
 

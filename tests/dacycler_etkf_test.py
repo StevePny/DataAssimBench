@@ -38,14 +38,14 @@ def obs_vec_l96(lorenz96):
 def l96_fc_model():
     model_l96 = dab.data.Lorenz96(system_dim=5, store_as_jax=True)
 
-    class L96Model(dab.model.Model):                                                                       
+    class L96Model(dab.model.Model):                                                                      
         """Defines model wrapper for Lorenz96 to test forecasting."""
-        def forecast(self, state_vec):
-            # NOTE: n_steps = 2 because the initial state counts as a "step"
-            self.model_obj.generate(x0=state_vec.values, n_steps=2)
-            new_vals = self.model_obj.values[-1] 
+        def forecast(self, state_vec, n_steps):
+            self.model_obj.generate(x0=state_vec.values, n_steps=n_steps)
+            new_vals = self.model_obj.values[:n_steps]
 
-            new_vec = dab.vector.StateVector(values=new_vals, store_as_jax=True)
+            new_vec = dab.vector.StateVector(values=new_vals,
+                                             store_as_jax=True)
 
             return new_vec
 
@@ -76,13 +76,14 @@ def test_etkf_l96(lorenz96, obs_vec_l96, etkf_cycler):
         obs_vector=obs_vec_l96,
         obs_error_sd=1.5,
         analysis_window=0.1,
-        timesteps=10
+        n_cycles=10,
+        return_forecast=True
         )
 
     out_sv_mean = np.mean(out_sv.values, axis=1)
 
-    assert out_sv.values.shape == (10, 8, 5)
-    assert out_sv_mean.shape == (10, 5)
+    assert out_sv.values.shape == (100, 8, 5)
+    assert out_sv_mean.shape == (100, 5)
     # Check that ensemble members are different
     assert not jnp.allclose(
         out_sv.values[-1, 1, :],
@@ -91,15 +92,15 @@ def test_etkf_l96(lorenz96, obs_vec_l96, etkf_cycler):
     # Check first cycle against presaved results
     assert jnp.allclose(
         out_sv.values[0, 0, :],
-        jnp.array([-2.43407963,  1.92287259,  1.48351731,  6.97069705,  7.22939174])
+        jnp.array([-0.85402591, 1.03480315, 0.51005132, 6.61546551, 8.1166806])
     )
     # Check last cycle against presaved results
     assert jnp.allclose(
         out_sv.values[-1, 0, :],
-        jnp.array([-0.04859429,  4.88513592,  8.61996513,  5.71426263,  1.90274387])
+        jnp.array([0.66697948, 3.15465627, 5.39288975, -4.96130847, 2.17202611])
     )
     # Check mean against presaved results
     assert jnp.allclose(
         out_sv_mean[-1, :],
-        jnp.array([-0.32955335,  4.76747091,  8.56107589,  5.94954867,  1.97952361])
+        jnp.array([1.45024252, 3.81627191, 5.4507981, 1.21646539, 0.09439264])
     )
