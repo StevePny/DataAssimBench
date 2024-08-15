@@ -72,6 +72,10 @@ class Var4D(dacycler.DACycler):
         self.n_outer_loops = n_outer_loops
         self.solver = solver
 
+        # Var4D requires H to be a JAX array
+        if H is not None:
+            H = jnp.array(H)
+
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,

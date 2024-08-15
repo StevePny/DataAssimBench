@@ -81,6 +81,10 @@ class Var4DBackprop(dacycler.DACycler):
         self.obs_window_indices = obs_window_indices
         self.loss_growth_limit = loss_growth_limit
 
+        # Var4D Backprop requires H to be a JAX array
+        if H is not None:
+            H = jnp.array(H)
+
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
