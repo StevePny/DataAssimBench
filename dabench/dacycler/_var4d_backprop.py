@@ -88,7 +88,6 @@ class Var4DBackprop(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
         H = jnp.zeros((obs_values[0].shape[0], self.system_dim),
@@ -378,7 +377,9 @@ class Var4DBackprop(dacycler.DACycler):
         all_times = dac_utils._get_all_times(start_time, analysis_window,
                                              n_cycles)
 
-        self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        if self.steps_per_window is None:
+            self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
 
         # Get the obs vectors for each analysis window
