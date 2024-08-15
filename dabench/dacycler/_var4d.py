@@ -42,11 +42,14 @@ class Var4D(dacycler.DACycler):
             4DVar. Increasing this may result in higher accuracy but slower
             performance. Default is 1.
         steps_per_window (int): Number of timesteps per analysis window.
+            If None (default), will calculate automatically based on delta_t
+            and .cycle() analysis_window length.
         obs_window_indices (list): Timestep indices where observations fall
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
             0.02, 0.03, 0.04, and 0.05, obs_window_indices =
-            [0, 1, 2, 3, 4, 5].
+            [0, 1, 2, 3, 4, 5]. If None (default), will calculate
+            automatically.
     """
 
     def __init__(self,
@@ -209,31 +212,7 @@ class Var4D(dacycler.DACycler):
     def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
                       obs_window_indices, obs_loc_indices,
                       obs_time_mask, obs_loc_mask):
-        """4DVar innerloop
-
-        Args:
-            system_dim (int): The dimension of the system state.
-            x (ndarray): current best guess for trajectory. updated each outer
-                loop. (time_dim, system_dim)
-            xb0 (ndarray): Initial background estimate for initial conditions.
-                Stays constant throughout analysis cycle. Shape: (system_dim,)
-            y (ndarray): Time array of observation. Shape: (num_obs, obs_dim)
-            H (ndarray): Observation operator matrix. Shape:
-                (obs_dim, system_dim)
-            B (ndarray): Background/forecast error covariance matrix. Shape:
-                (system_dim, system_dim)
-            Rinv (ndarray): Inverted observation error covariance matrix. Shape:
-                (obs_dim, obs_dim)]
-            M (ndarray): List of TLMs for each model timestep. Shape:
-                (time_dim,system_dim, system_dim)
-            obs_window_indices (ndarray): Indices of observations w.r.t. model
-                timesteps in analysis window.
-
-        Returns:
-            xa0 (ndarray): inner loop estimate of optimal initial conditions.
-                Shape: (system_dim,)
-
-        """
+        """4DVar innerloop"""
         x0_last = x[0]
 
         # Used as column indexer for creating Ht
@@ -343,18 +322,17 @@ class Var4D(dacycler.DACycler):
 
         Args:
             input_state (vector.StateVector): Input state.
+            start_time (float or datetime-like): Starting time.
             obs_vector (vector.ObsVector): Observations vector.
             obs_error_sd (float): Standard deviation of observation error.
                 Typically not known, so provide a best-guess.
-            start_time (float or datetime-like): Starting time.
             n_cycles (int): Number of analysis cycles to run, each of length
                 analysis_window.
-            analysis_window (float): Time window from which to gather
-                observations for DA Cycle.
-            analysis_time_in_window (float): Where within analysis_window
+            analysis_window (float): Length of time window from which to gather
+                observations for each DA Cycle, in model time units.
+            analysis_time_in_window (float): At what time within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
-                window. Default is None, which selects the middle of the
-                window
+                window. Default is 0, the start of the window.
             return_forecast (bool): If True, returns forecast at each model
                 timestep. If False, returns only analyses, one per analysis
                 cycle. Default is False.

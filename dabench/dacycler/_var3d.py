@@ -51,12 +51,6 @@ class Var3D(dacycler.DACycler):
     def _step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
         """Perform one step of DA Cycle
 
-        Args:
-            xb: 
-            yo:
-            H
-
-
         Returns:
             vector.StateVector containing analysis results
 
@@ -129,6 +123,6 @@ class Var3D(dacycler.DACycler):
 
         return vector.StateVector(values=xa.T[0], store_as_jax=True), KH
 
-    def _step_forecast(self, xa, n_steps=1):
+    def _step_forecast(self, xa, n_steps):
         """n_steps forward of model forecast"""
         return self.model_obj.forecast(xa, n_steps=n_steps)

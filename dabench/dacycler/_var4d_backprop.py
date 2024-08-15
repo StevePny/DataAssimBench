@@ -39,6 +39,8 @@ class Var4DBackprop(dacycler.DACycler):
         num_iters (int): Number of iterations for backpropagation per analysis
             cycle. Default is 3.
         steps_per_window (int): Number of timesteps per analysis window.
+            If None (default), will calculate automatically based on delta_t
+            and .cycle() analysis_window length.
         learning_rate (float): LR for backpropogation. Default is 1e-5, but
             DA results can be quite sensitive to this parameter.
         lr_decay (float): Exponential learning rate decay. If set to 1,
@@ -47,7 +49,12 @@ class Var4DBackprop(dacycler.DACycler):
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
             0.02, 0.03, 0.04, and 0.05, obs_window_indices =
-            [0, 1, 2, 3, 4, 5].
+            [0, 1, 2, 3, 4, 5]. If None (default), will calculate
+            automatically.
+        loss_growth_limit (float): If loss grows by more than this factor
+            during one analysis cycle, JAX will cut off computation and
+            return an error. This prevents it from hanging indefinitely
+            when loss grows exponentionally. Default is 10.
     """
 
     def __init__(self,
@@ -61,7 +68,7 @@ class Var4DBackprop(dacycler.DACycler):
                  learning_rate=1e-5,
                  lr_decay=1.0,
                  num_iters=3,
-                 steps_per_window=1,
+                 steps_per_window=None,
                  obs_window_indices=None,
                  loss_growth_limit=10,
                  **kwargs
@@ -238,7 +245,8 @@ class Var4DBackprop(dacycler.DACycler):
         opt_state = optimizer.init(x0)
 
         # Make initial forecast and calculate loss
-        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer, hessian_inv)
+        backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer,
+                                                        hessian_inv)
         epoch_state_tuple, loss_vals = jax.lax.scan(
                 backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
                 xs=None, length=self.num_iters)
@@ -328,18 +336,17 @@ class Var4DBackprop(dacycler.DACycler):
 
         Args:
             input_state (vector.StateVector): Input state.
+            start_time (float or datetime-like): Starting time.
             obs_vector (vector.ObsVector): Observations vector.
             obs_error_sd (float): Standard deviation of observation error.
                 Typically not known, so provide a best-guess.
-            start_time (float or datetime-like): Starting time.
             n_cycles (int): Number of analysis cycles to run, each of length
                 analysis_window.
-            analysis_window (float): Time window from which to gather
-                observations for DA Cycle.
-            analysis_time_in_window (float): Where within analysis_window
+            analysis_window (float): Length of time window from which to gather
+                observations for each DA Cycle, in model time units.
+            analysis_time_in_window (float): At what time within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
-                window. Default is None, which selects the middle of the
-                window
+                window. Default is 0, the start of the window.
             return_forecast (bool): If True, returns forecast at each model
                 timestep. If False, returns only analyses, one per analysis
                 cycle. Default is False.
