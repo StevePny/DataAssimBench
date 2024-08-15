@@ -125,15 +125,17 @@ class ETKF(dacycler.DACycler):
 
         return Xa.T, 0
 
-    def _step_forecast(self, xa):
+    def _step_forecast(self, xa, n_steps):
         data_forecast = []
         for i in range(self.ensemble_dim):
             new_vals = self.model_obj.forecast(
-                    vector.StateVector(values=xa.values[i], store_as_jax=True)
+                    vector.StateVector(values=xa.values[i], store_as_jax=True),
+                    n_steps=n_steps
                     ).values
             data_forecast.append(new_vals)
 
-        return vector.StateVector(values=jnp.stack(data_forecast),
+        out_vals = jnp.moveaxis(jnp.stack(data_forecast), [0,1,2],[1,0,2])
+        return vector.StateVector(values=out_vals,
                                   store_as_jax=True)
 
     def _apply_obsop(self, Xb, H, h):
@@ -239,31 +241,40 @@ class ETKF(dacycler.DACycler):
                 obs_time_mask=obs_time_mask
                 )
         # 3. Forecast next timestep
-        cur_state = self._step_forecast(analysis)
+        forecast_states = self._step_forecast(analysis, n_steps=self.steps_per_window)
+        next_state = forecast_states.values[-1]
 
-        return (cur_state.values, obs_vals, obs_times, obs_loc_indices,
-                obs_loc_masks, obs_error_sd), cur_state.values
+        return (next_state, obs_vals, obs_times, obs_loc_indices,
+                obs_loc_masks, obs_error_sd), (
+                    next_state,
+                    jnp.vstack([analysis.values[jnp.newaxis], forecast_states.values[:-1]]))
 
     def cycle(self,
               input_state,
               start_time,
               obs_vector,
-              timesteps,
+              n_cycles,
               obs_error_sd=None,
-              analysis_window=0.2):
+              analysis_window=0.2,
+              analysis_time_in_window=None,
+              return_forecast=False):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
             input_state (vector.StateVector): Input state.
             start_time (float or datetime-like): Starting time.
             obs_vector (vector.ObsVector): Observations vector.
-            timesteps (int): Number of timesteps, in model time.
+            n_cycles (int): Number of analysis cycles to run, each of length
+                analysis_window.
             analysis_window (float): Time window from which to gather
                 observations for DA Cycle.
             analysis_time_in_window (float): Where within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
                 window. Default is None, which selects the middle of the
                 window.
+            return_forecast (bool): If True, returns forecast at each model
+                timestep. If False, returns only analyses, one per analysis
+                cycle. Default is False.
 
         Returns:
             vector.StateVector of analyses and times.
@@ -273,21 +284,32 @@ class ETKF(dacycler.DACycler):
             obs_error_sd = obs_vector.error_sd
         self.analysis_window = analysis_window
 
+        # If don't specify analysis_time_in_window, is assumed to be middle
+        if analysis_time_in_window is None:
+            analysis_time_in_window = analysis_window/2
+
+        self.steps_per_window = round(analysis_window/self.delta_t)
+
+        # Time offset from middle of time window, for gathering observations
+        _time_offset = (analysis_window/2) - analysis_time_in_window
+
         # Set up for jax.lax.scan, which is very fast
-        all_times = dac_utils._get_all_times(start_time, self.delta_t,
-                                             timesteps,
-                                             analysis_time_in_window=0)
+        all_times = dac_utils._get_all_times(
+            start_time,
+            analysis_window,
+            n_cycles)
+            
+
         # Get the obs vectors for each analysis window
         all_filtered_idx = dac_utils._get_obs_indices(
             obs_times=obs_vector.times,
-            analysis_times=all_times,
+            analysis_times=all_times+_time_offset,
             start_inclusive=True,
             end_inclusive=False,
             analysis_window=analysis_window
         )
         
         all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx, add_one=True)
-
 
         # Padding observations
         if obs_vector.stationary_observers:
@@ -304,7 +326,16 @@ class ETKF(dacycler.DACycler):
                     (input_state.values, obs_vals, obs_vector.times,
                     obs_locs, obs_loc_masks, obs_error_sd),
                     all_filtered_padded)
+        
 
-
-        return vector.StateVector(values=jnp.stack(all_values),
-                                  times=all_times)
+        if return_forecast:
+            all_times_forecast = jnp.arange(
+                0,
+                n_cycles*analysis_window,
+                self.delta_t
+                ) + start_time
+            return vector.StateVector(values=jnp.concatenate(all_values[1]),
+                                      times=all_times_forecast)
+        else:
+            return vector.StateVector(values=jnp.stack(all_values[0]),
+                                      times=all_times)

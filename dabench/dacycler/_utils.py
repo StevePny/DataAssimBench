@@ -8,7 +8,6 @@ def _get_all_times(
     start_time,
     analysis_window,
     analysis_cycles,
-    analysis_time_in_window=None
     ):
     """Calculate times of the centers of all analysis windows.
 
@@ -17,21 +16,14 @@ def _get_all_times(
         analysis_window (float): Length of analysis window, in model time 
             units.
         analysis_cycles (int): Number of analysis cycles to perform.
-        analysis_time_in_window (float): The time within the window on which
-            each analysis cycle is centered. If None, uses the time halfway
-            through the analysis window (i.e. analysis_window/2). Default is
-            None.
 
     Returns:
         array of all analysis window center-times.
 
     
     """
-    if analysis_time_in_window is None:
-        analysis_time_in_window = analysis_window/2
-
     all_times = (
-            jnp.repeat(start_time + analysis_time_in_window, analysis_cycles)
+            jnp.repeat(start_time, analysis_cycles)
             + jnp.arange(0, analysis_cycles*analysis_window,
                             analysis_window)
                     )
