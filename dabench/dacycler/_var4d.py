@@ -197,8 +197,12 @@ class Var4D(dacycler.DACycler):
 
     def _calc_J_term(self, i, j, H, M, Rinv, y, x,
                      obs_loc_indices, obs_loc_mask, obs_helper_mask):
-        # Set H
-        Ht = H.T.at[obs_loc_indices[i], obs_helper_mask].set(1)
+        # Conditional to handle custom Hs
+        Ht = jax.lax.cond(
+                Ht.any(),
+                lambda: Ht,
+                lambda: Ht.at[obs_loc_indices[i], obs_helper_mask].set(1)
+                )
         H = jnp.where(obs_loc_mask[i], Ht, 0).T
 
         # The Jb Term (A)
