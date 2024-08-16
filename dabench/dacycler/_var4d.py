@@ -199,9 +199,9 @@ class Var4D(dacycler.DACycler):
                      obs_loc_indices, obs_loc_mask, obs_helper_mask):
         # Conditional to handle custom Hs
         Ht = jax.lax.cond(
-                Ht.any(),
-                lambda: Ht,
-                lambda: Ht.at[obs_loc_indices[i], obs_helper_mask].set(1)
+                H.any(),
+                lambda: H.T,
+                lambda: H.T.at[obs_loc_indices[i], obs_helper_mask].set(1)
                 )
         H = jnp.where(obs_loc_mask[i], Ht, 0).T
 
