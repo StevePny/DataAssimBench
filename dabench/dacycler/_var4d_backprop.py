@@ -179,8 +179,8 @@ class Var4DBackprop(dacycler.DACycler):
         loss_value_grad = value_and_grad(loss_func, argnums=0)
 
         @jax.jit
-        def _backprop_epoch(epoch_state_tuple, _):
-            x0, xb0, init_loss, i, opt_state = epoch_state_tuple
+        def _backprop_epoch(epoch_state_tuple, i):
+            x0, init_loss, opt_state = epoch_state_tuple
             loss_val, dx0 = loss_value_grad(x0)
             dx0_hess = hessian_inv @ dx0
             init_loss = jax.lax.cond(
@@ -195,7 +195,7 @@ class Var4DBackprop(dacycler.DACycler):
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
             x0_new = optax.apply_updates(x0, updates)
 
-            return (x0_new, x0, init_loss, i+1, opt_state), loss_val
+            return (x0_new, init_loss, opt_state), loss_val
 
         return _backprop_epoch
 
@@ -258,10 +258,10 @@ class Var4DBackprop(dacycler.DACycler):
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer,
                                                         hessian_inv)
         epoch_state_tuple, loss_vals = jax.lax.scan(
-                backprop_epoch_func, init=(x0, x0, 0., 0, opt_state),
-                xs=None, length=self.num_iters)
+                backprop_epoch_func, init=(x0, 0., opt_state),
+                xs=jnp.arange(self.num_iters))
 
-        x0, xb0, init_loss, i, opt_state = epoch_state_tuple
+        x0, init_loss, opt_state = epoch_state_tuple
 
         xa = self.step_forecast(
                 vector.StateVector(values=x0, store_as_jax=True),
