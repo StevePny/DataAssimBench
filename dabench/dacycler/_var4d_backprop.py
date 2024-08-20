@@ -10,6 +10,7 @@ from jax import grad, value_and_grad
 from jax.scipy import optimize
 import jax
 import optax
+from functools import partial
 
 from dabench import dacycler, vector
 import dabench.dacycler._utils as dac_utils
@@ -116,6 +117,7 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
+    @partial(jax.jit, static_argnums=[0])
     def _calc_obs_term(self, i, j, pred_x, obs_vals, Ht, Rinv, obs_loc_mask,
                        obs_loc_indices, obs_helper_mask):
             # Conditional to handle custom Hs
@@ -297,7 +299,7 @@ class Var4DBackprop(dacycler.DACycler):
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
     def _cycle_and_forecast(self, cur_state_vals_time_tuple, filtered_idx):
-        cur_state_vals, cur_time, obs_loc_masks = cur_state_vals_time_tuple
+        cur_state_vals, cur_time = cur_state_vals_time_tuple
         obs_error_sd = self._obs_error_sd
 
         # Calculate obs_time_mask and restore filtered_idx to original values
@@ -307,7 +309,7 @@ class Var4DBackprop(dacycler.DACycler):
         cur_obs_vals = jnp.array(self._obs_vector.values).at[filtered_idx].get()
         cur_obs_loc_indices = jnp.array(self._obs_vector.location_indices).at[filtered_idx].get()
         cur_obs_times = jnp.array(self._obs_vector.times).at[filtered_idx].get()
-        cur_obs_loc_mask = obs_loc_masks[filtered_idx]
+        cur_obs_loc_mask = self._obs_loc_masks.at[filtered_idx].get()
 
         # Calculate obs window indices: closest model timesteps that match obs
         if self.obs_window_indices is None:
@@ -329,7 +331,7 @@ class Var4DBackprop(dacycler.DACycler):
                 obs_window_indices=obs_window_indices)
         new_time = cur_time + self.analysis_window
 
-        return (analysis.values[-1], new_time, obs_loc_masks), (analysis.values[:-1], loss_vals)
+        return (analysis.values[-1], new_time), (analysis.values[:-1], loss_vals)
 
     def cycle(self,
               input_state,
@@ -407,17 +409,20 @@ class Var4DBackprop(dacycler.DACycler):
 
         # Padding observations
         if obs_vector.stationary_observers:
-            obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
+            self._obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
         else:
             obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
             self._obs_vector.values = obs_vals
             self._obs_vector.location_indices = obs_locs
+            self._obs_loc_masks = obs_loc_masks
 
 
+        print('About to run scan')
         cur_state, all_results = jax.lax.scan(
                 self._cycle_and_forecast,
-                init=(input_state.values, start_time, obs_loc_masks),
+                init=(input_state.values, start_time),
                 xs=all_filtered_padded)
+        print('Done with scan')
         self.loss_values = all_results[1]
         all_values = all_results[0]
 
