@@ -42,10 +42,10 @@ class Var4DBackprop(dacycler.DACycler):
         steps_per_window (int): Number of timesteps per analysis window.
             If None (default), will calculate automatically based on delta_t
             and .cycle() analysis_window length.
-        learning_rate (float): LR for backpropogation. Default is 1e-5, but
+        learning_rate (float): LR for backpropogation. Default is 0.5, but
             DA results can be quite sensitive to this parameter.
         lr_decay (float): Exponential learning rate decay. If set to 1,
-            no decay. Default is 1.
+            no decay. Default is 0.5.
         obs_window_indices (list): Timestep indices where observations fall
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
@@ -66,8 +66,8 @@ class Var4DBackprop(dacycler.DACycler):
                  R=None,
                  H=None,
                  h=None,
-                 learning_rate=1e-5,
-                 lr_decay=1.0,
+                 learning_rate=0.5,
+                 lr_decay=0.5,
                  num_iters=3,
                  steps_per_window=None,
                  obs_window_indices=None,
