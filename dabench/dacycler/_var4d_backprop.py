@@ -198,13 +198,23 @@ class Var4DBackprop(dacycler.DACycler):
             if self.H is None:
                 if self.h is None:
                     H = self._calc_default_H(obs_loc_indices)
+                    # Apply obs loc mask
+                    # NOTE: nonstationary observer case runs MUCH slower. Not sure why
+                    # Ideally, this conditional would not be necessary, but this is a
+                    # workaround to prevent slowing down stationary observer case.
+                    Hs = jax.lax.cond(
+                        self._obs_vector.stationary_observers,
+                        lambda: H,
+                        lambda: (obs_loc_mask[:, :,jnp.newaxis] * H))
                 else:
                     h = self.h
             else:
-                H = self.H
-        
-        # Apply obs loc mask
-        H = jnp.where(obs_loc_mask[:,:,jnp.newaxis], H, 0)
+                # Assumes self.H is for a single timestep
+                H = self.H[jnp.newaxis]
+                Hs = jax.lax.cond(
+                    self._obs_vector.stationary_observers,
+                    lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
+                    lambda: (obs_loc_mask[:, :,jnp.newaxis] * H))
 
         if R is None:
             if self.R is None:
@@ -223,12 +233,12 @@ class Var4DBackprop(dacycler.DACycler):
         Binv = jscipy.linalg.inv(B)
 
         # Compute Hessian
-        hessian_inv = jscipy.linalg.inv(Binv + H[0].T @ Rinv @ H[0])
+        hessian_inv = jscipy.linalg.inv(Binv + Hs.at[0].get().T @ Rinv @ Hs.at[0].get())
 
         loss_func = self._make_loss(
                 x0,
                 obs_values,
-                H,
+                Hs,
                 Binv,
                 Rinv,
                 obs_window_indices,
@@ -264,7 +274,8 @@ class Var4DBackprop(dacycler.DACycler):
         if H is not None or h is None:
             return self._cycle_obsop(
                     xb.values, yo.values, yo.location_indices, yo.error_sd,
-                    obs_time_mask, obs_loc_mask, H, R, B,
+                    obs_time_mask=obs_time_mask, obs_loc_mask=obs_loc_mask,
+                    H=H, R=R, B=B,
                     obs_window_indices=obs_window_indices, n_steps=n_steps)
         else:
             return self._cycle_obsop(
@@ -297,7 +308,7 @@ class Var4DBackprop(dacycler.DACycler):
         cur_obs_vals = jnp.array(self._obs_vector.values).at[filtered_idx].get()
         cur_obs_loc_indices = jnp.array(self._obs_vector.location_indices).at[filtered_idx].get()
         cur_obs_times = jnp.array(self._obs_vector.times).at[filtered_idx].get()
-        cur_obs_loc_mask = self._obs_loc_masks.at[filtered_idx].get()
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[filtered_idx].get().astype(bool)
 
         # Calculate obs window indices: closest model timesteps that match obs
         if self.obs_window_indices is None:
@@ -402,7 +413,7 @@ class Var4DBackprop(dacycler.DACycler):
             obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
             self._obs_vector.values = obs_vals
             self._obs_vector.location_indices = obs_locs
-            self._obs_loc_masks = obs_loc_masks
+            self._obs_loc_masks = jnp.array(obs_loc_masks)
 
         cur_state, all_results = jax.lax.scan(
                 self._cycle_and_forecast,
