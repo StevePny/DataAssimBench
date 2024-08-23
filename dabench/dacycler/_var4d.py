@@ -83,10 +83,15 @@ class Var4D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _calc_default_H(self, obs_values):
-        H = jnp.zeros((obs_values[0].shape[0], self.system_dim),
-                      dtype=int)
-        return H
+    def _calc_default_H(self, obs_loc_indices):
+        Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],
+                        self.system_dim),
+                       dtype=int)
+        for i in range(Hs.shape[0]):
+            Hs = Hs.at[i, jnp.arange(Hs.shape[1]), obs_loc_indices
+                       ].set(1)
+        return Hs
+
 
     def _calc_default_R(self, obs_values, obs_error_sd):
         return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
@@ -94,9 +99,9 @@ class Var4D(dacycler.DACycler):
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _make_outerloop_4d(self, xb0,  H, B, Rinv,
+    def _make_outerloop_4d(self, xb0,  Hs, B, Rinv,
                            obs_values, obs_window_indices, obs_time_mask,
-                           obs_loc_indices, obs_loc_mask, n_steps):
+                           n_steps):
 
         def _outerloop_4d(x0, _):
             # Get TLM and current forecast trajectory
@@ -110,9 +115,9 @@ class Var4D(dacycler.DACycler):
             # 4D-Var inner loop
             x0 = self._innerloop_4d(self.system_dim,
                                     x, xb0, obs_values,
-                                    H, B, Rinv, M,
-                                    obs_window_indices, obs_loc_indices,
-                                    obs_time_mask, obs_loc_mask)
+                                    Hs, B, Rinv, M,
+                                    obs_window_indices, 
+                                    obs_time_mask)
 
             return x0, x0
 
@@ -125,11 +130,25 @@ class Var4D(dacycler.DACycler):
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
-                    H = self._calc_default_H(obs_values)
+                    H = self._calc_default_H(obs_loc_indices)
+                    # Apply obs loc mask
+                    # NOTE: nonstationary observer case runs MUCH slower. Not sure why
+                    # Ideally, this conditional would not be necessary, but this is a
+                    # workaround to prevent slowing down stationary observer case.
+                    Hs = jax.lax.cond(
+                        self._obs_vector.stationary_observers,
+                        lambda: H,
+                        lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
                 else:
                     h = self.h
             else:
-                H = self.H
+                # Assumes self.H is for a single timestep
+                H = self.H[jnp.newaxis]
+                Hs = jax.lax.cond(
+                    self._obs_vector.stationary_observers,
+                    lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
+                    lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
@@ -148,8 +167,8 @@ class Var4D(dacycler.DACycler):
         x0 = deepcopy(xb0)
 
         outerloop_4d_func = self._make_outerloop_4d(
-                xb0,  H, B, Rinv, obs_values, obs_window_indices,
-                obs_time_mask, obs_loc_indices, obs_loc_mask, n_steps)
+                xb0,  Hs, B, Rinv, obs_values, obs_window_indices,
+                obs_time_mask, n_steps)
 
         x0, all_x0s = jax.lax.scan(outerloop_4d_func, init=x0,
                 xs=None, length=self.n_outer_loops)
@@ -195,34 +214,21 @@ class Var4D(dacycler.DACycler):
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
 
-    def _calc_J_term(self, i, j, H, M, Rinv, y, x,
-                     obs_loc_indices, obs_loc_mask, obs_helper_mask):
-        # Conditional to handle custom Hs
-        Ht = jax.lax.cond(
-                H.any(),
-                lambda: H.T,
-                lambda: H.T.at[obs_loc_indices[i], obs_helper_mask].set(1)
-                )
-        H = jnp.where(obs_loc_mask[i], Ht, 0).T
-
+    def _calc_J_term(self, H, M, Rinv, y, x):
         # The Jb Term (A)
-        HM =  H @ M[j]
+        HM = H @ M
         MtHtRinv = HM.T @ Rinv
 
         # The Jo Term (b)
-        D = (y[i] - (H @ x[j]))
+        D = (y - (H @ x))
         return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
 
 
-    @partial(jax.jit, static_argnums=[0,1])
-    def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
-                      obs_window_indices, obs_loc_indices,
-                      obs_time_mask, obs_loc_mask):
+    @partial(jax.jit, static_argnums=[0, 1])
+    def _innerloop_4d(self, system_dim, x, xb0, obs_vals, Hs, B, Rinv, M,
+                      obs_window_indices, obs_time_mask):
         """4DVar innerloop"""
         x0_last = x[0]
-
-        # Used as column indexer for creating Ht
-        obs_helper_mask = jnp.arange(obs_loc_mask.shape[1])
 
         # Set up Variables
         SumMtHtRinvHM = jnp.zeros_like(B)             # A input
@@ -232,10 +238,10 @@ class Var4D(dacycler.DACycler):
         for i, j in enumerate(obs_window_indices):
             Jb, Jo = jax.lax.cond(
                     obs_time_mask.at[i].get(mode='fill', fill_value=0),
-                    lambda: self._calc_J_term(i, j, H, M, Rinv, y, x,
-                                              obs_loc_indices, obs_loc_mask,
-                                              obs_helper_mask),
-                    lambda: (jnp.zeros_like(SumMtHtRinvHM), jnp.zeros_like(SumMtHtRinvD))
+                    lambda: self._calc_J_term(Hs.at[i].get(mode='clip'), M[j],
+                                              Rinv, obs_vals[i], x[j]),
+                    lambda: (jnp.zeros_like(SumMtHtRinvHM),
+                             jnp.zeros_like(SumMtHtRinvD))
                     )
             SumMtHtRinvHM += Jb
             SumMtHtRinvD += Jo
@@ -281,7 +287,7 @@ class Var4D(dacycler.DACycler):
         return dx0
 
     def _cycle_and_forecast(self, cur_state_vals_time_tuple, filtered_idx):
-        cur_state_vals, cur_time, obs_loc_masks = cur_state_vals_time_tuple
+        cur_state_vals, cur_time = cur_state_vals_time_tuple
         obs_error_sd = self._obs_error_sd
 
         # Calculate obs_time_mask and restore filtered_idx to original values
@@ -291,16 +297,19 @@ class Var4D(dacycler.DACycler):
         cur_obs_vals = jnp.array(self._obs_vector.values).at[filtered_idx].get()
         cur_obs_loc_indices = jnp.array(self._obs_vector.location_indices).at[filtered_idx].get()
         cur_obs_times = jnp.array(self._obs_vector.times).at[filtered_idx].get()
-        cur_obs_loc_mask = obs_loc_masks[filtered_idx]
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[filtered_idx].get().astype(bool)
 
         # Calculate obs window indices: closest model timesteps that match obs
-        if self.obs_window_indices is None:
-            cur_model_timesteps = cur_time + self._model_timesteps
-            obs_window_indices = jnp.array([
-                jnp.argmin(jnp.abs(obs_time - cur_model_timesteps)) for obs_time in cur_obs_times
-            ])
-        else:
-            obs_window_indices = jnp.array(self.obs_window_indices)
+        obs_window_indices = jax.lax.cond(
+            self.obs_window_indices is None,
+            lambda: jnp.array([
+                jnp.argmin(
+                    jnp.abs(obs_time - (cur_time + self._model_timesteps))
+                    ) for obs_time in cur_obs_times
+            ]),
+            lambda: jnp.array(self.obs_window_indices)
+            )
+
         analysis = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
@@ -313,7 +322,7 @@ class Var4D(dacycler.DACycler):
                 obs_window_indices=obs_window_indices)
         new_time = cur_time + self.analysis_window
 
-        return (analysis[-1], new_time, obs_loc_masks), analysis[:-1]
+        return (analysis[-1], new_time), analysis[:-1]
 
     def cycle(self,
               input_state,
@@ -347,7 +356,7 @@ class Var4D(dacycler.DACycler):
             vector.StateVector of analyses and times.
         """
         if (not obs_vector.stationary_observers and
-            (self.H is not None or self.h is not None)):
+                (self.H is not None or self.h is not None)):
             warnings.warn(
                 "Provided obs vector has nonstationary observers. When"
                 " providing a custom obs operator (H/h), the Var4DBackprop"
@@ -374,7 +383,6 @@ class Var4D(dacycler.DACycler):
             self.steps_per_window = round(analysis_window/self.delta_t) + 1
         self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
 
-
         # Get the obs vectors for each analysis window
         all_filtered_idx = dac_utils._get_obs_indices(
             obs_times=obs_vector.times,
@@ -391,16 +399,17 @@ class Var4D(dacycler.DACycler):
 
         # Padding observations
         if obs_vector.stationary_observers:
-            obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
+            self._obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
         else:
-            obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
+            obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(
+                    obs_vector)
             self._obs_vector.values = obs_vals
             self._obs_vector.location_indices = obs_locs
-
+            self._obs_loc_masks = jnp.array(obs_loc_masks)
 
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
-                init=(input_state.values, start_time, obs_loc_masks),
+                init=(input_state.values, start_time),
                 xs=all_filtered_padded)
 
         if return_forecast:
