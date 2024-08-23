@@ -311,13 +311,14 @@ class Var4DBackprop(dacycler.DACycler):
         cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[filtered_idx].get().astype(bool)
 
         # Calculate obs window indices: closest model timesteps that match obs
-        if self.obs_window_indices is None:
-            cur_model_timesteps = cur_time + self._model_timesteps
-            obs_window_indices = jnp.array([
-                jnp.argmin(jnp.abs(obs_time - cur_model_timesteps)) for obs_time in cur_obs_times
-            ])
-        else:
-            obs_window_indices = jnp.array(self.obs_window_indices)
+        obs_window_indices = jax.lax.cond(
+            self.obs_window_indices is None,
+            lambda: jnp.array([
+                jnp.argmin(jnp.abs(obs_time - (cur_time + self._model_timesteps))) for obs_time in cur_obs_times
+            ]),
+            lambda: jnp.array(self.obs_window_indices)
+            )
+
         analysis, loss_vals = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
