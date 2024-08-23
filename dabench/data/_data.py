@@ -275,7 +275,9 @@ class Data():
     def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
                           years_select=None, dates_select=None,
                           lat_sorting=None):
+        # Convert to numpy background
         ds = ds.as_numpy()
+
         if dates_select is not None:
             dates_filter_indices = ds.time.dt.date.isin(dates_select)
             # First check to make sure the dates exist in the object
@@ -312,6 +314,20 @@ class Data():
             warnings.warn('Trying to load large xarray dataset into memory. \n'
                           'Size: {} GB. Operation may take a long time, '
                           'stall, or crash.'.format(size_gb))
+
+        #  Get variable names and shapes
+        names_list = []
+        shapes_list = []
+        if exclude_vars is not None:
+            ds = ds.drop_vars(exclude_vars)
+        if include_vars is not None:
+            ds = ds[include_vars]
+        for data_var in ds.data_vars:
+            shapes_list.append(ds[data_var].shape)
+            names_list.append(data_var)
+
+        # Load
+        ds.load()
 
         # Get dims
         dims = ds.sizes
@@ -373,16 +389,6 @@ class Data():
                                   'Proceeding without sorting.'.format(
                                       lat_sorting)
                                   )
-        #  Get variable names and shapes
-        names_list = []
-        shapes_list = []
-        if exclude_vars is not None:
-            ds = ds.drop_vars(exclude_vars)
-        if include_vars is not None:
-            ds = ds[include_vars]
-        for data_var in ds.data_vars:
-            shapes_list.append(ds[data_var].shape)
-            names_list.append(data_var)
 
         # Check if all elements' data shapes are equal
         if len(names_list) == 0:
@@ -403,7 +409,7 @@ class Data():
                           )
 
         # Gather values and set dimensions
-        temp_values = np.moveaxis(ds.to_dataarray().to_numpy(), 0, -1)
+        temp_values = np.moveaxis(ds.to_dataarray().values, 0, -1)
         self.original_dim = temp_values.shape[1:]
         if self.original_dim[-1] == 1 and len(self.original_dim) > 2:
             self.original_dim = self.original_dim[:-1]

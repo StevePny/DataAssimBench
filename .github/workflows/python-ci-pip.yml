@@ -24,7 +24,6 @@ jobs:
     - name: Install package and requirements
       run: |
         python3 -m pip install -e ".[dev]"
-        python3 -m pip install Cython==0.29.37 wheel
 
     - name: Lint with flake8
       run: |

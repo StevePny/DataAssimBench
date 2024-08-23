@@ -196,7 +196,10 @@ def test_obs_l96_moving():
 
 def test_obs_pyqg():
     """Tests observer for PyQG"""
+    pytest.importorskip("pyqg")
+
     pyqg = data.PyQG()
+
     pyqg.generate(n_steps=10)
 
     obs = observer.Observer(
@@ -220,32 +223,31 @@ def test_obs_pyqg():
                           np.array([7200, 21600, 28800, 36000, 50400, 64800]))
 
 
-@pytest.mark.skip(reason="AWS removed ERA5 data.")
-def test_obs_aws():
-    """Tests observer for AWS downloaded ERA5 data"""
-    aws = data.AWS()
-    aws.load()
+def test_obs_gcp():
+    """Tests observer for GCP downloaded ERA5 data"""
+    gcp = data.GCP(date_start='2010-01-01', date_end='2010-01-03')
+    gcp.load()
 
     obs = observer.Observer(
-        aws,
-        random_time_density=0.025,
-        random_location_density=0.1,
+        gcp,
+        random_time_count=10,
+        random_location_count=50,
         error_sd=0.0,
         error_bias=5.)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 219
-    assert obs_vec.num_obs == 219
-    assert obs_vec.times.shape[0] == 219
-    assert obs_vec.time_indices.shape[0] == 219
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(58, 219))
-    assert obs_vec.location_indices[0, 0] == 17
+    assert obs_vec.values.shape[0] == 10
+    assert obs_vec.num_obs == 10
+    assert obs_vec.times.shape[0] == 10
+    assert obs_vec.time_indices.shape[0] == 10
+    assert np.array_equal(obs_vec.obs_dims, np.repeat(50, 10))
+    assert obs_vec.location_indices[0, 0] == 159
     assert obs_vec.values[0, 0] == pytest.approx(
-            aws.values[72, 17] + 5)
-    assert obs_vec.values[123, 42] == pytest.approx(306.0625)
+            gcp.values[11, 159] + 5)
+    assert obs_vec.values[8, 42] == pytest.approx(303.95828)
     assert np.array_equal(obs_vec.errors,
-                          np.repeat(5, 219*58).reshape(219, 58))
-    assert obs_vec.times[1] == np.datetime64('2020-01-04T18:00:00.000000000')
+                          np.repeat(5, 10*50).reshape(10, 50))
+    assert obs_vec.times[1] == np.datetime64('2010-01-02T08:00:00.000000000')
 
 
 def test_obs_sqgturb():
