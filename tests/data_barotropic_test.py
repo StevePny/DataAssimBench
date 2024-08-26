@@ -1,6 +1,5 @@
 """Tests for Barotropic class (dabench.data.barotropic)"""
 
-from dabench.data import Barotropic
 import numpy as np
 import pytest
 
@@ -10,7 +9,6 @@ except ModuleNotFoundError:
     pytest.skip('pyqg not installed', allow_module_level=True)
 
 from dabench.data import Barotropic
-
 
 @pytest.fixture(scope='module')
 def barotropic():

@@ -1,6 +1,7 @@
 """Class for Var 4D Data Assimilation Cycler object"""
 
 import inspect
+import warnings
 
 import numpy as np
 import jax.numpy as jnp
@@ -12,6 +13,7 @@ from copy import deepcopy
 from functools import partial
 
 from dabench import dacycler, vector
+import dabench.dacycler._utils as dac_utils
 
 
 class Var4D(dacycler.DACycler):
@@ -40,11 +42,14 @@ class Var4D(dacycler.DACycler):
             4DVar. Increasing this may result in higher accuracy but slower
             performance. Default is 1.
         steps_per_window (int): Number of timesteps per analysis window.
+            If None (default), will calculate automatically based on delta_t
+            and .cycle() analysis_window length.
         obs_window_indices (list): Timestep indices where observations fall
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
             0.02, 0.03, 0.04, and 0.05, obs_window_indices =
-            [0, 1, 2, 3, 4, 5].
+            [0, 1, 2, 3, 4, 5]. If None (default), will calculate
+            automatically.
     """
 
     def __init__(self,
@@ -58,7 +63,7 @@ class Var4D(dacycler.DACycler):
                  solver='bicgstab',
                  n_outer_loops=1,
                  steps_per_window=1,
-                 obs_window_indices=[0],
+                 obs_window_indices=None,
                  **kwargs
                  ):
 
@@ -67,6 +72,10 @@ class Var4D(dacycler.DACycler):
         self.n_outer_loops = n_outer_loops
         self.solver = solver
 
+        # Var4D requires H to be a JAX array
+        if H is not None:
+            H = jnp.array(H)
+
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
@@ -74,20 +83,24 @@ class Var4D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _calc_default_H(self, obs_values, obs_loc_indices):
-        H = jnp.zeros((obs_values[0].shape[0], self.system_dim))
-        H = H.at[jnp.arange(H.shape[0]), obs_loc_indices[0]
-                 ].set(1)
-        return H
+    def _calc_default_H(self, obs_loc_indices):
+        Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],
+                        self.system_dim),
+                       dtype=int)
+        for i in range(Hs.shape[0]):
+            Hs = Hs.at[i, jnp.arange(Hs.shape[1]), obs_loc_indices
+                       ].set(1)
+        return Hs
+
 
     def _calc_default_R(self, obs_values, obs_error_sd):
-        return jnp.identity(obs_values.flatten().shape[0])*(obs_error_sd**2)
+        return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
 
     def _calc_default_B(self):
         return jnp.identity(self.system_dim)
 
-    def _make_outerloop_4d(self, xb0,  H, B, Rinv,
-                           obs_values, obs_window_indices,
+    def _make_outerloop_4d(self, xb0,  Hs, B, Rinv,
+                           obs_values, obs_window_indices, obs_time_mask,
                            n_steps):
 
         def _outerloop_4d(x0, _):
@@ -100,25 +113,42 @@ class Var4D(dacycler.DACycler):
             )
 
             # 4D-Var inner loop
-            x0 = self._innerloop_4d(self.system_dim, x, xb0,
-                                    obs_values, H, B,
-                                    Rinv, M, obs_window_indices)
+            x0 = self._innerloop_4d(self.system_dim,
+                                    x, xb0, obs_values,
+                                    Hs, B, Rinv, M,
+                                    obs_window_indices, 
+                                    obs_time_mask)
 
             return x0, x0
 
         return _outerloop_4d
 
-    def _cycle_obsop(self, xb0, obs_values, obs_loc_indices,
-                     obs_error_sd, H=None, h=None, R=None, B=None,
-                     obs_window_indices=None, n_steps=1):
+    def _cycle_obsop(self, xb0, obs_values, obs_loc_indices, obs_error_sd,
+                     obs_window_indices, obs_time_mask, obs_loc_mask,
+                     H=None, h=None, R=None, B=None,
+                     n_steps=1):
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
-                    H = self._calc_default_H(obs_values, obs_loc_indices)
+                    H = self._calc_default_H(obs_loc_indices)
+                    # Apply obs loc mask
+                    # NOTE: nonstationary observer case runs MUCH slower. Not sure why
+                    # Ideally, this conditional would not be necessary, but this is a
+                    # workaround to prevent slowing down stationary observer case.
+                    Hs = jax.lax.cond(
+                        self._obs_vector.stationary_observers,
+                        lambda: H,
+                        lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
                 else:
                     h = self.h
             else:
-                H = self.H
+                # Assumes self.H is for a single timestep
+                H = self.H[jnp.newaxis]
+                Hs = jax.lax.cond(
+                    self._obs_vector.stationary_observers,
+                    lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
+                    lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+
         if R is None:
             if self.R is None:
                 R = self._calc_default_R(obs_values, obs_error_sd)
@@ -137,7 +167,8 @@ class Var4D(dacycler.DACycler):
         x0 = deepcopy(xb0)
 
         outerloop_4d_func = self._make_outerloop_4d(
-                xb0,  H, B, Rinv, obs_values, obs_window_indices, n_steps)
+                xb0,  Hs, B, Rinv, obs_values, obs_window_indices,
+                obs_time_mask, n_steps)
 
         x0, all_x0s = jax.lax.scan(outerloop_4d_func, init=x0,
                 xs=None, length=self.n_outer_loops)
@@ -148,21 +179,23 @@ class Var4D(dacycler.DACycler):
             x0=vector.StateVector(values=x0, store_as_jax=True)
         ).values
 
-        return x, None
+        return x
 
-    def step_cycle(self, x0, yo, obs_window_indices=[0],
-                   H=None, h=None, R=None, B=None,
+    def step_cycle(self, x0, yo, obs_time_mask, obs_loc_mask,
+                   obs_window_indices, H=None, h=None, R=None, B=None,
                    n_steps=1):
         """Perform one step of DA Cycle"""
         if H is not None or h is None:
             return self._cycle_obsop(
                     x0.values, yo.values, yo.location_indices, yo.error_sd,
-                    H, R, B, obs_window_indices=obs_window_indices,
+                    obs_loc_mask=obs_loc_mask, obs_time_mask=obs_time_mask,
+                    obs_window_indices=obs_window_indices,
+                    H=H, R=R, B=B, 
                     n_steps=n_steps)
         else:
             return self._cycle_obsop(
-                    x0.values, yo.values, yo.location_indices, yo.error_sd, h,
-                    R, B, obs_window_indices=obs_window_indices,
+                    x0.values, yo.values, yo.location_indices, yo.error_sd, h=h,
+                    R=R, B=B, obs_window_indices=obs_window_indices,
                     n_steps=n_steps)
 
     def step_forecast(self, x0, n_steps=1):
@@ -180,51 +213,38 @@ class Var4D(dacycler.DACycler):
                     out.append(xi)
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
-    @partial(jax.jit, static_argnums=[0,1])
-    def _innerloop_4d(self, system_dim, x, xb0, y, H, B, Rinv, M,
-                      obs_window_indices=[0]):
-        """4DVar innerloop
 
-        Args:
-            system_dim (int): The dimension of the system state.
-            x (ndarray): Current best guess for trajectory. Updated each outer
-                loop. (time_dim, system_dim)
-            xb0 (ndarray): Initial background estimate for initial conditions.
-                Stays constant throughout analysis cycle. Shape: (system_dim,)
-            y (ndarray): Time array of observation. Shape: (num_obs, obs_dim)
-            H (ndarray): Observation operator matrix. Shape:
-                (obs_dim, system_dim)
-            B (ndarray): Background/forecast error covariance matrix. Shape:
-                (system_dim, system_dim)
-            Rinv (ndarray): Inverted observation error covariance matrix. Shape:
-                (obs_dim, obs_dim)]
-            M (ndarray): List of TLMs for each model timestep. Shape:
-                (time_dim,system_dim, system_dim)
-            obs_window_indices (ndarray): Indices of observations w.r.t. model
-                timesteps in analysis window.
+    def _calc_J_term(self, H, M, Rinv, y, x):
+        # The Jb Term (A)
+        HM = H @ M
+        MtHtRinv = HM.T @ Rinv
 
-        Returns:
-            xa0 (ndarray): inner loop estimate of optimal initial conditions.
-                Shape: (system_dim,)
+        # The Jo Term (b)
+        D = (y - (H @ x))
+        return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
 
-        """
+
+    @partial(jax.jit, static_argnums=[0, 1])
+    def _innerloop_4d(self, system_dim, x, xb0, obs_vals, Hs, B, Rinv, M,
+                      obs_window_indices, obs_time_mask):
+        """4DVar innerloop"""
         x0_last = x[0]
 
         # Set up Variables
-        SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
         SumMtHtRinvHM = jnp.zeros_like(B)             # A input
+        SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
 
         # Loop over observations
         for i, j in enumerate(obs_window_indices):
-            # The Jb Term (A)
-            HM = H @ M[j, :, :]
-            MtHtRinv = HM.T @ Rinv
-            SumMtHtRinvHM += MtHtRinv @ HM
-
-            # The Jo Term (b)
-            D = y[i] - (H @ x[j])
-            SumMtHtRinvD += MtHtRinv @ D[:, None]
-
+            Jb, Jo = jax.lax.cond(
+                    obs_time_mask.at[i].get(mode='fill', fill_value=0),
+                    lambda: self._calc_J_term(Hs.at[i].get(mode='clip'), M[j],
+                                              Rinv, obs_vals[i], x[j]),
+                    lambda: (jnp.zeros_like(SumMtHtRinvHM),
+                             jnp.zeros_like(SumMtHtRinvD))
+                    )
+            SumMtHtRinvHM += Jb
+            SumMtHtRinvD += Jo
         # Compute initial departure
         db0 = xb0 - x0_last
 
@@ -266,86 +286,142 @@ class Var4D(dacycler.DACycler):
 
         return dx0
 
-    @partial(jax.jit, static_argnums=0)
-    def _cycle_and_forecast(self, cur_state_vals, filtered_idx):
-        obs_vals = self._obs_vector.values
-        obs_loc_indices = self._obs_vector.location_indices
+    def _cycle_and_forecast(self, cur_state_vals_time_tuple, filtered_idx):
+        cur_state_vals, cur_time = cur_state_vals_time_tuple
         obs_error_sd = self._obs_error_sd
 
-        cur_obs_vals = jax.lax.dynamic_slice_in_dim(obs_vals, filtered_idx[0],
-                                                    len(filtered_idx))
-        cur_obs_loc_indices = jax.lax.dynamic_slice_in_dim(obs_loc_indices,
-                                                           filtered_idx[0],
-                                                           len(filtered_idx))
-        analysis, kh = self.step_cycle(
+        # Calculate obs_time_mask and restore filtered_idx to original values
+        obs_time_mask = filtered_idx > 0
+        filtered_idx = filtered_idx - 1
+
+        cur_obs_vals = jnp.array(self._obs_vector.values).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(self._obs_vector.location_indices).at[filtered_idx].get()
+        cur_obs_times = jnp.array(self._obs_vector.times).at[filtered_idx].get()
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[filtered_idx].get().astype(bool)
+
+        # Calculate obs window indices: closest model timesteps that match obs
+        obs_window_indices = jax.lax.cond(
+            self.obs_window_indices is None,
+            lambda: jnp.array([
+                jnp.argmin(
+                    jnp.abs(obs_time - (cur_time + self._model_timesteps))
+                    ) for obs_time in cur_obs_times
+            ]),
+            lambda: jnp.array(self.obs_window_indices)
+            )
+
+        analysis = self.step_cycle(
                 vector.StateVector(values=cur_state_vals, store_as_jax=True),
                 vector.ObsVector(values=cur_obs_vals,
                                  location_indices=cur_obs_loc_indices,
                                  error_sd=obs_error_sd,
                                  store_as_jax=True),
+                obs_time_mask=obs_time_mask,
+                obs_loc_mask=cur_obs_loc_mask,
                 n_steps=self.steps_per_window,
-                obs_window_indices=self.obs_window_indices)
+                obs_window_indices=obs_window_indices)
+        new_time = cur_time + self.analysis_window
 
-
-        return analysis[-1], analysis[:-1]
+        return (analysis[-1], new_time), analysis[:-1]
 
     def cycle(self,
               input_state,
               start_time,
               obs_vector,
               obs_error_sd,
-              timesteps,
+              n_cycles,
               analysis_window,
-              analysis_time_in_window=None):
+              analysis_time_in_window=0,
+              return_forecast=False):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
             input_state (vector.StateVector): Input state.
+            start_time (float or datetime-like): Starting time.
             obs_vector (vector.ObsVector): Observations vector.
             obs_error_sd (float): Standard deviation of observation error.
                 Typically not known, so provide a best-guess.
-            start_time (float or datetime-like): Starting time.
-            timesteps (int): Number of timesteps, in model time.
-            analysis_window (float): Time window from which to gather
-                observations for DA Cycle.
-            analysis_time_in_window (float): Where within analysis_window
+            n_cycles (int): Number of analysis cycles to run, each of length
+                analysis_window.
+            analysis_window (float): Length of time window from which to gather
+                observations for each DA Cycle, in model time units.
+            analysis_time_in_window (float): At what time within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
-                window. Default is None, which selects the middle of the
-                window.
+                window. Default is 0, the start of the window.
+            return_forecast (bool): If True, returns forecast at each model
+                timestep. If False, returns only analyses, one per analysis
+                cycle. Default is False.
 
         Returns:
             vector.StateVector of analyses and times.
         """
+        if (not obs_vector.stationary_observers and
+                (self.H is not None or self.h is not None)):
+            warnings.warn(
+                "Provided obs vector has nonstationary observers. When"
+                " providing a custom obs operator (H/h), the Var4DBackprop"
+                "DA cycler may not function properly. If you encounter "
+                "errors, try again with an observer where"
+                "stationary_observers=True or without specifying H or h (a "
+                "default H matrix will be used to map observations to system "
+                "space)."
+            )
+        self.analysis_window = analysis_window
 
+        # If don't specify analysis_time_in_window, is assumed to be middle
         if analysis_time_in_window is None:
-            analysis_time_in_window = analysis_window/2
+            analysis_time_in_window = self.analysis_window/2
+
+        # Time offset from middle of time window, for gathering observations
+        _time_offset = (analysis_window/2) - analysis_time_in_window
 
         # Set up for jax.lax.scan, which is very fast
-        all_times = (
-                jnp.repeat(start_time + analysis_time_in_window, timesteps)
-                + jnp.arange(0, timesteps*analysis_window,
-                             analysis_window)
-                     )
+        all_times = dac_utils._get_all_times(start_time, analysis_window,
+                                             n_cycles)
+
+        if self.steps_per_window is None:
+            self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
+
         # Get the obs vectors for each analysis window
-        all_filtered_idx = jnp.stack([jnp.where(
-            # Greater than start of window
-            (obs_vector.times > cur_time - analysis_window/2)
-            # AND Less than end of window
-            * (obs_vector.times < cur_time + analysis_window/2)
-            # OR Equal to start of window end
-            + jnp.isclose(obs_vector.times, cur_time - analysis_window/2,
-                          rtol=0)
-            # OR Equal to end of window
-            + jnp.isclose(obs_vector.times, cur_time + analysis_window/2,
-                          rtol=0)
-            )[0] for cur_time in all_times])
+        all_filtered_idx = dac_utils._get_obs_indices(
+            obs_times=obs_vector.times,
+            analysis_times=all_times+_time_offset,
+            start_inclusive=True,
+            end_inclusive=True,
+            analysis_window=analysis_window
+        )
+
+        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx)
 
         self._obs_vector = obs_vector
         self._obs_error_sd = obs_error_sd
+
+        # Padding observations
+        if obs_vector.stationary_observers:
+            self._obs_loc_masks = jnp.ones(obs_vector.values.shape, dtype=bool)
+        else:
+            obs_vals, obs_locs, obs_loc_masks = dac_utils._pad_obs_locs(
+                    obs_vector)
+            self._obs_vector.values = obs_vals
+            self._obs_vector.location_indices = obs_locs
+            self._obs_loc_masks = jnp.array(obs_loc_masks)
+
         cur_state, all_values = jax.lax.scan(
                 self._cycle_and_forecast,
-                init=input_state.values,
-                xs=all_filtered_idx)
+                init=(input_state.values, start_time),
+                xs=all_filtered_padded)
 
-        return vector.StateVector(values=jnp.vstack(all_values),
-                                  store_as_jax=True)
+        if return_forecast:
+            all_times_forecast = jnp.arange(
+                0,
+                n_cycles*analysis_window,
+                self.delta_t
+                ) + start_time
+            return vector.StateVector(values=jnp.concatenate(all_values),
+                                      times=all_times_forecast)
+        else:
+            return vector.StateVector(values=jnp.vstack([
+                forecast[0] for forecast in all_values]
+                ),
+                                      times=all_times)

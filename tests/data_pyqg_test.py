@@ -10,7 +10,6 @@ except ModuleNotFoundError:
 
 from dabench.data import PyQG
 
-
 @pytest.fixture(scope='module')
 def pyqg():
     """Defines class PYQ object for rest of tests."""

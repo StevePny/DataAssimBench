@@ -37,6 +37,10 @@ class ObsVector(_vector._Vector):
         times (array): 1d array of times associated with each observation
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        stationary_observers (bool): If True, samples are from same indices at
+            each time step. If False, observations can be from different
+            indices, including irregular numbers of observations and different
+            time steps.
         """
     def __init__(self,
                  num_obs=None,
@@ -51,6 +55,7 @@ class ObsVector(_vector._Vector):
                  error_bias=None,
                  times=None,
                  store_as_jax=False,
+                 stationary_observers=True,
                  **kwargs):
 
         self.num_obs = num_obs
@@ -59,6 +64,7 @@ class ObsVector(_vector._Vector):
         self.error_bias = error_bias
         self.time_indices = time_indices
         self.location_indices = location_indices
+        self.stationary_observers = stationary_observers
 
         super().__init__(times=times,
                          store_as_jax=store_as_jax,
