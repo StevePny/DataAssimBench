@@ -325,8 +325,18 @@ class NeuralGCM(model.Model):
             eval_data = xarray_utils.fill_nan_with_nearest(eval_data)
 
         return eval_data
-        
 
+    def forecast(self, state_vec, n_steps, sfc_forcing_forecast):
+        # Template forecast method to interface with DA
+        final_state, predictions = model.unroll(
+            state_vec,
+            sfc_forcing_forecast,
+            steps=n_steps,
+            timedelta=self.timedelta,
+            start_with_input=True,
+        )
+        return final_state, predictions
+        
     def run_forecast(self, model, ics_data, bcs_data):
         # NOTE: the ICs and BCs are extracted from the 'eval_data'.
         #       It is preferable to input these separately, so that
@@ -360,13 +370,7 @@ class NeuralGCM(model.Model):
         # see: https://neuralgcm.readthedocs.io/en/latest/trained_models.html#advancing-in-time
         print('run_forecast:: steps = {self.outer_steps}')
         print('run_forecast:: timedelta = {self.timedelta}')
-        final_state, predictions = model.unroll(
-            initial_state,
-            sfc_forcing_forecast,
-            steps=self.outer_steps,
-            timedelta=self.timedelta,
-            start_with_input=True,
-        )
+        final_state, predictions = self.forecast(state_vec=initial_state, n_steps=self.outer_steps, sfc_forcing_forecast=sfc_forcing_forecast)
         predictions_ds = model.data_to_xarray(predictions, times=self.times)
 
         return predictions_ds
