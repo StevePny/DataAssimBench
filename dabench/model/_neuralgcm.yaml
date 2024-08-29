@@ -1,0 +1,40 @@
+# Model setup
+forcing_type: "deterministic"
+atm_res: "1_4"
+#Interal Format: 
+# model_name: f'neural_gcm_dynamic_forcing_{self.forcing_type}_{self.atm_res}_deg.pkl'
+# gcs_key: f'gs://gresearch/neuralgcm/04_30_2024/{self.model_name}'
+# Options:
+#@param ['neural_gcm_dynamic_forcing_deterministic_0_7_deg.pkl', 
+       # 'neural_gcm_dynamic_forcing_deterministic_1_4_deg.pkl', 
+       # 'neural_gcm_dynamic_forcing_deterministic_2_8_deg.pkl', 
+       # 'neural_gcm_dynamic_forcing_stochastic_1_4_deg.pkl'] {type: "string"}
+
+# Load ics
+era5_path: 'gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
+ics_path: 'gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
+bcs_path: 'gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
+start_time: '2023-09-05'
+#forecast_hours: 96
+forecast_hours: 24
+data_stride: 24
+
+# Regridding
+interpolation_method: "conservative"
+
+# Run forecast
+inner_steps: 24
+outer_steps: 4
+random_seed: 42
+use_sfc_persistence: True
+
+# Plotting
+plot_hpa_level: 850
+plot_x: 'longitude'
+plot_y: 'latitude'
+plot_row: 'time'
+plot_col: 'model'
+plot_robust: True
+plot_aspect: 2
+plot_size: 2
+plot_show: True
