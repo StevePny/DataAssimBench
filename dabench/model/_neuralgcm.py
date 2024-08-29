@@ -525,19 +525,19 @@ if __name__ == "__main__":
     infile = '_neuralgcm.yaml'
 
     # Create model class
-    mlwp_model = MlwpNeuralGcm(params=params, infile=infile)
+    model = NeuralGCM(params=params, infile=infile)
 
     # Print key input params:
-    print(f'demo_start_time = {mlwp_model.start_time}')
-    print(f'demo_end_time = {mlwp_model.end_time}')
-    print(f'data_inner_steps = {mlwp_model.data_stride}')
-    print(f'inner_steps = {mlwp_model.inner_steps}')
-    print(f'outer_steps = {mlwp_model.outer_steps}')
-    print(f'timedelta = {mlwp_model.timedelta}')
-    print(f'datetime_starttime = {mlwp_model.datetime_starttime}')
-    print(f'forecast_delta = {mlwp_model.forecast_delta}')
-    print(f'times = {mlwp_model.times}')
+    print(f'demo_start_time = {model.start_time}')
+    print(f'demo_end_time = {model.end_time}')
+    print(f'data_inner_steps = {model.data_stride}')
+    print(f'inner_steps = {model.inner_steps}')
+    print(f'outer_steps = {model.outer_steps}')
+    print(f'timedelta = {model.timedelta}')
+    print(f'datetime_starttime = {model.datetime_starttime}')
+    print(f'forecast_delta = {model.forecast_delta}')
+    print(f'times = {model.times}')
 #   input("Press Enter to continue...")
 
     # Run all
-    mlwp_model.full_sequence()
+    model.full_sequence()
