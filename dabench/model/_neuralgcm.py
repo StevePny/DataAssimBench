@@ -13,6 +13,7 @@ from dabench import vector, model
 # ==============================================
 # Required for neuralGCM:
 import jax
+jax.config.update('jax_enable_x64', False)
 import numpy as np
 import pickle
 import xarray as xr
