@@ -62,7 +62,7 @@ class NeuralGCM(model.Model):
                          model_obj=None)
 
         # Infile override, if provided
-        if self.infile is not None:
+        if infile is not None:
             params = self.load_config(infile)
 
         # -----------------------
@@ -165,10 +165,7 @@ class NeuralGCM(model.Model):
         with self.gcs.open(gcs_key, 'rb') as f:
             ckpt = pickle.load(f)
 
-        model = neuralgcm.PressureLevelModel.from_checkpoint(ckpt)
-
-        return model
-
+        self._model = neuralgcm.PressureLevelModel.from_checkpoint(ckpt)
 
     def set_grid_info(self, full_data):
         self.latitude_nodes=full_data.sizes['latitude']
@@ -177,7 +174,7 @@ class NeuralGCM(model.Model):
         self.longitude_offset=xarray_utils.infer_longitude_offset(full_data.longitude)
 
 
-    def load_ics(self, model, override=''):
+    def load_ics(self, override=''):
 
         start_time = self.start_time
         end_time = self.end_time
@@ -187,7 +184,7 @@ class NeuralGCM(model.Model):
         full_data = xr.open_zarr(self.gcs.get_mapper(era5_path), chunks=None)
         self.set_grid_info(full_data)
 
-        print(f'Variables = {[model.input_variables]}')
+        print(f'Variables = {[self._model.input_variables]}')
 
         # TODO: make this only a single time step and add another method
         #       to load a 'reference' dataset for evaluation.
@@ -199,7 +196,7 @@ class NeuralGCM(model.Model):
         # regrid a few time slices:
         sliced_data = (
             full_data
-            [model.input_variables]
+            [self._model.input_variables]
             .sel(time=slice(start_time, end_time, data_stride))   # Select data range from full reanalysis dataset
             .compute()       # Pull it into memory
         )
@@ -207,7 +204,7 @@ class NeuralGCM(model.Model):
         return sliced_data
 
 
-    def load_bcs(self, model, override=''):
+    def load_bcs(self, override=''):
 
         start_time = self.start_time
         end_time = self.end_time
@@ -216,20 +213,20 @@ class NeuralGCM(model.Model):
         era5_path = self.era5_path
         full_data = xr.open_zarr(self.gcs.get_mapper(era5_path), chunks=None)
 
-        print(f'Variables = {[model.forcing_variables]}')
+        print(f'Variables = {[self._model.forcing_variables]}')
 
         # Regridding requires the data to be first loaded into memory.
         # Because this full dataset is gigantic (100s of TB) we’ll only
         # regrid a single time point:
         sliced_data = (
             full_data
-            [model.forcing_variables]
-#               [model.input_variables + model.forcing_variables]
+            [self._model.forcing_variables]
+#               [self._model.input_variables + self._model.forcing_variables]
 ## See:
 ## https://neuralgcm.readthedocs.io/en/latest/datasets.html#time-shifting
             .pipe(
                 xarray_utils.selective_temporal_shift,
-                variables=model.forcing_variables,
+                variables=self._model.forcing_variables,
                 time_shift='24 hours',
             )
             .sel(time=slice(start_time, end_time, data_stride))   # Select data range from full reanalysis dataset
@@ -239,7 +236,7 @@ class NeuralGCM(model.Model):
         return sliced_data
 
 
-    def get_regridder(self,model,skipna=True):
+    def get_regridder(self, skipna=True):
 
         method = self.interpolation_method
         
@@ -263,7 +260,7 @@ class NeuralGCM(model.Model):
                                             )
 
         # Get grid for neural GCM
-        target_grid = model.data_coords.horizontal
+        target_grid = self._model.data_coords.horizontal
 
         # ------------------------------------
         # build a Regridder object:
@@ -297,7 +294,7 @@ class NeuralGCM(model.Model):
         return regridder
 
 
-    def regrid_input(self, model, data, fill_nans=False):
+    def regrid_input(self, data, fill_nans=False):
         # Regridding data
         # See: https://neuralgcm.readthedocs.io/en/latest/datasets.html
         # Preparing a dataset stored on a different horizontal grid for NeuralGCM requires two steps:
@@ -314,7 +311,7 @@ class NeuralGCM(model.Model):
 
         # build a Regridder object:
         print ('regrid_input:: self.get_regridder...')
-        regridder = self.get_regridder(model)
+        regridder = self.get_regridder()
 
         # Perform regridding operation
         print ('regrid_input:: xarray_utils.regrid...')
@@ -328,7 +325,7 @@ class NeuralGCM(model.Model):
 
     def forecast(self, state_vec, n_steps, sfc_forcing_forecast):
         # Template forecast method to interface with DA
-        final_state, predictions = model.unroll(
+        final_state, predictions = self._model.unroll(
             state_vec,
             sfc_forcing_forecast,
             steps=n_steps,
@@ -337,7 +334,7 @@ class NeuralGCM(model.Model):
         )
         return final_state, predictions
         
-    def run_forecast(self, model, ics_data, bcs_data):
+    def run_forecast(self, ics_data, bcs_data):
         # NOTE: the ICs and BCs are extracted from the 'eval_data'.
         #       It is preferable to input these separately, so that
         #       the eval dataset can change, and since the IC and BC
@@ -346,37 +343,37 @@ class NeuralGCM(model.Model):
         use_sfc_forecast = self.use_sfc_forecast
         
         # Get the initial conditions
-        inputs = model.inputs_from_xarray(ics_data.isel(time=0))
+        inputs = self._model.inputs_from_xarray(ics_data.isel(time=0))
 
         # Get initial surface boundary conditions
-        input_forcings_t0 = model.forcings_from_xarray(bcs_data.isel(time=0))
+        input_forcings_t0 = self._model.forcings_from_xarray(bcs_data.isel(time=0))
         rng_key = jax.random.key(self.random_seed)  # optional for deterministic models
 
         # Set up combined ICs and BCs
-        initial_state = model.encode(inputs, input_forcings_t0, rng_key)
+        initial_state = self._model.encode(inputs, input_forcings_t0, rng_key)
 
         # Get forecast surface boundary conditions. Either:
         # (a) use persistence for forcing variables (SST and sea ice cover), or
         # (b) use a forecast of SBCs (sst and sea ice)
         if not use_sfc_forecast:
             # Use a persistence forecast instead
-            sfc_forcing_forecast = model.forcings_from_xarray(bcs_data.head(time=1))
+            sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data.head(time=1))
             #NOTE: ".head(time=1)" gets the first time step and keeps the time dimension, 
             #       unlike ".isel(time=0)" which collapses the time dimension
         else:
-            sfc_forcing_forecast = model.forcings_from_xarray(bcs_data)
+            sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data)
 
         # make forecast
         # see: https://neuralgcm.readthedocs.io/en/latest/trained_models.html#advancing-in-time
         print('run_forecast:: steps = {self.outer_steps}')
         print('run_forecast:: timedelta = {self.timedelta}')
         final_state, predictions = self.forecast(state_vec=initial_state, n_steps=self.outer_steps, sfc_forcing_forecast=sfc_forcing_forecast)
-        predictions_ds = model.data_to_xarray(predictions, times=self.times)
+        predictions_ds = self._model.data_to_xarray(predictions, times=self.times)
 
         return predictions_ds
 
 
-    def plot_results(self, model, eval_data, predictions_ds):
+    def plot_results(self, eval_data, predictions_ds):
 
         inner_steps = self.inner_steps
         data_stride = self.data_stride
@@ -396,12 +393,12 @@ class NeuralGCM(model.Model):
         times = predictions_ds['time'].values
 
         # Selecting ERA5 targets from exactly the same time slice
-        target_trajectory = model.inputs_from_xarray(
+        target_trajectory = self._model.inputs_from_xarray(
             eval_data
             .thin(time=(inner_steps // data_stride))
             .isel(time=slice(outer_steps))
         )
-        target_data_ds = model.data_to_xarray(target_trajectory, times=times)
+        target_data_ds = self._model.data_to_xarray(target_trajectory, times=times)
 
         combined_ds = xr.concat([target_data_ds, predictions_ds], 'model')
         combined_ds.coords['model'] = ['ERA5', 'NeuralGCM']
@@ -469,7 +466,7 @@ class NeuralGCM(model.Model):
 
         # Load the model and model weights from a file
         print('Loading model...')
-        model = self.load_model()
+        self.load_model()
         self.report_timing("load model")
 
         # --------------------------
@@ -478,12 +475,12 @@ class NeuralGCM(model.Model):
 
         # Get the ECMWF initial conditions and boundary conditions
         print('Getting ECMWF ICs (this may take about 5-7 minutes)...')
-        ics_sliced = self.load_ics(model)
+        ics_sliced = self.load_ics()
         self.report_timing("get ics")
 
         # Get the ECMWF initial conditions and boundary conditions
         print('Getting ECMWF BCs (should be < 1 min)...')
-        bcs_sliced = self.load_bcs(model)
+        bcs_sliced = self.load_bcs()
         self.report_timing("get bcs")
 
         # --------------------------
@@ -492,14 +489,14 @@ class NeuralGCM(model.Model):
 
         # Regrid the ECMWF ICs to the model input grid
         print('Regridding ECMWF ICs (should be < 1 min)...')
-        ics_eval = self.regrid_input(model, data=ics_sliced, fill_nans=False)
+        ics_eval = self.regrid_input(data=ics_sliced, fill_nans=False)
         self.report_timing("regrid ics")
         era5_eval = ics_eval
 
 
         # Regrid the ECMWF BCs to the model input grid
         print('Regridding ECMWF BCs (should be < 1 min)...')
-        bcs_eval = self.regrid_input(model, data=bcs_sliced, fill_nans=True)
+        bcs_eval = self.regrid_input(data=bcs_sliced, fill_nans=True)
         self.report_timing("regrid bcs")
 
         # --------------------------
@@ -507,7 +504,7 @@ class NeuralGCM(model.Model):
         # --------------------------
 
         print('Running forecast (this may take a while, e.g. about 15-minutes per simulation day)...')
-        predictions_ds = self.run_forecast(model,ics_eval,bcs_eval) #eval_data)
+        predictions_ds = self.run_forecast(ics_eval,bcs_eval) #eval_data)
         print('Finished forecast!')
         self.report_timing("run forecast")
 
@@ -519,7 +516,7 @@ class NeuralGCM(model.Model):
         # --------------------------
 
         print('Plotting results...')
-        self.plot_results(model,era5_eval,predictions_ds)
+        self.plot_results(era5_eval,predictions_ds)
 
 
 if __name__ == "__main__":
