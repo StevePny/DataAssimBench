@@ -343,35 +343,6 @@ class NeuralGCM(model.Model):
         xr_numpy = xr.transpose('time','level','latitude','longitude')[self.data_var_order].to_array().to_numpy()
         return xr_numpy.flatten()
 
-
-    # def forecast(self, state_vec, n_steps):
-    #     # Template forecast method to interface with DA
-    #     final_state, predictions = self._model.unroll(
-    #         state_vec,
-    #         self.sfc_forcing_forecast,
-    #         steps=n_steps,
-    #         timedelta=self.timedelta,
-    #         start_with_input=True,
-    #     )
-    #     return final_state, predictions
-    
-    # Works for intput/output as xarray
-    # def forecast(self, state_vec_xarray, n_steps):
-    #     # Template forecast method to interface with DA
-    #     input_modelstate = self._model.inputs_from_xarray(state_vec_xarray)
-    #     encoded = self._model.encode(input_modelstate, self.input_forcings_t0)
-    #     final_state, predictions = self._model.unroll(
-    #         encoded,
-    #         self.sfc_forcing_forecast,
-    #         steps=n_steps,
-    #         timedelta=self.timedelta,
-    #         start_with_input=True
-    #     )
-    #     preds_xarray = self._model.data_to_xarray(
-    #         predictions,
-    #         times=self._model.sim_time_to_datetime64(predictions['sim_time'])
-    #         )
-    #     return preds_xarray.drop_vars('sim_time')
     def forecast(self, state_vec, n_steps):
         # Template forecast method to interface with DA
         input_modelstate = self._model.inputs_from_xarray(
@@ -391,8 +362,7 @@ class NeuralGCM(model.Model):
             )
         out_statevec = vector.StateVector(
             values=self.xarray_to_flat(preds_xarray.drop_vars('sim_time')),
-            # times=self._model.sim_time_to_datetime64(predictions['sim_time']),
-            # store_as_jax=False
+            store_as_jax=True
         )
         return out_statevec
     
