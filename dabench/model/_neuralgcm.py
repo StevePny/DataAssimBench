@@ -96,10 +96,10 @@ class NeuralGCM(model.Model):
         self.interpolation_method = params.get("interpolation_method","conservative")
 
         # Timing options
-        self.inner_steps = params.get("inner_steps",24) # save model outputs once every 24 hours
+        self.inner_steps = params.get("inner_steps",6) # save model outputs once every 6 hours
         self.outer_steps = params.get("outer_steps",4)  # 4*24 // inner_steps,  # total of 4 days 
         self.timedelta = np.timedelta64(1, 'h') * self.inner_steps
-        self.times = (np.arange(self.outer_steps) * self.inner_steps)
+        self.times = np.arange(self.outer_steps + 1)*self.timedelta
 
         # Pre-proceessing support
         input_variables = {'u': 'u_component_of_wind',
@@ -114,6 +114,12 @@ class NeuralGCM(model.Model):
                            } 
 
         self.input_variables = params.get("input_variables", input_variables)
+
+        # Needed to match up observations and forecasting for da cycler
+
+        self.data_var_order = ['specific_cloud_liquid_water_content', 'specific_cloud_ice_water_content',
+                        'temperature', 'geopotential', 'specific_humidity',
+                        'u_component_of_wind', 'v_component_of_wind']
 
         # May be useful to pull directly on these levels: 
         # https://www.ecmwf.int/en/forecasts/datasets/set-i#I-i-b
@@ -324,22 +330,84 @@ class NeuralGCM(model.Model):
 
         return eval_data
 
-    def forecast(self, state_vec, n_steps, sfc_forcing_forecast):
+    def flat_to_xarray(self, flat, xr_template):
+        remap_dict = {}
+        coords_order = ['time','level','longitude','latitude']
+        for data_var in xr_template.data_vars:
+            remap_dict[data_var] = (coords_order,
+                                    (flat[self.flat_vars_indices[data_var]]).reshape(xr_template[data_var].shape))
+        return xr_template.update(remap_dict)
+
+    def xarray_to_flat(self, xr):
+        # Dim order before flattening goes: variable, level, latitude, longitude
+        xr_numpy = xr.transpose('time','level','latitude','longitude')[self.data_var_order].to_array().to_numpy()
+        return xr_numpy.flatten()
+
+
+    # def forecast(self, state_vec, n_steps):
+    #     # Template forecast method to interface with DA
+    #     final_state, predictions = self._model.unroll(
+    #         state_vec,
+    #         self.sfc_forcing_forecast,
+    #         steps=n_steps,
+    #         timedelta=self.timedelta,
+    #         start_with_input=True,
+    #     )
+    #     return final_state, predictions
+    
+    # Works for intput/output as xarray
+    # def forecast(self, state_vec_xarray, n_steps):
+    #     # Template forecast method to interface with DA
+    #     input_modelstate = self._model.inputs_from_xarray(state_vec_xarray)
+    #     encoded = self._model.encode(input_modelstate, self.input_forcings_t0)
+    #     final_state, predictions = self._model.unroll(
+    #         encoded,
+    #         self.sfc_forcing_forecast,
+    #         steps=n_steps,
+    #         timedelta=self.timedelta,
+    #         start_with_input=True
+    #     )
+    #     preds_xarray = self._model.data_to_xarray(
+    #         predictions,
+    #         times=self._model.sim_time_to_datetime64(predictions['sim_time'])
+    #         )
+    #     return preds_xarray.drop_vars('sim_time')
+    def forecast(self, state_vec, n_steps):
         # Template forecast method to interface with DA
+        input_modelstate = self._model.inputs_from_xarray(
+            self.flat_to_xarray(state_vec.values, self.ics_eval.head(time=1)).isel(time=0)
+        )
+        encoded = self._model.encode(input_modelstate, self.input_forcings_t0)
         final_state, predictions = self._model.unroll(
-            state_vec,
-            sfc_forcing_forecast,
+            encoded,
+            self.sfc_forcing_forecast,
             steps=n_steps,
             timedelta=self.timedelta,
-            start_with_input=True,
+            start_with_input=True
         )
-        return final_state, predictions
-        
+        preds_xarray = self._model.data_to_xarray(
+            predictions,
+            times=self._model.sim_time_to_datetime64(predictions['sim_time'])
+            )
+        out_statevec = vector.StateVector(
+            values=self.xarray_to_flat(preds_xarray.drop_vars('sim_time')),
+            # times=self._model.sim_time_to_datetime64(predictions['sim_time']),
+            # store_as_jax=False
+        )
+        return out_statevec
+    
+    def postprocess_helper(self, out_state, forcings):
+        decoded = self._model.decode(out_state, forcings)
+        return self._model.data_to_xarray(
+            decoded,
+            times=decoded['sim_time']
+        )
+
     def run_forecast(self, ics_data, bcs_data):
         # NOTE: the ICs and BCs are extracted from the 'eval_data'.
         #       It is preferable to input these separately, so that
         #       the eval dataset can change, and since the IC and BC
-        #       may have different time dimensions.
+        #       may have different time dimensions
 
         use_sfc_forecast = self.use_sfc_forecast
         
@@ -358,17 +426,17 @@ class NeuralGCM(model.Model):
         # (b) use a forecast of SBCs (sst and sea ice)
         if not use_sfc_forecast:
             # Use a persistence forecast instead
-            sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data.head(time=1))
+            self.sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data.head(time=1))
             #NOTE: ".head(time=1)" gets the first time step and keeps the time dimension, 
             #       unlike ".isel(time=0)" which collapses the time dimension
         else:
-            sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data)
+            self.sfc_forcing_forecast = self._model.forcings_from_xarray(bcs_data)
 
         # make forecast
         # see: https://neuralgcm.readthedocs.io/en/latest/trained_models.html#advancing-in-time
         print('run_forecast:: steps = {self.outer_steps}')
         print('run_forecast:: timedelta = {self.timedelta}')
-        final_state, predictions = self.forecast(state_vec=initial_state, n_steps=self.outer_steps, sfc_forcing_forecast=sfc_forcing_forecast)
+        final_state, predictions = self.forecast(state_vec=initial_state, n_steps=self.outer_steps)
         predictions_ds = self._model.data_to_xarray(predictions, times=self.times)
 
         return predictions_ds
@@ -460,6 +528,50 @@ class NeuralGCM(model.Model):
         print(f'  === {timing_label} === >')
 
 
+    def prepare_inputs(self):
+        self.load_model()
+        ics_sliced = self.load_ics()
+        bcs_sliced = self.load_bcs()
+        self.ics_eval = self.regrid_input(data=ics_sliced, fill_nans=False)
+        self.ics_eval0 = self.ics_eval.head(time=1)
+        self.bcs_eval = self.regrid_input(data=bcs_sliced, fill_nans=True)
+        use_sfc_forecast = self.use_sfc_forecast
+
+        var_size = self.ics_eval[self.data_var_order[0]].isel(time=0).size
+        self.flat_vars_indices = {
+            'specific_cloud_liquid_water_content':np.arange(var_size),
+            'specific_cloud_ice_water_content':np.arange(var_size, 2*var_size),
+            'temperature':np.arange(2*var_size,3*var_size),
+            'geopotential':np.arange(3*var_size,4*var_size),
+            'specific_humidity':np.arange(4*var_size,5*var_size),
+            'u_component_of_wind':np.arange(5*var_size,6*var_size),
+            'v_component_of_wind':np.arange(6*var_size,7*var_size)
+        }
+
+        
+        # Get the initial conditions
+        self.inputs = self._model.inputs_from_xarray(self.ics_eval.isel(time=0))
+
+        # Get initial surface boundary conditions
+        self.input_forcings_t0 = self._model.forcings_from_xarray(self.bcs_eval.isel(time=0))
+        rng_key = jax.random.key(self.random_seed)  # optional for deterministic models
+
+        # Set up combined ICs and BCs
+        self.initial_state = self._model.encode(
+            self.inputs, self.input_forcings_t0, rng_key)
+
+        # Get forecast surface boundary conditions. Either:
+        # (a) use persistence for forcing variables (SST and sea ice cover), or
+        # (b) use a forecast of SBCs (sst and sea ice)
+        if not use_sfc_forecast:
+            # Use a persistence forecast instead
+            self.sfc_forcing_forecast = self._model.forcings_from_xarray(self.bcs_eval.head(time=1))
+            #NOTE: ".head(time=1)" gets the first time step and keeps the time dimension, 
+            #       unlike ".isel(time=0)" which collapses the time dimension
+        else:
+            self.sfc_forcing_forecast = self._model.forcings_from_xarray(self.bcs_eval)
+
+
     def full_sequence(self):
 
         # initialize the start time
@@ -518,6 +630,9 @@ class NeuralGCM(model.Model):
 
         print('Plotting results...')
         self.plot_results(era5_eval,predictions_ds)
+        self.ics = ics_eval
+        self.bcs = bcs_eval
+        self.prediction_ds = predictions_ds
 
 
 if __name__ == "__main__":
