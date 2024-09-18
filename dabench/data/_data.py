@@ -42,6 +42,10 @@ class Data():
         self.random_seed = random_seed
         self.delta_t = delta_t
         self.store_as_jax = store_as_jax
+
+        # Default var and coord names
+        self.var_names = ['x']
+        self.coord_names = ['i']
         # x0 attribute is property to better convert between jax/numpy
         self._x0 = x0
 
@@ -158,15 +162,19 @@ class Data():
                              **kwargs)
 
         # Convert to JAX if necessary
+        out_dim = (t.shape[0],) + self.original_dim
         if self.store_as_jax:
-            y_out = jnp.array(y[:,:self.system_dim])
+            y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
         else:
-            y_out = np.array(y[:,:self.system_dim])
+            y_out = np.array(y[:,:self.system_dim].reshape(out_dim))
         # Build Xarray object for output
+        coord_dict = dict(zip(
+            ['time'] + self.coord_names,
+            [t] + [np.arange(dim) for dim in self.original_dim]
+        ))
         out_vec = xr.Dataset(
-            {'x': (['time','i'],y_out)},
-            coords={'time': t,
-                    'i':np.arange(self.system_dim)},
+            {self.var_names[0]: (coord_dict.keys(),y_out)},
+            coords=coord_dict,
             attrs={'store_as_jax':self.store_as_jax,
                    'system_dim': self.system_dim,
                    'time_dim': self.time_dim
