@@ -22,9 +22,6 @@ class Data():
             i.e. 1d.
         random_seed (int): random seed, defaults to 37
         delta_t (float): the timestep of the data (assumed uniform)
-        values (ndarray): 2d array of data (time_dim, system_dim),
-            set by generate() method
-        times (ndarray): 1d array of times (time_dim), set by generate() method
         store_as_jax (bool): Store values as jax array instead of numpy array.
             Default is False (store as numpy).
         """
@@ -35,7 +32,6 @@ class Data():
                  original_dim=None,
                  random_seed=37,
                  delta_t=0.01,
-                 values=None,
                  store_as_jax=False,
                  x0=None,
                  **kwargs):
@@ -46,10 +42,8 @@ class Data():
         self.random_seed = random_seed
         self.delta_t = delta_t
         self.store_as_jax = store_as_jax
-        # values and x0 atts are properties to better convert between jax/numpy
-        self._values = values
+        # x0 attribute is property to better convert between jax/numpy
         self._x0 = x0
-        self._times = None
 
         if original_dim is None:
             self.original_dim = (system_dim,)
@@ -59,68 +53,9 @@ class Data():
         self._values_gridded = None
         self._x0_gridded = None
 
-    def __getitem__(self, subscript):
-        if self.values is None:
-            raise AttributeError('Object does not contain any data values.\n'
-                                 'Run .generate() or .load() and try again')
-
-        if isinstance(subscript, slice):
-            new_copy = copy.deepcopy(self)
-            new_copy.values = new_copy.values[
-                    subscript.start:subscript.stop:subscript.step]
-            new_copy.times = new_copy.times[
-                    subscript.start:subscript.stop:subscript.step]
-            new_copy.time_dim = new_copy.times.shape[0]
-            return new_copy
-        else:
-            new_copy = copy.deepcopy(self)
-            new_copy.values = new_copy.values[subscript]
-            new_copy.times = new_copy.times[subscript]
-            if isinstance(subscript, int):
-                new_copy.time_dim = 1
-            else:
-                new_copy.time_dim = new_copy.times.shape[0]
-            return new_copy
-
-    @property
-    def values(self):
-        return self._values
-
-    @values.setter
-    def values(self, vals):
-        if vals is None:
-            self._values = None
-        else:
-            if self.store_as_jax:
-                self._values = jnp.asarray(vals)
-            else:
-                self._values = np.asarray(vals)
-
-    @values.deleter
-    def values(self):
-        del self._values
-
     @property
     def x0(self):
         return self._x0
-
-    @property
-    def times(self):
-        return self._times
-
-    @times.setter
-    def times(self, vals):
-        if vals is None:
-            self._times = None
-        else:
-            if self.store_as_jax:
-                self._times = jnp.asarray(vals)
-            else:
-                self._times = np.asarray(vals)
-
-    @times.deleter
-    def times(self):
-        del self._times
 
     @x0.setter
     def x0(self, x0_vals):
@@ -137,44 +72,15 @@ class Data():
         del self._x0
 
     @property
-    def values_gridded(self):
-        if self._values is None:
-            return None
-        else:
-            return self._to_original_dim()
-
-    @property
     def x0_gridded(self):
         if self._x0 is None:
             return None
         else:
             return self._x0.reshape(self.original_dim)
 
-    def _to_original_dim(self):
-        """Converts 1D representation of system back to original dimensions.
-
-        Returns:
-            Multidimensional array with shape:
-            (time_dim, original_dim[0], ..., original_dim[n])
-        """
-        return jnp.reshape(self.values, (self.time_dim,) + self.original_dim)
-
-    def sample_cells(self, targets):
-        """Samples values at a list of multidimensional array indices.
-
-        Args:
-            targets (ndarray): Array of target indices in shape:
-                (num_of_target_indices, time_dim + original_dim). E.g.
-                [[0,0], [0,1]] samples the first and second cell values in the
-                first timestep (in this case original_dim = 1).
-        """
-        tupled_targets = tuple(tuple(targets[:, i]) for
-                               i in range(len(self.original_dim) + 1))
-        return self._to_original_dim()[tupled_targets]
-
     def generate(self, n_steps=None, t_final=None, x0=None, M0=None,
                  return_tlm=False, stride=None, **kwargs):
-        """Generates a dataset and assigns values and times to the data object.
+        """Generates a dataset and returns xarray state vector.
 
         Notes:
             Either provide n_steps or t_final in order to indicate the length
@@ -251,254 +157,40 @@ class Data():
                              jax_comps=self.store_as_jax,
                              **kwargs)
 
-        # The generate method specifically stores data in the object,
-        # as opposed to the forecast method, which does not.
-        # Store values and times as part of data object
-        self.values = y[:, :self.system_dim]
-        self.times = t
-        self.time_dim = len(t)
+        # Convert to JAX if necessary
+        if self.store_as_jax:
+            y_out = jnp.array(y[:,:self.system_dim])
+        else:
+            y_out = np.array(y[:,:self.system_dim])
+        # Build Xarray object for output
+        out_vec = xr.Dataset(
+            {'x': (['time','i'],y_out)},
+            coords={'time': t,
+                    'i':np.arange(self.system_dim)},
+            attrs={'store_as_jax':self.store_as_jax,
+                   'system_dim': self.system_dim,
+                   'time_dim': self.time_dim
+            }
+        )
 
         # Return the data series and associated TLMs if requested
         if return_tlm:
             # Reshape M matrix
-            M = jnp.reshape(y[:, self.system_dim:],
-                            (self.time_dim,
-                             self.system_dim,
-                             self.system_dim)
-                            )
-
             if self.store_as_jax:
-                return M
+                M = jnp.reshape(y[:, self.system_dim:],
+                                (self.time_dim,
+                                self.system_dim,
+                                self.system_dim)
+                                )
             else:
-                return np.array(M)
-
-    def _import_xarray_ds(self, ds, include_vars=None, exclude_vars=None,
-                          years_select=None, dates_select=None,
-                          lat_sorting=None):
-        # Convert to numpy background
-        ds = ds.as_numpy()
-
-        if dates_select is not None:
-            dates_filter_indices = ds.time.dt.date.isin(dates_select)
-            # First check to make sure the dates exist in the object
-            if dates_filter_indices.sum() == 0:
-                raise ValueError('Dataset does not contain any of the dates'
-                                 ' specified in dates_select\n'
-                                 'dates_select = {}\n'
-                                 'NetCDF contains {}'.format(
-                                     dates_select,
-                                     np.unique(ds.time.dt.date)
-                                     )
-                                 )
-            else:
-                ds = ds.isel(time=dates_filter_indices)
+                M = np.reshape(y[:, self.system_dim:],
+                                (self.time_dim,
+                                self.system_dim,
+                                self.system_dim)
+                                )
+            return out_vec, M
         else:
-            if years_select is not None:
-                year_filter_indices = ds.time.dt.year.isin(years_select)
-                # First check to make sure the years exist in the object
-                if year_filter_indices.sum() == 0:
-                    raise ValueError('Dataset does not contain any of the '
-                                     'years specified in years_select\n'
-                                     'years_select = {}\n'
-                                     'NetCDF contains {}'.format(
-                                         years_select,
-                                         np.unique(ds.time.dt.year)
-                                         )
-                                     )
-                else:
-                    ds = ds.isel(time=year_filter_indices)
-
-        # Check size before loading
-        size_gb = ds.nbytes / (1024 ** 3)
-        if size_gb > 1:
-            warnings.warn('Trying to load large xarray dataset into memory. \n'
-                          'Size: {} GB. Operation may take a long time, '
-                          'stall, or crash.'.format(size_gb))
-
-        #  Get variable names and shapes
-        names_list = []
-        shapes_list = []
-        if exclude_vars is not None:
-            ds = ds.drop_vars(exclude_vars)
-        if include_vars is not None:
-            ds = ds[include_vars]
-        for data_var in ds.data_vars:
-            shapes_list.append(ds[data_var].shape)
-            names_list.append(data_var)
-
-        # Load
-        ds.load()
-
-        # Get dims
-        dims = ds.sizes
-        dims_names = list(ds.sizes)
-
-        # Set times
-        time_key = None
-        dims_keys = dims.keys()
-        if 'time' in dims_keys:
-            time_key = 'time'
-        elif 'times' in dims_keys:
-            time_key = 'times'
-        elif 'time0' in dims_keys:
-            time_key = 'time0'
-        if time_key is not None:
-            self.times = ds[time_key].values
-            self.time_dim = self.times.shape[0]
-        else:
-            self.times = np.array([0])
-            self.time_dim = 1
-
-        # Find names for key dimensions: lat, lon, level (if it exists)
-        lat_key = None
-        lon_key = None
-        lev_key = None
-        if 'level' in dims_keys:
-            lev_key = 'level'
-        elif 'lev' in dims_keys:
-            lev_key = 'lev'
-        if 'latitude' in dims_keys:
-            lat_key = 'latitude'
-        elif 'lat' in dims_keys:
-            lat_key = 'lat'
-        if 'longitude' in dims_keys:
-            lon_key = 'longitude'
-        elif 'lon' in dims_keys:
-            lon_key = 'lon'
-
-        # Reorder dimensions: time, level, lat, lon, etc.
-        dim_order = np.array([time_key, lev_key, lat_key, lon_key])
-        dim_order = dim_order[dim_order != np.array(None)]
-        remaining_dims = [d for d in dims_names if d not in dim_order]
-        full_dim_order = list(dim_order) + remaining_dims
-
-        if len(full_dim_order) > 0:
-            ds = ds.transpose(*full_dim_order)
-
-        # Orient data vertically
-        if lat_key is not None:
-            if lat_sorting is not None:
-                if lat_sorting == 'ascending':
-                    ds = ds.sortby(lat_key, ascending=True)
-                elif lat_sorting == 'descending':
-                    ds = ds.sortby(lat_key, ascending=False)
-                else:
-                    warnings.warn('{} is not a valid value for lat_sorting.\n'
-                                  'Choose one of None, "ascending", or '
-                                  '"descending".\n'
-                                  'Proceeding without sorting.'.format(
-                                      lat_sorting)
-                                  )
-
-        # Check if all elements' data shapes are equal
-        if len(names_list) == 0:
-            raise ValueError('No valid data_vars were found in dataset.\n'
-                             'Check your include_vars and exclude_vars args.')
-        if not shapes_list.count(shapes_list[0]) == len(shapes_list):
-            # Formatting for showing variable names and shapes
-            var_shape_warn_list = ['{:<12} {:<15}'.format(
-                    'Variable', 'Dimensions')]
-            var_shape_warn_list += ['{:<16} {:<16}'.format(
-                names_list[i], str(shapes_list[i]))
-                for i in range(len(shapes_list))]
-            warnings.warn('data_vars do not all share the same dimensions.\n'
-                          'Broadcasting variables to same dimensions.\n'
-                          'To avoid, use include_vars or exclude_vars args.\n'
-                          'Variable dimensions are:\n'
-                          '{}'.format('\n'.join(var_shape_warn_list))
-                          )
-
-        # Gather values and set dimensions
-        temp_values = np.moveaxis(ds.to_dataarray().values, 0, -1)
-        self.original_dim = temp_values.shape[1:]
-        if self.original_dim[-1] == 1 and len(self.original_dim) > 2:
-            self.original_dim = self.original_dim[:-1]
-
-        self.values = temp_values.reshape(
-                temp_values.shape[0], -1)
-        self.var_names = np.array(names_list)
-        if self.x0 is None:
-            self.x0 = self.values[0]
-        self.time_dim = self.values.shape[0]
-        self.system_dim = self.values.shape[1]
-        if len(full_dim_order) == 0:
-            warnings.warn('Unable to find any spatial or level dimensions '
-                          'in dataset. Setting original_dim to system_dim: '
-                          '{}'.format(self.system_dim))
-
-    def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
-                    years_select=None, dates_select=None,
-                    lat_sorting='descending'):
-        """Loads values from netCDF file, saves them in values attribute
-
-        Args:
-            filepath (str): Path to netCDF file to load. If not given,
-                defaults to loading ERA5 ECMWF SLP data over Japan
-                from 2018 to 2021.
-            include_vars (list-like): Data variables to load from NetCDF. If
-                None (default), loads all variables. Can be used to exclude bad
-                variables.
-            exclude_vars (list-like): Data variabes to exclude from NetCDF
-                loading. If None (default), loads all vars (or only those
-                specified in include_vars). It's recommended to only specify
-                include_vars OR exclude_vars (unless you want to do extra
-                typing).
-            years_select (list-like): Years to load (ints). If None, loads all
-                timesteps.
-            dates_select (list-like): Dates to load. Elements must be
-                datetime date or datetime objects, depending on type of time
-                indices in NetCDF. If both years_select and dates_select
-                are specified, time_stamps overwrites "years" argument. If
-                None, loads all timesteps.
-            lat_sorting (str): Orient data by latitude:
-                descending (default), ascending, or None (uses orientation
-                from data file).
-        """
-        if filepath is None:
-            # Use importlib.resources to get the default netCDF from dabench
-            filepath = resources.files(_suppl_data).joinpath('era5_japan_slp.nc')
-        with xr.open_dataset(filepath, decode_coords='all') as ds:
-            self._import_xarray_ds(
-                ds, include_vars=include_vars,
-                exclude_vars=exclude_vars,
-                years_select=years_select, dates_select=dates_select,
-                lat_sorting=lat_sorting)
-
-    def save_netcdf(self, filename):
-        """Saves values in values attribute to netCDF file
-
-        Args:
-            filepath (str): Path to netCDF file to save
-        """
-
-        # Set variable names
-        if not hasattr(self, 'var_names') or self.var_names is None:
-            var_names = ['var{}'.format(i) for
-                         i in range(self.values.shape[1])]
-        else:
-            var_names = self.var_names
-
-        # Set times
-        if not hasattr(self, 'times') or self.times is None:
-            times = np.arange(self.values.shape[0])
-        else:
-            times = self.times
-
-        # Get values as list:
-        values_list = [('time', self.values[:, i]) for i in range(
-            self.values.shape[1])]
-
-        data_dict = dict(zip(var_names, values_list))
-        coords_dict = {
-            'time': times,
-            'system_dim': range(len(var_names))
-            }
-        ds = xr.Dataset(
-            data_vars=data_dict,
-            coords=coords_dict
-            )
-
-        ds.to_netcdf(filename, mode='w')
+            return out_vec
 
     def rhs_aux(self, x, t):
         """The auxiliary model used to compute the TLM.
@@ -592,8 +284,8 @@ class Data():
         # Loop over rescale time periods
         for i, (t1, t2) in enumerate(zip(times[:-1], times[1:])):
 
-            M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
-            x_t2 = self.values[-1]
+            x, M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
+            x_t2 = x.isel(time=-1).to_array().data.flatten()
             M_t2 = M[-1]
 
             Q, R = jnp.linalg.qr(M_t2)
@@ -646,31 +338,3 @@ class Data():
                                                    rescale_time=rescale_time,
                                                    x0=x0,
                                                    convergence=convergence)[-1]
-
-    def split_train_valid_test(self, train_size, valid_size, test_size):
-        """Splits data into train, validation, and test sets by time
-
-        Args:
-            train_size, valid_size, test_size (float or int): Size of sets.
-                If < 1, represents the fraction of the time series to use.
-                If > 1, represents the number of timesteps.
-
-        Returns:
-            (train_obj, valid_obj, test_obj): Data objects
-        """
-
-        if 0 < train_size < 1:
-            train_size = round(train_size*self.time_dim)
-        if 0 < valid_size < 1:
-            valid_size = round(valid_size*self.time_dim)
-        if 0 < test_size < 1:
-            test_size = round(test_size*self.time_dim)
-
-        # Round up train_size
-        if train_size + valid_size + test_size < self.time_dim:
-            train_size = self.time_dim - valid_size - test_size
-
-        train_end = train_size
-        valid_end = train_size + valid_size
-
-        return self[:train_end], self[train_end:valid_end], self[valid_end:]
