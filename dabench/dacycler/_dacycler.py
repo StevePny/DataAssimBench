@@ -88,6 +88,7 @@ class DACycler():
 
         # Number of model steps to run per window
         steps_per_window = round(analysis_window/self.delta_t) + 1
+        print(steps_per_window)
 
         # For storing outputs
         all_output_states = []
@@ -100,11 +101,11 @@ class DACycler():
             window_middle = cur_time + _time_offset
             window_start = window_middle - analysis_window/2
             window_end = window_middle + analysis_window/2
-            obs_vec_timefilt = obs_vector.filter_times(
-                window_start, window_end
+            obs_vec_timefilt = obs_vector.sel(
+                time=slice(window_start, window_end)
             )
 
-            if obs_vec_timefilt.values.shape[0] > 0:
+            if obs_vec_timefilt.sizes['time'] > 0:
                 # 2. Calculate analysis
                 analysis, kh = self._step_cycle(cur_state, obs_vec_timefilt)
                 # 3. Forecast through analysis window
@@ -113,18 +114,15 @@ class DACycler():
                 # 4. Save outputs
                 if return_forecast:
                     # Append forecast to current state, excluding last step
-                    all_output_states.append(forecast_states.values[:-1])
-                    all_times.append(
-                        np.arange(steps_per_window-1)*self.delta_t + cur_time
-                        )
+                    print(forecast_states)
+                    all_output_states.append(forecast_states.isel(time=slice(0,steps_per_window-1)))
                 else:
-                    all_output_states.append(analysis.values[np.newaxis])
-                    all_times.append([cur_time])
+                    all_output_states.append(analysis)
 
             # Starting point for next cycle is last step of forecast
-            cur_state = forecast_states[-1]
+            cur_state = forecast_states.isel(time=steps_per_window-1)
+            print(cur_state)
             cur_time += analysis_window
 
-        return vector.StateVector(values=np.concatenate(all_output_states),
-                                  times=np.concatenate(all_times))
+        return all_output_states
 

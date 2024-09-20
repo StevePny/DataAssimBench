@@ -62,18 +62,19 @@ class Var3D(dacycler.DACycler):
 
     def _calc_default_H(self, obs_vec):
         """If H is not provided, creates identity matrix to serve as H"""
-        H = jnp.zeros((obs_vec.values.flatten().shape[0], self.system_dim))
-        H = H.at[jnp.arange(H.shape[0]), obs_vec.location_indices.flatten()
+        H = jnp.zeros((obs_vec.sizes['observations']*obs_vec.sizes['time'],
+                       self.system_dim))
+        H = H.at[jnp.arange(H.shape[0]), np.where(obs_vec.indices.data)[1]
                  ].set(1)
         return H
 
     def _calc_default_R(self, obs_vec):
         """If R i s not provided, calculates default based on observation error"""
-        return jnp.identity(obs_vec.values.flatten().shape[0])*obs_vec.error_sd**2
+        return jnp.identity(
+            obs_vec.sizes['observations']*obs_vec.sizes['time'])*obs_vec.error_sd**2
 
     def _calc_default_B(self):
         """If B is not provided, identity matrix with shape (system_dim, system_dim."""
-
         return jnp.identity(self.system_dim)
 
     def _cycle_general_obsop(self, forecast, obs_vec):
@@ -99,8 +100,8 @@ class Var3D(dacycler.DACycler):
                 B = self.B
 
         # make inputs column vectors
-        xb = jnp.array([forecast.values.flatten()]).T
-        yo = jnp.array([obs_vec.values.flatten()]).T
+        xb = jnp.array([forecast[self.data_vars].to_array().data.flatten()]).T
+        yo = jnp.array([obs_vec[self.data_vars].to_array().data.flatten()]).T
 
         # Set parameters
         xdim = xb.size  # Size or get one of the shape params?
@@ -121,7 +122,7 @@ class Var3D(dacycler.DACycler):
         HBHtPlusR_inv = jnp.linalg.inv(H @  BHt + R)
         KH = BHt @ HBHtPlusR_inv @ H
 
-        return vector.StateVector(values=xa.T[0], store_as_jax=True), KH
+        return forecast.assign(x=(['i'], xa.T[0])), KH
 
     def _step_forecast(self, xa, n_steps):
         """n_steps forward of model forecast"""
