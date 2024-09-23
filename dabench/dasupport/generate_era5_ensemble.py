@@ -10,8 +10,38 @@ import gcsfs
 import xarray as xr
 from dateutil.relativedelta import relativedelta
 
-from helpers.constants import ERA5_CONTROL_VARIABLES
 from helpers.timing import report_timing
+
+# Selected vars for ERA5 ensemble
+# This will reduce the number of model fields processed and stored in the ensemble
+# A number of these fields are used, for example, by the Google Research NeuralGCM,
+# while additional variables are added to support DA of surface satellite observations.
+ERA5_CONTROL_VARIABLES = [
+                          'geopotential',
+                          'temperature',
+                          'specific_humidity',
+                          'u_component_of_wind',
+                          'v_component_of_wind',
+                          'specific_cloud_ice_water_content',
+                          'specific_cloud_liquid_water_content',
+                          'surface_pressure',
+                          'sea_surface_temperature',
+                          'sea_ice_cover',
+    # additional variables for DA support: 10m wind speed, u/v neutral winds at 10m
+    # (wind speed is precomputed upon ensemble file generation)
+                          '10m_u_component_of_wind',
+                          '10m_v_component_of_wind',
+                          '10m_u_component_of_neutral_wind',
+                          '10m_v_component_of_neutral_wind',
+                          'significant_height_of_combined_wind_waves_and_swell',
+                          'mean_wave_direction',
+                          'mean_wave_period',
+                          'geopotential_at_surface'
+]
+# From ECMWF docs (for wave parameters):
+# https://codes.ecmwf.int/grib/param-db/140229
+# https://codes.ecmwf.int/grib/param-db/140230
+# https://codes.ecmwf.int/grib/param-db/140232
 
 
 #%% Parse arguments
