@@ -162,7 +162,8 @@ class Data():
                              **kwargs)
 
         # Convert to JAX if necessary
-        out_dim = (t.shape[0],) + self.original_dim
+        self.time_dim = t.shape[0]
+        out_dim = (self.time_dim,) + self.original_dim
         if self.store_as_jax:
             y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
         else:
@@ -176,8 +177,7 @@ class Data():
             {self.var_names[0]: (coord_dict.keys(),y_out)},
             coords=coord_dict,
             attrs={'store_as_jax':self.store_as_jax,
-                   'system_dim': self.system_dim,
-                   'time_dim': self.time_dim
+                   'system_dim': self.system_dim
             }
         )
 
@@ -346,3 +346,51 @@ class Data():
                                                    rescale_time=rescale_time,
                                                    x0=x0,
                                                    convergence=convergence)[-1]
+
+    def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
+                    years_select=None, dates_select=None,
+                    lat_sorting='descending'):
+        """Loads values from netCDF file, saves them in values attribute
+
+        Args:
+            filepath (str): Path to netCDF file to load. If not given,
+                defaults to loading ERA5 ECMWF SLP data over Japan
+                from 2018 to 2021.
+            include_vars (list-like): Data variables to load from NetCDF. If
+                None (default), loads all variables. Can be used to exclude bad
+                variables.
+            exclude_vars (list-like): Data variabes to exclude from NetCDF
+                loading. If None (default), loads all vars (or only those
+                specified in include_vars). It's recommended to only specify
+                include_vars OR exclude_vars (unless you want to do extra
+                typing).
+            years_select (list-like): Years to load (ints). If None, loads all
+                timesteps.
+            dates_select (list-like): Dates to load. Elements must be
+                datetime date or datetime objects, depending on type of time
+                indices in NetCDF. If both years_select and dates_select
+                are specified, time_stamps overwrites "years" argument. If
+                None, loads all timesteps.
+            lat_sorting (str): Orient data by latitude:
+                descending (default), ascending, or None (uses orientation
+                from data file).
+        """
+        if filepath is None:
+            # Use importlib.resources to get the default netCDF from dabench
+            filepath = resources.files(_suppl_data).joinpath('era5_japan_slp.nc')
+        return xr.open_dataset(filepath, decode_coords='all', engine='scipy').as_numpy()
+            # self._import_xarray_ds(
+            #     ds, include_vars=include_vars,
+            #     exclude_vars=exclude_vars,
+            #     years_select=years_select, dates_select=dates_select,
+            #     lat_sorting=lat_sorting)
+
+    def save_netcdf(self, ds, filename):
+        """Saves values in values attribute to netCDF file
+
+        Args:
+            ds (Xarray Dataset): Xarray dataset
+            filepath (str): Path to netCDF file to save
+        """
+
+        ds.to_netcdf(filename, mode='w')
