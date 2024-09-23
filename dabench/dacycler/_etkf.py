@@ -316,17 +316,14 @@ class ETKF(dacycler.DACycler):
         if obs_vector.stationary_observers:
             self._obs_loc_masks = jnp.ones(
                 obs_vector[self._observed_vars].to_array().shape, dtype=bool)
-            cur_state, all_values = jax.lax.scan(
-                    self._cycle_and_forecast,
-                    xj.from_xarray(input_state),
-                    all_filtered_padded)
         else:
-            obs_vals, obs_locs, self._obs_loc_masks = dac_utils._pad_obs_locs(obs_vector)
-            cur_state, all_values = jax.lax.scan(
-                    self._cycle_and_forecast,
-                    (input_state.values, obs_vals, obs_vector.times,
-                    obs_locs, obs_loc_masks, obs_error_sd),
-                    all_filtered_padded)
+            self._obs_loc_masks = ~np.isnan(
+                obs_vector[self._observed_vars].to_array().data)[0]
+            self._obs_vector=self._obs_vector.fillna(0)
+        cur_state, all_values = jax.lax.scan(
+                self._cycle_and_forecast,
+                xj.from_xarray(input_state),
+                all_filtered_padded)
                 
 
         all_vals_xr = xr.Dataset(
