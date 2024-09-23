@@ -193,11 +193,11 @@ class Observer():
                              size=self.state_vec.system_dim))
         self.locations = {
             coord_name: xr.DataArray(
-                rng.choice(
+                np.sort(rng.choice(
                     self.state_vec[coord_name],
                     size=self.random_location_count,
                     replace=False,
-                    shuffle=False),
+                    shuffle=False)),
                 dims=['observations'])
             for coord_name in self._nontime_coord_names
         }
@@ -431,6 +431,7 @@ class Observer():
             # For passing to ObsVector
             full_loc_indices = self.location_indices
 
+        # loc_indices = xr.where(self.state_vec)
         obs_vec = self.state_vec.sel(time=self.times).sel(self.locations)
 
         obs_vec = obs_vec.assign_coords(variable = list(obs_vec.data_vars))
