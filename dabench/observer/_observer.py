@@ -74,14 +74,10 @@ class Observer():
                  state_vec,
                  random_time_density=1.,
                  random_location_density=1.,
-                 random_variable_density=1.,
                  random_time_count=None,
                  random_location_count=None,
-                 random_variable_count=None,
                  times=None,
                  locations=None,
-                 time_indices=None,
-                 location_indices=None,
                  stationary_observers=True,
                  error_bias=0.,
                  error_sd=0.,
@@ -94,21 +90,28 @@ class Observer():
         self._coord_names = list(self.state_vec.coords.keys())
         self._nontime_coord_names = [coord for coord in self._coord_names
                                      if coord != 'time']
+        self.state_vec = self.state_vec.assign_coords(
+            {'variable': self.state_vec.data_vars}
+            # 'variable_index': np.arange(len(self.state_vec.data_vars))}
+        )
+        self.state_vec = self.state_vec.assign_coords(
+            {'{}_index'.format(coord): (coord, np.arange(self.state_vec.sizes[coord]))
+             for coord in self._coord_names}
+        )
+        self.state_vec = self.state_vec.assign(
+            {'system_index': (['variable'] + ['time'] + self._nontime_coord_names,
+                              np.tile(np.arange(self.state_vec.system_dim), self.state_vec.sizes['time']).reshape(
+                self.state_vec.to_array().shape
+            ))}
+        )
 
-        # if time_indices is not None:
-        #     time_indices = np.array(time_indices)
-        # self.time_indices = time_indices
         if times is not None:
             times = np.array(times)
         self.times = times
+
         self.random_time_density = random_time_density
         self.random_time_count = random_time_count
 
-        # if location_indices is not None:
-        #     location_indices = np.array(location_indices)
-        # self.location_indices = location_indices
-        # if locations is not None:
-        #     locations = np.array(locations)
         self.locations = locations
         self.random_location_density = random_location_density
         self.random_location_count = random_location_count
@@ -129,6 +132,7 @@ class Observer():
 
         self.error_bias = error_bias
         self.error_sd = error_sd
+
         if isinstance(self.error_bias, (list, np.ndarray, jnp.ndarray)):
             if len(self.error_bias) == 1:
                 self._error_bias_is_list = False
@@ -169,7 +173,7 @@ class Observer():
                  
         self.error_positive_only = error_positive_only
 
-    def _generate_time_indices(self, rng):
+    def _generate_times(self, rng):
         if self.random_time_count is not None:
             self.times = np.sort(rng.choice(
                     self.state_vec['time'],
@@ -183,7 +187,7 @@ class Observer():
                                  ).astype('bool')
                     )[0]
 
-    def _generate_stationary_indices(self, rng):
+    def _generate_stationary_locs(self, rng):
         if self.random_location_count is not None:
             location_count = self.random_location_count
         else:
@@ -195,7 +199,7 @@ class Observer():
             coord_name: xr.DataArray(
                 np.sort(rng.choice(
                     self.state_vec[coord_name],
-                    size=self.random_location_count,
+                    size=location_count,
                     replace=False,
                     shuffle=False)),
                 dims=['observations'])
@@ -203,89 +207,35 @@ class Observer():
         }
         self.location_dim = location_count
 
-    def _generate_nonstationary_indices(self, rng):
+    def _generate_nonstationary_locs(self, rng):
+        """Generate different locations for each observation time"""
         if self.random_location_count is not None:
-            self.location_indices = np.array([
-                rng.choice(
-                    self.state_vec.system_dim,
-                    size=self.random_location_count,
+            self._location_counts = np.repeat(
+                self.random_location_count, self.times.shape[0]
+            )
+        else:
+            # An unequal amount of locations per time
+            self._location_counts = [np.sum(
+                rng.binomial(1,
+                             p=self.random_location_density,
+                             size=self.state_vec.system_dim)
+                             )
+            for i in range(self.times.shape[0])]
+
+        self.locations = [{
+            coord_name: xr.DataArray(
+                np.sort(rng.choice(
+                    self.state_vec[coord_name],
+                    size=lc,
                     replace=False,
                     shuffle=False)
-                for i in range(self.time_indices.shape[0])])
-        else:
-            self.location_indices = np.array([
-                    np.where(
-                        rng.binomial(1, p=self.random_location_density,
-                                     size=self.state_vec.system_dim
-                                     ).astype('bool'))[0]
-                    for i in range(self.time_indices.shape[0])
-                    ], dtype=object)
+                    ),
+                dims=['observations'])
+            for coord_name in self._nontime_coord_names
+            }
+        for lc in self._location_counts]
 
-    def _generate_stationary_indices_gridded(self, rng):
-        if self.random_location_count is not None:
-            arange_list = [np.arange(n) for n in self.state_vec.original_dim]
-            ind_possibilities = np.array(
-                np.meshgrid(*arange_list)).T.reshape(
-                    -1, len(self.state_vec.original_dim))
-            self.location_indices = rng.choice(
-                    ind_possibilities,
-                    size=self.random_location_count,
-                    replace=False,
-                    shuffle=False)
-        else:
-            self.location_indices = np.array(np.where(
-                    rng.binomial(1, p=self.random_location_density,
-                                 size=self.state_vec.original_dim
-                                 ).astype('bool')
-                    )).T
-
-    def _generate_nonstationary_indices_gridded(self, rng):
-        if self.random_location_count is not None:
-            arange_list = [np.arange(n) for n in self.state_vec.original_dim]
-            ind_possibilities = np.array(
-                np.meshgrid(*arange_list)).T.reshape(
-                    -1, len(self.state_vec.original_dim))
-            self.location_indices = np.array([rng.choice(
-                    ind_possibilities,
-                    size=self.random_location_count,
-                    replace=False,
-                    shuffle=False) for i in range(self.time_indices.shape[0])])
-        else:
-            self.location_indices = np.array([
-                    np.array(np.where(
-                        rng.binomial(1, p=self.random_location_density,
-                                     size=self.state_vec.original_dim
-                                     ).astype('bool'))).T
-                    for i in range(self.time_indices.shape[0])
-                    ], dtype=object)
-
-    def _sample_stationary(self, errors_vector, sample_in_system_dim):
-        if sample_in_system_dim:
-            values_vector = (
-                self.state_vec.values[self.time_indices][
-                    :, self.location_indices]
-                + errors_vector)
-        else:
-            values_gridded = self.state_vec.values_gridded
-            values_vector = np.array([
-                values_gridded[t][tuple(self.location_indices.T)]
-                for t in self.time_indices]) + errors_vector
-        return values_vector
-
-    def _sample_nonstationary(self, errors_vector, sample_in_system_dim):
-        if sample_in_system_dim:
-            values_vector = np.array([
-                (self.state_vec.values[self.time_indices[i]]
-                    [self.location_indices[i]] + errors_vector[i])
-                for i in range(self.time_dim)], dtype=object)
-        else:
-            values_gridded = self.state_vec.values_gridded
-            values_vector = np.array(
-                [values_gridded[self.time_indices[i]][
-                    tuple(self.location_indices[i].T)]
-                 + errors_vector[i] for i in range(self.time_dim)],
-                dtype=object)
-        return values_vector
+        self.location_dim = np.max(self._location_counts)
 
     def observe(self):
         """Generate observations.
@@ -300,158 +250,73 @@ class Observer():
 
         # Set time indices
         if self.times is None:
-            self._generate_time_indices(rng)
+            self._generate_times(rng)
 
         self.time_dim = self.times.shape[0]
 
         # For stationary observers (default)
         if self.stationary_observers:
-            # Generate location_indices if not specified
+            # Generate locations if not specified
             if self.locations is None:
-                # Check if data is in spectral or physical space
-                if (hasattr(self.state_vec, 'is_spectral') and
-                        self.state_vec.is_spectral):
-                    self._generate_stationary_indices_gridded(rng)
-                else:
-                    self._generate_stationary_indices(rng)
-
-            # # Check that location_indices are in correct dimensions
-            # if self.locations.shape[0] == 0:
-            #     raise ValueError('locations is an empty list')
-            # elif len(self.locations.shape) == 1:
-            #     sample_in_system_dim = True
-            # elif (self.locations.shape[1] ==
-            #         len(self.state_vec.original_dim)):
-            #     sample_in_system_dim = False
-            # else:
-            #     raise ValueError('locations must be 1D or match\n'
-            #                      'len(self.state_vec.original_dim)')
-
-            # self.location_dims = tuple([v.shape[0] for k, v in self.locations.items()])
-
-            self.location_dim = next(iter(self.locations.items()))[1] ['observations'].size
-
-            # Generate errors
-            errors_vec_size = ((self.time_dim,)
-                               + (self.location_dim,)
-                               + (len(self.state_vec.data_vars),))
-            if self._error_bias_is_list:
-                error_bias = self.error_bias[self.location_indices]
+                self._generate_stationary_locs(rng)
             else:
-                error_bias = self.error_bias
-            if self._error_sd_is_list:
-                error_sd = self.error_sd[self.location_indices]
-            else:
-                error_sd = self.error_sd
-            errors_vector = rng.normal(loc=error_bias,
-                                       scale=error_sd,
-                                       size=errors_vec_size)
+                self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
 
-            # # Clip errors to positive only
-            if self.error_positive_only:
-                errors_vector[errors_vector < 0.] = 0.
 
-            # # Get values
-            # values_vector = self._sample_stationary(
-            #         errors_vector,
-            #         sample_in_system_dim)
-
-            # # Repeat location indices across time_dim for passing to ObsVector
-            # full_loc_indices = np.array(
-            #     [self.location_indices] * self.time_dim)
+            # Sample
+            obs_vec = self.state_vec.sel(time=self.times).sel(self.locations)
 
         # If NON-stationary observer
         else:
             # Generate location_indices if not specified
-            if self.location_indices is None:
-                # Check if data is in spectral or physical space
-                if (hasattr(self.state_vec, 'is_spectral') and
-                        self.state_vec.is_spectral):
-                    self._generate_nonstationary_indices_gridded(rng)
-                else:
-                    self._generate_nonstationary_indices(rng)
+            if self.locations is None:
+                self._generate_nonstationary_locs(rng)
 
-            # Check that location_indices are in correct dimensions
-            if self.location_indices.shape[0] == 0:
-                raise ValueError('location_indices is an empty list')
-            elif len(self.location_indices[0].shape) == 1:
-                sample_in_system_dim = True
-            elif (self.location_indices[0].shape[1] ==
-                  len(self.data_obj.original_dim)):
-                sample_in_system_dim = False
-            else:
-                raise ValueError('With stationary_observers=False,'
-                                 'location_indices must be 1D array of arrays,'
-                                 ' with each element being 1D or matching\n'
-                                 'self.data_obj.original_dim')
-            self.location_dim = np.array([a.shape[0] for a in
-                                          self.location_indices])
+            # If there's an unequal number of obs, will pad
+            pad_widths = self.location_dim - np.array(self._location_counts)
 
-            # Generate errors
-            if self._error_bias_is_list:
-                if self._error_sd_is_list:
-                    errors_vector = np.array([
-                        rng.normal(
-                            loc=self.error_bias[ld],
-                            scale=self.error_sd[ld],
-                            size=ld)
-                        for ld in self.location_dim], dtype=object)
-                else:
-                    errors_vector = np.array([
-                        rng.normal(
-                            loc=self.error_bias[ld],
-                            scale=self.error_sd,
-                            size=ld)
-                        for ld in self.location_dim], dtype=object)
-            else:
-                if self._error_sd_is_list:
-                    errors_vector = np.array([
-                        rng.normal(
-                            loc=self.error_bias,
-                            scale=self.error_sd[ld],
-                            size=ld)
-                        for ld in self.location_dim], dtype=object)
-                else:
-                    errors_vector = np.array([
-                        rng.normal(
-                            loc=self.error_bias,
-                            scale=self.error_sd,
-                            size=ld)
-                        for ld in self.location_dim], dtype=object)
+            # Sample
+            obs_vec = xr.concat([
+                # Select by time
+                self.state_vec.sel(
+                        time=t
+                # Select locations
+                    ).sel(
+                        self.locations[i]
+                # Pad observations to max number
+                    ).pad(
+                        observations=(0, pad_widths[i])
+                    )
+                for i, t in enumerate(self.times)], 
+                dim='time')
 
-            if self.error_positive_only:
-                errors_vector = np.array([
-                    np.maximum(e, 0.) for e in errors_vector])
+        # Generate errors
+        errors_vec_size = ((self.time_dim,)
+                           + (self.location_dim,)
+                           + (obs_vec.sizes['variable'],))
+        if self._error_bias_is_list:
+            error_bias = self.error_bias[self.location_indices]
+        else:
+            error_bias = self.error_bias
+        if self._error_sd_is_list:
+            error_sd = self.error_sd[self.location_indices]
+        else:
+            error_sd = self.error_sd
+        errors_vector = rng.normal(loc=error_bias,
+                                    scale=error_sd,
+                                    size=errors_vec_size)
 
-            # Get values from generator
-            values_vector = self._sample_nonstationary(
-                    errors_vector,
-                    sample_in_system_dim)
-
-            # For passing to ObsVector
-            full_loc_indices = self.location_indices
+        # Clip errors to positive only
+        if self.error_positive_only:
+            errors_vector[errors_vector < 0.] = 0.
 
         # loc_indices = xr.where(self.state_vec)
-        obs_vec = self.state_vec.sel(time=self.times).sel(self.locations)
-
-        obs_vec = obs_vec.assign_coords(variable = list(obs_vec.data_vars))
+        # obs_vec = obs_vec.assign_coords(variable = list(obs_vec.data_vars))
+        # print(errors_vector.shape)
+        # print(obs_vec)
+        print(obs_vec.dims)
         obs_vec = obs_vec.assign(errors=(obs_vec.dims, errors_vector))
 
         for data_var in obs_vec['variable'].values:
             obs_vec[data_var] = obs_vec[data_var] + obs_vec['errors'].sel(variable=data_var)
         return obs_vec
-
-        # return self.state_vec.sel(time=self.times).sel(self.locations) + errors_ve
-        # return ObsVector(values=values_vector,
-        #                  times=self.data_obj.times[self.time_indices],
-        #                  time_indices=self.time_indices,
-        #                  location_indices=full_loc_indices,
-        #                  obs_dims=self.location_dim,
-        #                  num_obs=values_vector.shape[0],
-        #                  errors=errors_vector,
-        #                  error_dist='normal',
-        #                  error_sd=self.error_sd,
-        #                  error_bias=self.error_bias,
-        #                  store_as_jax=self.store_as_jax,
-        #                  stationary_observers=self.stationary_observers
-        #                  )
