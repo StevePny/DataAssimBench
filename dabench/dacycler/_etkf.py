@@ -230,7 +230,7 @@ class ETKF(dacycler.DACycler):
 
         # 2. Calculate analysis
         cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_array().data).at[:, filtered_idx].get()
-        cur_obs_loc_indices = jnp.array(self._obs_vector.indices.data).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get()
         cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[filtered_idx].get().astype(bool)
         analysis = self._step_cycle(
                 cur_state, 
