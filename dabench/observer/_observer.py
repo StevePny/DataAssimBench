@@ -98,11 +98,19 @@ class Observer():
             {'{}_index'.format(coord): (coord, np.arange(self.state_vec.sizes[coord]))
              for coord in self._coord_names}
         )
+        # The system_index corresponds to the points location in a flattened 
+        # array (i.e. state_vec[state_vec.data_vars].to_array().data.flatten())
         self.state_vec = self.state_vec.assign(
-            {'system_index': (['variable'] + ['time'] + self._nontime_coord_names,
-                              np.tile(np.arange(self.state_vec.system_dim), self.state_vec.sizes['time']).reshape(
-                self.state_vec.to_array().shape
-            ))}
+            {'system_index': (
+                ['variable'] + ['time'] + self._nontime_coord_names,
+                np.tile(
+                    np.arange(self.state_vec.system_dim).reshape(
+                        self.state_vec.sizes['variable'], -1
+                        ),
+                    self.state_vec.sizes['time']
+                    ).reshape(self.state_vec.to_array().shape)
+                       )
+            }
         )
 
         if times is not None:
@@ -197,11 +205,11 @@ class Observer():
                              size=self.state_vec.system_dim))
         self.locations = {
             coord_name: xr.DataArray(
-                np.sort(rng.choice(
+                rng.choice(
                     self.state_vec[coord_name],
                     size=location_count,
                     replace=False,
-                    shuffle=False)),
+                    shuffle=False),
                 dims=['observations'])
             for coord_name in self._nontime_coord_names
         }
@@ -224,13 +232,12 @@ class Observer():
 
         self.locations = [{
             coord_name: xr.DataArray(
-                np.sort(rng.choice(
+                rng.choice(
                     self.state_vec[coord_name],
                     size=lc,
                     replace=False,
-                    shuffle=False)
-                    ),
-                dims=['observations'])
+                    shuffle=False),
+                    dims=['observations'])
             for coord_name in self._nontime_coord_names
             }
         for lc in self._location_counts]
@@ -306,17 +313,21 @@ class Observer():
                                     scale=error_sd,
                                     size=errors_vec_size)
 
+        # Include flag for whether observations are stationary or not
+        obs_vec = obs_vec.assign_attrs(
+            stationary_observers=self.stationary_observers)
+
         # Clip errors to positive only
         if self.error_positive_only:
             errors_vector[errors_vector < 0.] = 0.
 
-        # loc_indices = xr.where(self.state_vec)
-        # obs_vec = obs_vec.assign_coords(variable = list(obs_vec.data_vars))
-        # print(errors_vector.shape)
-        # print(obs_vec)
-        print(obs_vec.dims)
+        # Save errors and apply them to observations
         obs_vec = obs_vec.assign(errors=(obs_vec.dims, errors_vector))
-
         for data_var in obs_vec['variable'].values:
             obs_vec[data_var] = obs_vec[data_var] + obs_vec['errors'].sel(variable=data_var)
+
+        # Transpose system_index to ensure consistency with flattened data
+        obs_vec['system_index'] = obs_vec['system_index'].transpose('variable','time','observations').fillna(
+            0).astype(int)
+
         return obs_vec
