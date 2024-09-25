@@ -252,7 +252,8 @@ class ETKF(dacycler.DACycler):
               obs_error_sd=None,
               analysis_window=0.2,
               analysis_time_in_window=None,
-              return_forecast=False):
+              return_forecast=False
+              ):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
@@ -278,7 +279,7 @@ class ETKF(dacycler.DACycler):
         # These could be different if observer doesn't observe all variables
         # For now, making them the same
         self._observed_vars = obs_vector['variable'].values
-        self._data_vars = self._observed_vars
+        self._data_vars = list(input_state.data_vars)
 
         if obs_error_sd is None:
             obs_error_sd = obs_vector.error_sd
