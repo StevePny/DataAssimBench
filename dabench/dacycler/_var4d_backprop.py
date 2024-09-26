@@ -143,7 +143,7 @@ class Var4DBackprop(dacycler.DACycler):
             db0 = (x0.to_array().data.ravel() - xb0.to_array().data.ravel())
 
             # Make new prediction
-            # NOTE: [1] selects the full forecast
+            # NOTE: [1] selects the full forecast instead of last timestep only
             pred_x = self._step_forecast(
                 x0, n_steps)[1]['x'].data
 
@@ -193,22 +193,11 @@ class Var4DBackprop(dacycler.DACycler):
                     lambda: loss_val)
 
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
-            # x0_new = x0.assign(x=x0['x']-dx0_hess*optimizer.)
-            # updated_vals = optax.apply_updates(
-            #     x0.to_stacked_array('system',[]).data, updates)
             x0_array.data = optax.apply_updates(
                 x0_array.data, updates)
-            # print(updates[0])
-            # updated_vals = jax.tree.map(
-            #     lambda p, u: jnp.asarray(jnp.array(p)+jnp.array(u)).astype(jnp.asarray(p).dtype),
-            #     x0['x'].data, updates
-            # )
-            # x0_new = x0.assign(x=((x0.dims), updated_vals))
-            # x0_array.data = updated_vals
             x0_new = x0_array.to_unstacked_dataset('system').assign_attrs(
                 x0.attrs
             )
-            # return (xj.from_xarray(x0_new), init_loss, opt_state), loss_val
             return (xj.from_xarray(x0_new), init_loss, opt_state), loss_val
 
         return _backprop_epoch
@@ -250,9 +239,6 @@ class Var4DBackprop(dacycler.DACycler):
                 B = self._calc_default_B()
             else:
                 B = self.B
-
-        # x0 = x0_xarray
-
 
         Rinv = jscipy.linalg.inv(R)
         Binv = jscipy.linalg.inv(B)
@@ -298,14 +284,9 @@ class Var4DBackprop(dacycler.DACycler):
         obs_time_mask = filtered_idx > 0
         filtered_idx = filtered_idx - 1
 
-        # cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_array().data).at[0, filtered_idx].get()
         cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_stacked_array('system',['time']).data).at[filtered_idx].get()
         cur_obs_times = jnp.array(self._obs_vector.time.data).at[filtered_idx].get()
-        # NOTE: .at[0] selects the first "variable". If there are multiple variables, not sure how we could tweak this
-        # cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get().flatten()
-        # cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[0,filtered_idx].get()
         cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get().reshape(filtered_idx.shape[0], -1)
-        # cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[0, filtered_idx].get().astype(bool)
         cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[:, filtered_idx].get().astype(bool).reshape(filtered_idx.shape[0], -1)
 
         # Calculate obs window indices: closest model timesteps that match obs
@@ -314,15 +295,6 @@ class Var4DBackprop(dacycler.DACycler):
                     jnp.abs(obs_time - (cur_time + self._model_timesteps))
                     ) for obs_time in cur_obs_times
             ])
-        # obs_window_indices = jax.lax.cond(
-        #     self.obs_window_indices is None,
-        #     lambda: jnp.array([
-        #         jnp.argmin(
-        #             jnp.abs(obs_time - (cur_time + self._model_timesteps))
-        #             ) for obs_time in cur_obs_times
-        #     ], jnp.float64),
-        #     lambda: jnp.array(self.obs_window_indices)
-        #     )
 
         # 2. Calculate analysis
         analysis = self._step_cycle(
