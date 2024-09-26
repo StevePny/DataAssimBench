@@ -1,8 +1,12 @@
 """Base class for Data Assimilation Cycler object (DACycler)"""
 
-from dabench import vector
 import numpy as np
+import jax.numpy as jnp
+import jax
+import xarray as xr
+import xarray_jax as xj
 
+import dabench.dacycler._utils as dac_utils
 
 class DACycler():
     """Base class for DACycler object
@@ -49,14 +53,31 @@ class DACycler():
         self.delta_t = delta_t
         self.model_obj = model_obj
 
+
+    def _step_forecast(self, xa, n_steps=1):
+        """Perform forecast using model object"""
+        return self.model_obj.forecast(xa, n_steps=n_steps)
+
+    def _step_cycle(self, xb, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
+                    H=None, h=None, R=None, B=None, **kwargs):
+        if H is not None or h is None:
+            vals = self._cycle_obsop(
+                    xb, obs_vals, obs_locs, obs_time_mask,
+                    obs_loc_mask, H, R, B, **kwargs)
+            return vals
+        else:
+            return self._cycle_general_obsop(xb, yo, h, R, B)
+
     def cycle(self,
               input_state,
               start_time,
               obs_vector,
               n_cycles,
-              analysis_window,
+              obs_error_sd=None,
+              analysis_window=0.2,
               analysis_time_in_window=None,
-              return_forecast=False):
+              return_forecast=False
+              ):
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
@@ -79,50 +100,64 @@ class DACycler():
             vector.StateVector of analyses and times.
         """
 
+        # These could be different if observer doesn't observe all variables
+        # For now, making them the same
+        self._observed_vars = obs_vector['variable'].values
+        self._data_vars = list(input_state.data_vars)
+
+        if obs_error_sd is None:
+            obs_error_sd = obs_vector.error_sd
+        self.analysis_window = analysis_window
+
         # If don't specify analysis_time_in_window, is assumed to be middle
         if analysis_time_in_window is None:
             analysis_time_in_window = analysis_window/2
 
+        # Steps per window + 1 to include start
+        self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
+
         # Time offset from middle of time window, for gathering observations
         _time_offset = (analysis_window/2) - analysis_time_in_window
 
-        # Number of model steps to run per window
-        steps_per_window = round(analysis_window/self.delta_t) + 1
-        print(steps_per_window)
+        # Set up for jax.lax.scan, which is very fast
+        all_times = dac_utils._get_all_times(
+            start_time,
+            analysis_window,
+            n_cycles)
+            
+        # Get the obs vectors for each analysis window
+        all_filtered_idx = dac_utils._get_obs_indices(
+            obs_times=jnp.array(obs_vector.time.values),
+            analysis_times=all_times+_time_offset,
+            start_inclusive=True,
+            end_inclusive=False,
+            analysis_window=analysis_window
+        )
+        input_state = input_state.assign(_cur_time=start_time)
+        
+        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx, add_one=True)
+        self._obs_vector=obs_vector
+        self.obs_error_sd = obs_error_sd
+        if obs_vector.stationary_observers:
+            self._obs_loc_masks = jnp.ones(
+                obs_vector[self._observed_vars].to_array().shape, dtype=bool)
+        else:
+            self._obs_loc_masks = ~np.isnan(
+                obs_vector[self._observed_vars].to_array().data)[0]
+            self._obs_vector=self._obs_vector.fillna(0)
+        cur_state, all_values = jax.lax.scan(
+                self._cycle_and_forecast,
+                xj.from_xarray(input_state),
+                all_filtered_padded)
+                
+        all_vals_xr = xr.Dataset(
+            {var: (('cycle',) + tuple(all_values[var].dims),
+                   all_values[var].data)
+             for var in all_values.data_vars}
+        ).rename_dims({'time': 'cycle_timestep'})
 
-        # For storing outputs
-        all_output_states = []
-        all_times = []
-        cur_time = start_time
-        cur_state = input_state
-
-        for i in range(n_cycles):
-            # 1. Filter observations to inside analysis window
-            window_middle = cur_time + _time_offset
-            window_start = window_middle - analysis_window/2
-            window_end = window_middle + analysis_window/2
-            obs_vec_timefilt = obs_vector.sel(
-                time=slice(window_start, window_end)
-            )
-
-            if obs_vec_timefilt.sizes['time'] > 0:
-                # 2. Calculate analysis
-                analysis, kh = self._step_cycle(cur_state, obs_vec_timefilt)
-                # 3. Forecast through analysis window
-                forecast_states = self._step_forecast(analysis,
-                                                      n_steps=steps_per_window)
-                # 4. Save outputs
-                if return_forecast:
-                    # Append forecast to current state, excluding last step
-                    print(forecast_states)
-                    all_output_states.append(forecast_states.isel(time=slice(0,steps_per_window-1)))
-                else:
-                    all_output_states.append(analysis)
-
-            # Starting point for next cycle is last step of forecast
-            cur_state = forecast_states.isel(time=steps_per_window-1)
-            print(cur_state)
-            cur_time += analysis_window
-
-        return all_output_states
-
+        if return_forecast:
+            return all_vals_xr
+        else:
+            return all_vals_xr.isel(cycle_timestep=0)
