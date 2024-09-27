@@ -23,7 +23,8 @@ dependencies = [
     "scipy",
     "optax",
     "xarray",
-    "cftime"
+    "cftime",
+    "xarray_jax@git+git+https://github.com/kysolvik/xarray_jax_permissible.git"
 ]
 
 [project.optional-dependencies]
