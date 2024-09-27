@@ -177,7 +177,8 @@ class Data():
             {self.var_names[0]: (coord_dict.keys(),y_out)},
             coords=coord_dict,
             attrs={'store_as_jax':self.store_as_jax,
-                   'system_dim': self.system_dim
+                   'system_dim': self.system_dim,
+                   'delta_t': self.delta_t
             }
         )
 
@@ -196,6 +197,9 @@ class Data():
                                 self.system_dim,
                                 self.system_dim)
                                 )
+            M = xr.DataArray(
+                M, dims=('time','system_0','system_n')
+            )
             return out_vec, M
         else:
             return out_vec
