@@ -81,9 +81,6 @@ class Var4DBackprop(dacycler.DACycler):
         self.learning_rate = learning_rate
         self.lr_decay = lr_decay
         self.steps_per_window = steps_per_window
-        # if obs_window_indices is None:
-        #     self.obs_window_indices
-        # else:
         self.obs_window_indices = obs_window_indices
         self.loss_growth_limit = loss_growth_limit
 
@@ -98,7 +95,6 @@ class Var4DBackprop(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-
     def _calc_default_H(self, obs_loc_indices):
         Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],
                         self.system_dim),
@@ -108,12 +104,6 @@ class Var4DBackprop(dacycler.DACycler):
                        ].set(1)
 
         return Hs
-
-    def _calc_default_R(self, obs_values, obs_error_sd):
-        return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
-
-    def _calc_default_B(self):
-        return jnp.identity(self.system_dim)
 
     def _raise_nan_error(self):
         raise ValueError('Loss value is nan, exiting optimization')
@@ -145,7 +135,7 @@ class Var4DBackprop(dacycler.DACycler):
             # Make new prediction
             # NOTE: [1] selects the full forecast instead of last timestep only
             pred_x = self._step_forecast(
-                x0, n_steps)[1]['x'].data
+                x0, n_steps)[1].to_stacked_array('system',['time']).data
 
             # Calculate observation term of J_0
             obs_term = 0
@@ -201,7 +191,6 @@ class Var4DBackprop(dacycler.DACycler):
             return (xj.from_xarray(x0_new), init_loss, opt_state), loss_val
 
         return _backprop_epoch
-
 
     def _cycle_obsop(self, x0_xarray, obs_values, obs_loc_indices,
                      obs_time_mask, obs_loc_mask,
@@ -274,40 +263,3 @@ class Var4DBackprop(dacycler.DACycler):
         x0_new = epoch_state_tuple[0].to_xarray()
 
         return x0_new
-
-    def _cycle_and_forecast(self, cur_state, filtered_idx):
-        # 1. Get data
-        # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
-        cur_state = cur_state.to_xarray()
-        cur_time = cur_state['_cur_time'].data
-        cur_state = cur_state.drop_vars(['_cur_time'])
-        obs_time_mask = filtered_idx > 0
-        filtered_idx = filtered_idx - 1
-
-        cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_stacked_array('system',['time']).data).at[filtered_idx].get()
-        cur_obs_times = jnp.array(self._obs_vector.time.data).at[filtered_idx].get()
-        cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get().reshape(filtered_idx.shape[0], -1)
-        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[:, filtered_idx].get().astype(bool).reshape(filtered_idx.shape[0], -1)
-
-        # Calculate obs window indices: closest model timesteps that match obs
-        obs_window_indices =jnp.array([
-                jnp.argmin(
-                    jnp.abs(obs_time - (cur_time + self._model_timesteps))
-                    ) for obs_time in cur_obs_times
-            ])
-
-        # 2. Calculate analysis
-        analysis = self._step_cycle(
-                cur_state, 
-                cur_obs_vals,
-                cur_obs_loc_indices,
-                obs_loc_mask=cur_obs_loc_mask,
-                obs_time_mask=obs_time_mask,
-                obs_window_indices=obs_window_indices
-                )
-
-        # 3. Forecast forward
-        next_state, forecast_states = self._step_forecast(analysis, n_steps=self.steps_per_window)
-        next_state = next_state.assign(_cur_time = cur_time + self.analysis_window)
-
-        return xj.from_xarray(next_state), forecast_states

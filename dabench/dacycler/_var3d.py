@@ -48,49 +48,21 @@ class Var3D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _step_cycle(self, xb, yo, H=None, h=None, R=None, B=None):
-        """Perform one step of DA Cycle
-
-        Returns:
-            vector.StateVector containing analysis results
-
-        """
-        if H is not None or h is None:
-            return self._cycle_linear_obsop(xb, yo, H, R, B)
-        else:
-            return self._cycle_general_obsop(xb, yo, h, R, B)
-
-    def _calc_default_H(self, obs_vec):
-        """If H is not provided, creates identity matrix to serve as H"""
-        H = jnp.zeros((obs_vec.sizes['observations']*obs_vec.sizes['time'],
-                       self.system_dim))
-        H = H.at[jnp.arange(H.shape[0]), np.where(obs_vec.indices.data)[1]
-                 ].set(1)
-        return H
-
-    def _calc_default_R(self, obs_vec):
-        """If R i s not provided, calculates default based on observation error"""
-        return jnp.identity(
-            obs_vec.sizes['observations']*obs_vec.sizes['time'])*obs_vec.error_sd**2
-
-    def _calc_default_B(self):
-        """If B is not provided, identity matrix with shape (system_dim, system_dim."""
-        return jnp.identity(self.system_dim)
-
-    def _cycle_general_obsop(self, forecast, obs_vec):
-        return
-
-    def _cycle_linear_obsop(self, forecast, obs_vec, H=None, R=None,
-                            B=None):
+    def _cycle_obsop(self, x0_xarray, obs_values, obs_loc_indices,
+                     obs_time_mask, obs_loc_mask,
+                     H=None, h=None, R=None, B=None):
         """When obsop (H) is linear"""
-        if H is None:
+        if H is None and h is None:
             if self.H is None:
-                H = self._calc_default_H(obs_vec)
+                if self.h is None:
+                    H = self._calc_default_H(obs_values, obs_loc_indices)
+                else:
+                    h = self.h
             else:
                 H = self.H
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_vec)
+                R = self._calc_default_R(obs_values, self.obs_error_sd)
             else:
                 R = self.R
         if B is None:
@@ -98,10 +70,15 @@ class Var3D(dacycler.DACycler):
                 B = self._calc_default_B()
             else:
                 B = self.B
+        print(H)
 
         # make inputs column vectors
-        xb = jnp.array([forecast[self.data_vars].to_array().data.flatten()]).T
-        yo = jnp.array([obs_vec[self.data_vars].to_array().data.flatten()]).T
+        xb = x0_xarray.to_stacked_array('system',[]).data.flatten()
+        yo = obs_values.flatten().T
+
+        # Apply masks to H
+        H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
+        H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Set parameters
         xdim = xb.size  # Size or get one of the shape params?
@@ -118,12 +95,4 @@ class Var3D(dacycler.DACycler):
         xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
                                            maxiter=1000)
 
-        # Compute KH:
-        HBHtPlusR_inv = jnp.linalg.inv(H @  BHt + R)
-        KH = BHt @ HBHtPlusR_inv @ H
-
-        return forecast.assign(x=(['i'], xa.T[0])), KH
-
-    def _step_forecast(self, xa, n_steps):
-        """n_steps forward of model forecast"""
-        return self.model_obj.forecast(xa, n_steps=n_steps)
+        return x0_xarray.assign(x=(x0_xarray.dims, xa.T))

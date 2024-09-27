@@ -54,6 +54,20 @@ class DACycler():
         self.model_obj = model_obj
 
 
+    def _calc_default_H(self, obs_values, obs_loc_indices):
+        H = jnp.zeros((obs_values.flatten().shape[0], self.system_dim))
+        H = H.at[jnp.arange(H.shape[0]), 
+                 obs_loc_indices.flatten(),
+                 ].set(1)
+        return H
+
+    def _calc_default_R(self, obs_values, obs_error_sd):
+        return jnp.identity(obs_values.flatten().shape[0])*(obs_error_sd**2)
+
+    def _calc_default_B(self):
+        """If B is not provided, identity matrix with shape (system_dim, system_dim."""
+        return jnp.identity(self.system_dim)
+
     def _step_forecast(self, xa, n_steps=1):
         """Perform forecast using model object"""
         return self.model_obj.forecast(xa, n_steps=n_steps)
@@ -66,7 +80,76 @@ class DACycler():
                     obs_loc_mask, H, R, B, **kwargs)
             return vals
         else:
-            return self._cycle_general_obsop(xb, yo, h, R, B)
+            raise ValueError(
+                'Only linear obs operators (H) are supported right now.')
+            vals = self._cycle_general_obsop(
+                    xb, obs_vals, obs_locs, obs_time_mask,
+                    obs_loc_mask, h, R, B, **kwargs)
+            return vals
+
+    def _cycle_and_forecast(self, cur_state, filtered_idx):
+        # 1. Get data
+        # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
+        cur_state = cur_state.to_xarray()
+        cur_time = cur_state['_cur_time'].data
+        cur_state = cur_state.drop_vars(['_cur_time'])
+        obs_time_mask = filtered_idx > 0
+        filtered_idx = filtered_idx - 1
+
+        # 2. Calculate analysis
+        cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_array().data).at[:, filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get()
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[:, filtered_idx].get().astype(bool)
+        cur_obs_time_mask = jnp.repeat(obs_time_mask, cur_obs_vals.shape[-1])
+        analysis = self._step_cycle(
+                cur_state, 
+                cur_obs_vals,
+                cur_obs_loc_indices,
+                obs_loc_mask=cur_obs_loc_mask,
+                obs_time_mask=cur_obs_time_mask
+                )
+        # 3. Forecast next timestep
+        next_state, forecast_states = self._step_forecast(analysis, n_steps=self.steps_per_window)
+        next_state = next_state.assign(_cur_time = cur_time + self.analysis_window)
+
+        return xj.from_xarray(next_state), forecast_states
+
+    def _cycle_and_forecast_4d(self, cur_state, filtered_idx):
+        # 1. Get data
+        # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
+        cur_state = cur_state.to_xarray()
+        cur_time = cur_state['_cur_time'].data
+        cur_state = cur_state.drop_vars(['_cur_time'])
+        obs_time_mask = filtered_idx > 0
+        filtered_idx = filtered_idx - 1
+
+        cur_obs_vals = jnp.array(self._obs_vector[self._observed_vars].to_stacked_array('system',['time']).data).at[filtered_idx].get()
+        cur_obs_times = jnp.array(self._obs_vector.time.data).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(self._obs_vector.system_index.data).at[:, filtered_idx].get().reshape(filtered_idx.shape[0], -1)
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[:, filtered_idx].get().astype(bool).reshape(filtered_idx.shape[0], -1)
+
+        # Calculate obs window indices: closest model timesteps that match obs
+        obs_window_indices =jnp.array([
+                jnp.argmin(
+                    jnp.abs(obs_time - (cur_time + self._model_timesteps))
+                    ) for obs_time in cur_obs_times
+            ])
+
+        # 2. Calculate analysis
+        analysis = self._step_cycle(
+                cur_state, 
+                cur_obs_vals,
+                cur_obs_loc_indices,
+                obs_loc_mask=cur_obs_loc_mask,
+                obs_time_mask=obs_time_mask,
+                obs_window_indices=obs_window_indices
+                )
+
+        # 3. Forecast forward
+        next_state, forecast_states = self._step_forecast(analysis, n_steps=self.steps_per_window)
+        next_state = next_state.assign(_cur_time = cur_time + self.analysis_window)
+
+        return xj.from_xarray(next_state), forecast_states
 
     def cycle(self,
               input_state,
@@ -144,12 +227,19 @@ class DACycler():
                 obs_vector[self._observed_vars].to_array().shape, dtype=bool)
         else:
             self._obs_loc_masks = ~np.isnan(
-                obs_vector[self._observed_vars].to_array().data)[0]
+                obs_vector[self._observed_vars].to_array().data)
             self._obs_vector=self._obs_vector.fillna(0)
-        cur_state, all_values = jax.lax.scan(
-                self._cycle_and_forecast,
-                xj.from_xarray(input_state),
-                all_filtered_padded)
+        
+        if self.in_4d:
+            cur_state, all_values = jax.lax.scan(
+                    self._cycle_and_forecast_4d,
+                    xj.from_xarray(input_state),
+                    all_filtered_padded)
+        else:
+            cur_state, all_values = jax.lax.scan(
+                    self._cycle_and_forecast,
+                    xj.from_xarray(input_state),
+                    all_filtered_padded)
                 
         all_vals_xr = xr.Dataset(
             {var: (('cycle',) + tuple(all_values[var].dims),
