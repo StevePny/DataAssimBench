@@ -189,11 +189,11 @@ class Observer():
                     replace=False,
                     shuffle=False))
         else:
-            self.time_indices = np.where(
+            self.times = self.state_vec.time[np.where(
                     rng.binomial(1, p=self.random_time_density,
-                                 size=self.state_vec.time_dim
+                                 size=self.state_vec.sizes['time']
                                  ).astype('bool')
-                    )[0]
+                    )[0]]
 
     def _generate_stationary_locs(self, rng):
         if self.random_location_count is not None:
