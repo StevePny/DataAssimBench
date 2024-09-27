@@ -112,6 +112,9 @@ class GCP(_data.Data):
             # Subset by lon boundaries
             ds = ds.sel(longitude=slice(subset_min_lon, subset_max_lon))
 
+        # Assign system dimension
+        ds = ds.to_stacked_array('system',['time']).sizes['system']
+
         return ds
 
     def generate(self):
