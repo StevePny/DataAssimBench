@@ -14,7 +14,7 @@ from functools import partial
 import xarray as xr
 import xarray_jax as xj
 
-from dabench import dacycler, vector
+from dabench import dacycler
 import dabench.dacycler._utils as dac_utils
 
 

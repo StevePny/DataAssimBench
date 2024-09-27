@@ -4,7 +4,7 @@ import numpy as np
 import jax.numpy as jnp
 import jax.scipy as jscipy
 
-from dabench import dacycler, vector
+from dabench import dacycler
 
 
 class Var3D(dacycler.DACycler):
@@ -72,9 +72,8 @@ class Var3D(dacycler.DACycler):
                 B = self.B
         print(H)
 
-        # make inputs column vectors
         xb = x0_xarray.to_stacked_array('system',[]).data.flatten()
-        yo = obs_values.flatten().T
+        yo = obs_values.flatten()
 
         # Apply masks to H
         H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
