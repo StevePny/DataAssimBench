@@ -94,10 +94,6 @@ class Observer():
             {'variable': self.state_vec.data_vars}
             # 'variable_index': np.arange(len(self.state_vec.data_vars))}
         )
-        self.state_vec = self.state_vec.assign_coords(
-            {'{}_index'.format(coord): (coord, np.arange(self.state_vec.sizes[coord]))
-             for coord in self._coord_names}
-        )
         # The system_index corresponds to the points location in a flattened 
         # array (i.e. state_vec[state_vec.data_vars].to_array().data.flatten())
         self.state_vec = self.state_vec.assign(
@@ -147,10 +143,8 @@ class Observer():
             elif not len(self.error_bias) == self.state_vec.system_dim:
                 raise ValueError(
                     "List of error biases has length {}."
-                    "Must match either system_dim ({}) or "
-                    "number of location indices ({})".format(
-                        len(self.error_bias), self.state_vec.system_dim,
-                        self.location_indices.shape[0]))
+                    "Must match system_dim ({}) or ".format(
+                        len(self.error_bias), self.state_vec.system_dim))
             elif isinstance(self.error_bias, list):
                 if self.store_as_jax:
                     self.error_bias = jnp.array(self.error_bias)
@@ -166,10 +160,8 @@ class Observer():
             elif not len(self.error_sd) == self.state_vec.system_dim:
                 raise ValueError(
                     "List of error sds has length {}."
-                    "Must match either system_dim ({}) or "
-                    "number of location indices ({})".format(
-                        len(self.error_sd), self.state_vec.system_dim,
-                        self.location_indices.shape[0]))
+                    "Must match system_dim ({})".format(
+                        len(self.error_sd), self.state_vec.system_dim))
             elif isinstance(self.error_sd, list):
                 if self.store_as_jax:
                     self.error_sd = jnp.array(self.error_sd)
@@ -203,12 +195,16 @@ class Observer():
                 rng.binomial(1,
                              p=self.random_location_density,
                              size=self.state_vec.system_dim))
+        if len(self._nontime_coord_names) > 1:
+            sample_w_replace=True
+        else:
+            sample_w_replace=False
         self.locations = {
             coord_name: xr.DataArray(
                 rng.choice(
                     self.state_vec[coord_name],
                     size=location_count,
-                    replace=False,
+                    replace=sample_w_replace,
                     shuffle=False),
                 dims=['observations'])
             for coord_name in self._nontime_coord_names
@@ -230,12 +226,17 @@ class Observer():
                              )
             for i in range(self.times.shape[0])]
 
+        if len(self._nontime_coord_names) > 1:
+            sample_w_replace=True
+        else:
+            sample_w_replace=False
+
         self.locations = [{
             coord_name: xr.DataArray(
                 rng.choice(
                     self.state_vec[coord_name],
                     size=lc,
-                    replace=False,
+                    replace=sample_w_replace,
                     shuffle=False),
                     dims=['observations'])
             for coord_name in self._nontime_coord_names
@@ -297,16 +298,24 @@ class Observer():
                 for i, t in enumerate(self.times)], 
                 dim='time')
 
+        # Transpose system_index to ensure consistency with flattened data
+        obs_vec['system_index'] = obs_vec['system_index'].transpose('variable','time','observations').fillna(
+            0).astype(int)
+
         # Generate errors
         errors_vec_size = ((self.time_dim,)
                            + (self.location_dim,)
                            + (obs_vec.sizes['variable'],))
+        errors_vec_size = ((obs_vec.sizes['variable'],)
+                           + (self.time_dim,)
+                           + (self.location_dim,))
+                      
         if self._error_bias_is_list:
-            error_bias = self.error_bias[self.location_indices]
+            error_bias = self.error_bias[obs_vec['system_index'].data]
         else:
             error_bias = self.error_bias
         if self._error_sd_is_list:
-            error_sd = self.error_sd[self.location_indices]
+            error_sd = self.error_sd[obs_vec['system_index'].data]
         else:
             error_sd = self.error_sd
         errors_vector = rng.normal(loc=error_bias,
@@ -322,12 +331,9 @@ class Observer():
             errors_vector[errors_vector < 0.] = 0.
 
         # Save errors and apply them to observations
-        obs_vec = obs_vec.assign(errors=(obs_vec.dims, errors_vector))
+        obs_vec = obs_vec.assign(errors=(obs_vec['system_index'].dims, errors_vector))
         for data_var in obs_vec['variable'].values:
             obs_vec[data_var] = obs_vec[data_var] + obs_vec['errors'].sel(variable=data_var)
 
-        # Transpose system_index to ensure consistency with flattened data
-        obs_vec['system_index'] = obs_vec['system_index'].transpose('variable','time','observations').fillna(
-            0).astype(int)
 
         return obs_vec
