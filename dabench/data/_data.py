@@ -45,7 +45,7 @@ class Data():
 
         # Default var and coord names
         self.var_names = ['x']
-        self.coord_names = ['i']
+        self.coord_names = ['index']
         # x0 attribute is property to better convert between jax/numpy
         self._x0 = x0
 
