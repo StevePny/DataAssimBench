@@ -74,6 +74,7 @@ class Var4DBackprop(dacycler.DACycler):
                  steps_per_window=None,
                  obs_window_indices=None,
                  loss_growth_limit=10,
+                 analysis_time_in_window=0,
                  **kwargs
                  ):
 
@@ -93,7 +94,8 @@ class Var4DBackprop(dacycler.DACycler):
                          model_obj=model_obj,
                          in_4d=True,
                          ensemble=False,
-                         B=B, R=R, H=H, h=h)
+                         B=B, R=R, H=H, h=h,
+                         analysis_time_in_window=analysis_time_in_window)
 
     def _calc_default_H(self, obs_loc_indices):
         Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],
@@ -115,7 +117,7 @@ class Var4DBackprop(dacycler.DACycler):
         jax.debug.callback(error_method)
         return loss_val
 
-    @partial(jax.jit, static_argnums=[0])
+    # @partial(jax.jit, static_argnums=[0])
     def _calc_obs_term(self, pred_x, obs_vals, Ht, Rinv):
         pred_obs = pred_x @ Ht
         resid = pred_obs.ravel() - obs_vals.ravel()
@@ -127,7 +129,7 @@ class Var4DBackprop(dacycler.DACycler):
                    obs_time_mask, n_steps):
         """Define loss function based on 4dvar cost"""
 
-        @jax.jit
+        # @jax.jit
         def loss_4dvarcost(x0):
             # Get initial departure
             db0 = (x0.to_array().data.ravel() - xb0.to_array().data.ravel())
@@ -165,7 +167,7 @@ class Var4DBackprop(dacycler.DACycler):
 
         loss_value_grad = value_and_grad(loss_func, argnums=0)
 
-        @jax.jit
+        # @jax.jit
         def _backprop_epoch(epoch_state_tuple, i):
             x0, init_loss, opt_state = epoch_state_tuple
             x0 = x0.to_xarray()
@@ -256,6 +258,7 @@ class Var4DBackprop(dacycler.DACycler):
         # Make initial forecast and calculate loss
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer,
                                                         hessian_inv)
+        # epoch_state_tuple, loss_vals = backprop_epoch_func((xj.from_xarray(x0_xarray), 0., opt_state),0)
         epoch_state_tuple, loss_vals = jax.lax.scan(
                 backprop_epoch_func, init=(xj.from_xarray(x0_xarray), 0., opt_state),
                 xs=jnp.arange(self.num_iters))

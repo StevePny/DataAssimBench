@@ -66,6 +66,7 @@ class Var4D(dacycler.DACycler):
                  n_outer_loops=1,
                  steps_per_window=1,
                  obs_window_indices=None,
+                 analysis_time_in_window=0,
                  **kwargs
                  ):
 
@@ -83,7 +84,8 @@ class Var4D(dacycler.DACycler):
                          model_obj=model_obj,
                          in_4d=True,
                          ensemble=False,
-                         B=B, R=R, H=H, h=h)
+                         B=B, R=R, H=H, h=h,
+                         analysis_time_in_window=analysis_time_in_window)
 
     def _calc_default_H(self, obs_loc_indices):
         Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],

@@ -41,6 +41,7 @@ class DACycler():
                  R=None,
                  H=None,
                  h=None,
+                 analysis_time_in_window=None
                  ):
 
         self.h = h
@@ -52,6 +53,7 @@ class DACycler():
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
+        self.analysis_time_in_window = analysis_time_in_window
 
 
     def _calc_default_H(self, obs_values, obs_loc_indices):
@@ -190,11 +192,14 @@ class DACycler():
 
         if obs_error_sd is None:
             obs_error_sd = obs_vector.error_sd
+
         self.analysis_window = analysis_window
 
         # If don't specify analysis_time_in_window, is assumed to be middle
-        if analysis_time_in_window is None:
-            analysis_time_in_window = analysis_window/2
+        if self.analysis_time_in_window is None and analysis_time_in_window is None:
+            analysis_time_in_window = self.analysis_window/2
+        else:
+            analysis_time_in_window = self.analysis_time_in_window
 
         # Steps per window + 1 to include start
         self.steps_per_window = round(analysis_window/self.delta_t) + 1
@@ -209,12 +214,16 @@ class DACycler():
             analysis_window,
             n_cycles)
             
+
+        if self.steps_per_window is None:
+            self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
         # Get the obs vectors for each analysis window
         all_filtered_idx = dac_utils._get_obs_indices(
             obs_times=jnp.array(obs_vector.time.values),
             analysis_times=all_times+_time_offset,
             start_inclusive=True,
-            end_inclusive=False,
+            end_inclusive=self.in_4d,
             analysis_window=analysis_window
         )
         input_state = input_state.assign(_cur_time=start_time)
@@ -248,6 +257,6 @@ class DACycler():
         ).rename_dims({'time': 'cycle_timestep'})
 
         if return_forecast:
-            return all_vals_xr
+            return all_vals_xr.drop_isel(cycle_timestep=-1)
         else:
             return all_vals_xr.isel(cycle_timestep=0)
