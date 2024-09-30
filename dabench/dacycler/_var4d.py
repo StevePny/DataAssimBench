@@ -152,13 +152,13 @@ class Var4D(dacycler.DACycler):
             )
 
             # 4D-Var inner loop
-            x0 = self._innerloop_4d(self.system_dim,
+            x0_new = self._innerloop_4d(self.system_dim,
                                     x, xb0, obs_values,
                                     Hs, B, Rinv, M,
                                     obs_window_indices, 
                                     obs_time_mask)
 
-            return xj.from_xarray(x0.drop_vars('time')), x0
+            return xj.from_xarray(x0_new.assign_coords(x0.coords)), x0
 
         return _outerloop_4d
 
