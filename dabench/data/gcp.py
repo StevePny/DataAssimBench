@@ -113,7 +113,7 @@ class GCP(_data.Data):
             ds = ds.sel(longitude=slice(subset_min_lon, subset_max_lon))
 
         # Assign system dimension
-        ds = ds.assign_coords(system_dim=ds.to_stacked_array('system',['time']).sizes['system'])
+        ds = ds.assign_attrs(system_dim=ds.to_stacked_array('system',['time']).sizes['system'])
 
         return ds
 
