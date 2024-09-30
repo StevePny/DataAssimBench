@@ -24,7 +24,7 @@ dependencies = [
     "optax",
     "xarray",
     "cftime",
-    "xarray_jax@git+git+https://github.com/kysolvik/xarray_jax_permissible.git"
+    "xarray_jax@git+https://github.com/kysolvik/xarray_jax_permissible.git"
 ]
 
 [project.optional-dependencies]
