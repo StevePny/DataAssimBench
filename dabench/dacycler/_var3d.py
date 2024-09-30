@@ -70,7 +70,6 @@ class Var3D(dacycler.DACycler):
                 B = self._calc_default_B()
             else:
                 B = self.B
-        print(H)
 
         xb = x0_xarray.to_stacked_array('system',[]).data.flatten()
         yo = obs_values.flatten()
