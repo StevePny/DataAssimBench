@@ -152,7 +152,10 @@ class DACycler():
 
         # 3. Forecast forward
         next_state, forecast_states = self._step_forecast(analysis, n_steps=self.steps_per_window)
-        next_state = next_state.assign(_cur_time = cur_time + self.analysis_window)
+        next_state = next_state.assign(
+            _cur_time = cur_time + self.analysis_window
+            ).assign_coords(
+                cur_state.coords)
 
         return xj.from_xarray(next_state), forecast_states
 
