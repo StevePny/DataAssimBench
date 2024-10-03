@@ -10,7 +10,7 @@ import gcsfs
 import xarray as xr
 from dateutil.relativedelta import relativedelta
 
-from helpers.timing import report_timing
+from ..utils.timing import report_timing
 
 # Selected vars for ERA5 ensemble
 # This will reduce the number of model fields processed and stored in the ensemble
@@ -106,7 +106,7 @@ def parse_arguments():
 #%% Define the initial ensemble
 
 
-def define_init_ensemble(
+def _define_init_ensemble(
     ensemble_size, init_ensemble_start_date, init_ensemble_sample_strategy="multi_year"
 ):
 
@@ -130,7 +130,7 @@ def define_init_ensemble(
     return init_ensemble_member_dates
 
 
-def main(
+def GenEra5Ens(
     date_format:str="%Y%m%dZ%H",
     atmosphere_ensemble_s3_key:str=None,
     target_date:datetime=datetime.strptime("19990101Z00","%Y%m%dZ%H"),
@@ -138,6 +138,7 @@ def main(
     start_date:datetime=datetime.strptime("19981231Z00","%Y%m%dZ%H"),
     ensemble_size:int=4,
     era5_path:str="gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3",
+    verbose:bool=False,
     ):
 
     #%% Set up the gcp access to era5
@@ -146,7 +147,7 @@ def main(
         ds_era5 = xr.open_zarr(gcs.get_mapper(era5_path), chunks=None)
     else:
         raise Exception("Non-GCP source for ERA5 not yet supported. EXITING...")
-    report_timing(timing_label="build_test_ensemble_era5:: access remote zarr store")
+    report_timing(timing_label="GenEra5Ens:: access remote zarr store")
 
     #%% Reorder the latitudes
     # Following:
@@ -157,7 +158,7 @@ def main(
     assert ds_era5.latitude[0] < ds_era5.latitude[-1]
 
     #%% Determine dates for initial ensemble sampling
-    init_ensemble_member_dates = define_init_ensemble(
+    init_ensemble_member_dates = _define_init_ensemble(
         ensemble_size=ensemble_size,
         init_ensemble_start_date=start_date,
         init_ensemble_sample_strategy=sample_strategy,
@@ -168,18 +169,20 @@ def main(
     #%% Sample from era5
     ds_init_ens = ds_era5[ERA5_CONTROL_VARIABLES].sel(time=init_ensemble_member_dates)
     report_timing(
-        timing_label="build_test_ensemble_era5:: select time steps as ensemble members"
+        timing_label="GenEra5Ens:: select time steps as ensemble members"
     )
-    print(ds_init_ens)
+    if verbose:
+        print(ds_init_ens)
 
     #%% Update time to target and add ensemble dimension
     ds_init_ens = ds_init_ens.rename_dims(dims_dict={"time": "member"})
     ds_init_ens["member"] = range(ensemble_size)
     ds_init_ens = ds_init_ens.drop_vars("time")
     report_timing(
-        timing_label="build_test_ensemble_era5:: add member dimension to replace time"
+        timing_label="GenEra5Ens:: add member dimension to replace time"
     )
-    print(ds_init_ens)
+    if verbose:
+        print(ds_init_ens)
 
     #%% Select target date from era5 for recentering the ensemble
     ds_target = ds_era5[ERA5_CONTROL_VARIABLES].sel(time=target_date)
@@ -190,43 +193,45 @@ def main(
         ds_init_ens['ws10n'] = (ds_init_ens['10m_u_component_of_neutral_wind']**2 + ds_init_ens['10m_v_component_of_neutral_wind']**2)**(0.5)
         ds_target['ws10n'] = (ds_target['10m_u_component_of_neutral_wind']**2 + ds_target['10m_v_component_of_neutral_wind']**2)**(0.5)
         report_timing(
-            timing_label="build_test_ensemble_era5:: computing neutral wind speeds at 10m (ws10n)"
+            timing_label="GenEra5Ens:: computing neutral wind speeds at 10m (ws10n)"
         )
     if ('10m_u_component_of_wind' in  ERA5_CONTROL_VARIABLES and
         '10m_v_component_of_wind' in ERA5_CONTROL_VARIABLES):
         ds_init_ens['ws10m'] = (ds_init_ens['10m_u_component_of_wind']**2 + ds_init_ens['10m_v_component_of_wind']**2)**(0.5)
         ds_target['ws10m'] = (ds_target['10m_u_component_of_wind']**2 + ds_target['10m_v_component_of_wind']**2)**(0.5)
         report_timing(
-            timing_label="build_test_ensemble_era5:: computing diagnostic wind speeds at 10m (ws10m)"
+            timing_label="GenEra5Ens:: computing diagnostic wind speeds at 10m (ws10m)"
         )
 
     #%% Recenter ensemble to target date
-    print(f'build_test_ensemble_era5:: re-centering ensemble with ensemble_size = {ensemble_size} to target_date = {target_date}...')
+    print(f'GenEra5Ens:: re-centering ensemble with ensemble_size = {ensemble_size} to target_date = {target_date}...')
     ds_mean = ds_init_ens.mean(dim="member")
     ds_diff = ds_target - ds_mean
     ds_init_ens = ds_init_ens + ds_diff
     report_timing(
-        timing_label="build_test_ensemble_era5:: recenter ensemble to target date"
+        timing_label="GenEra5Ens:: recenter ensemble to target date"
     )
-    print(ds_init_ens)
+    if verbose:
+        print(ds_init_ens)
 
     #%% Now add time back on as a singleton dimension
     ds_init_ens = ds_init_ens.expand_dims(dim={"time": [target_date]}, axis=0)
     report_timing(
-        timing_label="build_test_ensemble_era5:: add time dimension back on to dataset structure"
+        timing_label="GenEra5Ens:: add time dimension back on to dataset structure"
     )
-    print(ds_init_ens)
+    if verbose:
+        print(ds_init_ens)
 
     #%% Add some checks to make sure dimensions haven't changed
     assert ds_era5.sizes['latitude'] == ds_init_ens.sizes['latitude']
     assert ds_era5.sizes['longitude'] == ds_init_ens.sizes['longitude']
     assert ds_era5.sizes['level'] == ds_init_ens.sizes['level']
 
-    #%% Upload to s3 as zarr
-    print('Uploading to s3 zarr...')
+    #%% Store to zarr (locally or on e.g. AWS s3)
+    print('Storing as zarr...')
     ds_init_ens.to_zarr(atmosphere_ensemble_s3_key, mode="w")
     report_timing(
-        timing_label="build_test_ensemble_era5:: upload to s3 as a new zarr store"
+        timing_label="GenEra5Ens:: upload to s3 as a new zarr store"
     )
 
 
@@ -235,9 +240,9 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     # %% Process input arguments
-    report_timing(timing_label="build_test_ensemble_era5:: initializing...")
+    report_timing(timing_label="GenEra5Ens:: initializing...")
 
-    main(
+    GenEra5Ens(
         date_format=args.date_format,
         atmosphere_ensemble_s3_key=args.atmosphere_ensemble_s3_key,
         target_date=args.target_date,
