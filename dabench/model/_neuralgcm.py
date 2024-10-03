@@ -345,7 +345,7 @@ class NeuralGCM(model.Model):
             predictions,
             times=self._model.sim_time_to_datetime64(predictions['sim_time'])
             )
-        return preds_xarray
+        return preds_xarray.isel(time=-1), preds_xarray
     
     def postprocess_helper(self, out_state, forcings):
         decoded = self._model.decode(out_state, forcings)
