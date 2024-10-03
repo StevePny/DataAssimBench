@@ -18,13 +18,13 @@ def _check_split_lengths(xr_obj, split_lengths):
                       ))
 
 
-@xr.register_dataset_accessor('dabench')
+@xr.register_dataset_accessor('dab')
 class DABenchDatasetAccessor:
     """Helper methods for manipulating xarray Datasets"""
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
 
-    def to_system(self):
+    def flatten(self):
         if 'time' in self._obj.coords:
             remaining_dim = ['time']
         else:
@@ -41,13 +41,13 @@ class DABenchDatasetAccessor:
         return tuple(out_ds)
 
 
-@xr.register_dataarray_accessor('dabench')
+@xr.register_dataarray_accessor('dab')
 class DABenchDataArrayAccessor:
     """Helper methods for manipulating xarray DataArrays"""
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
 
-    def to_gridded(self):
+    def unflatten(self):
         return self._obj.to_unstacked_dataset('system')
 
     def split_train_val_test(self, split_lengths):
