@@ -26,11 +26,23 @@ We recommend setting up a virtual environment using either [conda](https://docs.
 
 ```bash
 git clone git@github.com:StevePny/DataAssimBench.git
+cd ./DataAssimBench
 ```
+
+#### Setup virtual environment
+1. In your cloned project directory, create a virtual environment
+
+    ```bash
+    python3 -m venv ./.venv
+    ```
+2. Activate the virtual environment
+
+    ```bash
+    source ./.venv/bin/activate
+    ```
 
 #### Install dabench
 ```bash
-cd ./DataAssimBench
 pip install -e ".[full]"
 ```
 
