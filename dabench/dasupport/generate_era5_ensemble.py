@@ -244,4 +244,5 @@ if __name__ == "__main__":
         sample_strategy=args.sample_strategy,
         start_date=args.start_date,
         ensemble_size=args.ensemble_size,
-        era5_path=args.e
+        era5_path=args.era5_path,
+    )
