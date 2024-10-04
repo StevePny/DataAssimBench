@@ -298,7 +298,7 @@ class Data():
 
             x, M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
             x_t2 = x.isel(time=-1).to_array().data.flatten()
-            M_t2 = M[-1]
+            M_t2 = M.isel(time=-1).data
 
             Q, R = jnp.linalg.qr(M_t2)
 
