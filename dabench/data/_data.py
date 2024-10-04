@@ -381,8 +381,19 @@ class Data():
         """
         if filepath is None:
             # Use importlib.resources to get the default netCDF from dabench
-            filepath = resources.files(_suppl_data).joinpath('era5_japan_slp.nc')
-        return xr.open_dataset(filepath, decode_coords='all', engine='scipy').as_numpy()
+            filepath = resources.files(_suppl_data).joinpath(
+                    'era5_japan_slp.nc')
+        ds = xr.open_dataset(
+                filepath, decode_coords='all', engine='scipy').as_numpy()
+        if dates_select is not None:
+            ds = ds.sel(time=dates_select)
+        if years_select is not None:
+            ds = ds.sel(time=years_select)
+        if include_vars is not None:
+            ds = ds[include_vars]
+        if exclude_vars is not None:
+            ds = ds[ds.data_vars[ds.data_vars == exclude_vars]]
+        return ds
 
     def save_netcdf(self, ds, filename):
         """Saves values in values attribute to netCDF file
