@@ -31,10 +31,7 @@ def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
     """
     if method == 'odeint':
         # Define timesteps
-        if jax_comps:
-            t = jnp.arange(0.0, t_final, delta_t)
-        else:
-            t = np.arange(0.0, t_final, delta_t)
+        t = np.arange(0.0, t_final - delta_t/2, delta_t)
         # If stride is defined, remove timesteps that are not on stride steps
         if stride is not None:
             assert stride > 1 and isinstance(stride, int), \
