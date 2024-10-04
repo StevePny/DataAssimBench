@@ -32,6 +32,11 @@ class DABenchDatasetAccessor:
         return self._obj.to_stacked_array('system', remaining_dim)
 
     def split_train_val_test(self, split_lengths):
+        if (np.array(split_lengths) > 1.0).sum() == 0:
+            # Assuming split_lengths is provided as fraction
+            split_lengths = np.round(
+                    np.array(split_lengths)*self._obj.sizes['time']
+                    ).astype(int)
         _check_split_lengths(self._obj, split_lengths)
         out_ds = []
         start_i = 0
@@ -51,6 +56,11 @@ class DABenchDataArrayAccessor:
         return self._obj.to_unstacked_dataset('system')
 
     def split_train_val_test(self, split_lengths):
+        if (np.array(split_lengths) > 1.0).sum() == 0:
+            # Assuming split_lengths is provided as fraction
+            split_lengths = np.round(
+                    np.array(split_lengths)*self._obj.sizes['time']
+                    ).astype(int)
         _check_split_lengths(self._obj, split_lengths)
         out_ds = []
         start_i = 0
