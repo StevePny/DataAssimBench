@@ -112,14 +112,17 @@ class GCP(_data.Data):
             # Subset by lon boundaries
             ds = ds.sel(longitude=slice(subset_min_lon, subset_max_lon))
 
-        self._import_xarray_ds(ds)
+        # Assign system dimension
+        ds = ds.assign_attrs(system_dim=ds.to_stacked_array('system',['time']).sizes['system'])
+
+        return ds
 
     def generate(self):
         """Alias for _load_gcp_era5"""
         warnings.warn('GCP.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from GCP...')
-        self._load_gcp_era5()
+        return self._load_gcp_era5()
 
     def load(self):
         """Alias for _load_gcp_era5"""
-        self._load_gcp_era5()
+        return self._load_gcp_era5()

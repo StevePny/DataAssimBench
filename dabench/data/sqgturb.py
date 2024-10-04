@@ -113,6 +113,10 @@ class SQGTurb(_data.Data):
                          values=values, times=times, delta_t=delta_t,
                          store_as_jax=store_as_jax, **kwargs)
 
+
+        self.coord_names = ['level','x','y']
+        self.var_names=['pv']
+
         # Fall back on default if no pv
         if pv is None:
             with resources.open_binary(
@@ -470,8 +474,8 @@ class SQGTurb(_data.Data):
         pvspec, values = jax.lax.scan(self._rk4, pvspec, xs=None,
                                       length=n_steps)
 
-        # Reshape to (time_dim, system_dim)
-        values = values.reshape((self.time_dim, -1))
+        # Apply reverse fft to 
+        values = self.ifft2(values)
 
         # Update internal states
         self.pvspec = pvspec

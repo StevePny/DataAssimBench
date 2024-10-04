@@ -330,6 +330,7 @@ class NeuralGCM(model.Model):
 
         return eval_data
 
+
     def flat_to_xarray(self, flat, xr_template):
         remap_dict = {}
         coords_order = ['time','level','longitude','latitude']
