@@ -352,8 +352,8 @@ class Data():
                                                    convergence=convergence)[-1]
 
     def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
-                    years_select=None, dates_select=None,
-                    lat_sorting='descending'):
+                    years_select=None, dates_select=None):
+                    
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
@@ -375,9 +375,6 @@ class Data():
                 indices in NetCDF. If both years_select and dates_select
                 are specified, time_stamps overwrites "years" argument. If
                 None, loads all timesteps.
-            lat_sorting (str): Orient data by latitude:
-                descending (default), ascending, or None (uses orientation
-                from data file).
         """
         if filepath is None:
             # Use importlib.resources to get the default netCDF from dabench
@@ -386,9 +383,31 @@ class Data():
         ds = xr.open_dataset(
                 filepath, decode_coords='all', engine='scipy').as_numpy()
         if dates_select is not None:
-            ds = ds.sel(time=dates_select)
+            dates_filter_indices = ds.time.dt.date.isin(dates_select)                                                                                                                                  
+            # First check to make sure the dates exist in the object
+            if dates_filter_indices.sum() == 0: 
+                raise ValueError('Dataset does not contain any of the dates'
+                                 ' specified in dates_select\n'
+                                 'dates_select = {}\n'
+                                 'NetCDF contains {}'.format(
+                                     dates_select,
+                                     np.unique(ds.time.dt.date)
+                                     )     
+                                )     
+            ds = ds.sel(time=dates_filter_indices)
         if years_select is not None:
-            ds = ds.sel(time=years_select)
+            year_filter_indices = ds.time.dt.year.isin(years_select)
+            # First check to make sure the years exist in the object
+            if year_filter_indices.sum() == 0: 
+                raise ValueError('Dataset does not contain any of the '
+                                    'years specified in years_select\n'
+                                    'years_select = {}\n'
+                                    'NetCDF contains {}'.format(
+                                        years_select,
+                                        np.unique(ds.time.dt.year)
+                                        )
+                                )
+            ds = ds.sel(time=year_filter_indices)
         if include_vars is not None:
             ds = ds[include_vars]
         if exclude_vars is not None:
