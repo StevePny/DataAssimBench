@@ -383,11 +383,6 @@ class Data():
             # Use importlib.resources to get the default netCDF from dabench
             filepath = resources.files(_suppl_data).joinpath('era5_japan_slp.nc')
         return xr.open_dataset(filepath, decode_coords='all', engine='scipy').as_numpy()
-            # self._import_xarray_ds(
-            #     ds, include_vars=include_vars,
-            #     exclude_vars=exclude_vars,
-            #     years_select=years_select, dates_select=dates_select,
-            #     lat_sorting=lat_sorting)
 
     def save_netcdf(self, ds, filename):
         """Saves values in values attribute to netCDF file
