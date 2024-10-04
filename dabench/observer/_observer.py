@@ -323,8 +323,10 @@ class Observer():
                                     size=errors_vec_size)
 
         # Include flag for whether observations are stationary or not
+        # Also include error_sd as an attribute
         obs_vec = obs_vec.assign_attrs(
-            stationary_observers=self.stationary_observers)
+            stationary_observers=self.stationary_observers,
+            error_sd=error_sd)
 
         # Clip errors to positive only
         if self.error_positive_only:
