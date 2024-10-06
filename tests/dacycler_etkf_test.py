@@ -34,14 +34,14 @@ def obs_vec_l96(l96_nature_run):
 
 @pytest.fixture
 def l96_fc_model():
-    model_l96 = dab.data.Lorenz96(system_dim=5, store_as_jax=True, delta_t=0.01)
+    model_l96 = dab.data.Lorenz96(system_dim=5, store_as_jax=True, delta_t=0.05)
 
     class L96Model(dab.model.Model):                                                                       
         """Defines model wrapper for Lorenz96 to test forecasting."""
         def forecast(self, state_vec, n_steps):
             new_vec = self.model_obj.generate(x0=state_vec['x'].data, n_steps=n_steps)
 
-            return new_vec.isel(time=-1), new_vec
+            return new_vec.isel(time=-1).assign_attrs(delta_t=0.01), new_vec
 
     return L96Model(model_obj=model_l96)
 
