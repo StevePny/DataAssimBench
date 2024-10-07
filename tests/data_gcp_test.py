@@ -54,7 +54,7 @@ def test_shapes_multivar(gcp_multivar):
     assert gcp_multivar.dab.flatten().shape == (2, 1118)
     assert gcp_multivar.sizes['time'] == 2 
     assert gcp_multivar.system_dim == 1118
-    assert gcp_multivar.to_array().shape == (2, 2, 48, 13, 43)
+    assert gcp_multivar.to_array().shape == (2, 2, 13, 43)
 
 
 def test_values_multivar(gcp_multivar):
