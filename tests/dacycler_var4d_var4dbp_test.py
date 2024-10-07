@@ -33,25 +33,25 @@ def obs_vec_l96(l96_nature_run):
 
 @pytest.fixture
 def l96_fc_model():
-    model_l96 = dab.data.Lorenz96(system_dim=6, store_as_jax=True, delta_t=0.05)
+    model_l96 = dab.data.Lorenz96(system_dim=6, store_as_jax=True, delta_t=0.01)
 
     class L96Model(dab.model.Model):                                                                       
         """Defines model wrapper for Lorenz96 to test forecasting."""
         def forecast(self, state_vec, n_steps):
             new_vec = self.model_obj.generate(x0=state_vec['x'].data, n_steps=n_steps)
 
-            return new_vec.isel(time=-1).assign_attrs(delta_t=0.01), new_vec
+            return new_vec.isel(time=-1), new_vec
 
         def compute_tlm(self, state_vec, n_steps):
             x, M  = self.model_obj.generate(n_steps=n_steps, x0=state_vec['x'].data,
                                             return_tlm=True)
-            return x.assign_attrs(delta_t=0.01), M
+            return x, M
 
     return L96Model(model_obj=model_l96)
 
 @pytest.fixture
 def var4d_cycler(l96_fc_model):
-    B = jnp.identity(6) #*0.05
+    B = jnp.identity(6)
     R = jnp.identity(3) * ((0.3*1.5)**2)
     dc = dab.dacycler.Var4D(
         system_dim=6,
@@ -109,14 +109,14 @@ def test_var4d_l96(l96_nature_run, obs_vec_l96, var4d_cycler):
     )
     # Check against presaved results
     assert jnp.allclose(
-        out_sv['x'].values[0,:], 
-        jnp.array([4.5784335 , 10.70937771,  3.97859892,  0.25609285, -1.89681598,
-                   -1.34747704])
+        out_sv['x'].values[0,:],
+        jnp.array([4.27467538,  9.83014683,  2.96253047,  2.88635649, -1.64625228,
+                   0.31892547])
     )
     assert jnp.allclose(
         out_sv['x'].values[-1,:],
-        jnp.array([-2.32329434,  2.66582733,  9.15941549,  0.26857937, -2.722864,
-                    1.24524834])
+        jnp.array([-0.06994288,  1.48006508,  6.08807623,  4.65273952,  1.09892658,
+                   -4.47113857])
     )
 
 def test_var4d_backprop_l96(l96_nature_run, obs_vec_l96, var4d_backprop_cycler):
@@ -145,11 +145,11 @@ def test_var4d_backprop_l96(l96_nature_run, obs_vec_l96, var4d_backprop_cycler):
     # Check against presaved results
     assert jnp.allclose(
         out_sv['x'].values[0,:], 
-        jnp.array([4.53548062, 9.00637144, 3.07940726, 3.24252952, -2.77042587,
-                   -2.01121753])
+        jnp.array([4.66568052,  8.93399413,  3.21968694,  3.12447287, -1.54934608,
+                   -0.2022133])
     )
     assert jnp.allclose(
         out_sv['x'].values[-1,:],
-        jnp.array([3.91514756,  6.5823489 , -1.60393758, -2.85701674, -0.5386405,
-                   0.11637277])
+        jnp.array([ 1.6213089 ,  3.05965355,  4.37068241,  4.70095984,  4.05523923,
+                   -5.03153997])
     )
