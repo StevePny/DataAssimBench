@@ -96,6 +96,9 @@ class Var4D(dacycler.DACycler):
                        ].set(1)
         return Hs
 
+    def _calc_default_R(self, obs_values, obs_error_sd):
+        return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
+
     def _calc_J_term(self, H, M, Rinv, y, x):
         # The Jb Term (A)
         HM = H @ M
