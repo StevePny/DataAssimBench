@@ -51,16 +51,12 @@ def l96_fc_model():
 
 @pytest.fixture
 def var4d_cycler(l96_fc_model):
-    B = jnp.identity(6)
-    R = jnp.identity(3) * ((0.3*1.5)**2)
     dc = dab.dacycler.Var4D(
         system_dim=6,
         delta_t=0.01,
         model_obj=l96_fc_model,
         obs_window_indices=[0,5, 10],
-        steps_per_window=11,
-        B=B,
-        R=R
+        steps_per_window=11
     )
     
     return dc
@@ -69,7 +65,6 @@ def var4d_cycler(l96_fc_model):
 @pytest.fixture
 def var4d_backprop_cycler(l96_fc_model):
     B = jnp.identity(6)*0.05
-    R = jnp.identity(3) * ((0.3*1.5)**2)
     dc = dab.dacycler.Var4DBackprop(
         system_dim=6,
         delta_t=0.01,
@@ -78,8 +73,7 @@ def var4d_backprop_cycler(l96_fc_model):
         steps_per_window=11,
         learning_rate=0.1,
         lr_decay=0.5,
-        B=B,
-        R=R
+        B=B
     )
     
     return dc
