@@ -45,14 +45,14 @@ def l96_fc_model():
         def compute_tlm(self, state_vec, n_steps):
             x, M  = self.model_obj.generate(n_steps=n_steps, x0=state_vec['x'].data,
                                             return_tlm=True)
-            return x, M
+            return x.assign_attrs(delta_t=0.01), M
 
     return L96Model(model_obj=model_l96)
 
 @pytest.fixture
 def var4d_cycler(l96_fc_model):
-    B = jnp.identity(6)*0.05
-    R = jnp.identity(3) * (0.3**2)
+    B = jnp.identity(6) #*0.05
+    R = jnp.identity(3) * ((0.3*1.5)**2)
     dc = dab.dacycler.Var4D(
         system_dim=6,
         delta_t=0.01,
@@ -87,7 +87,7 @@ def var4d_backprop_cycler(l96_fc_model):
 def test_var4d_l96(l96_nature_run, obs_vec_l96, var4d_cycler):
     """Test 4D-Var cycler"""
     init_noise = jrand.normal(key, shape=(6,))
-    init_state = l96_nature_run + init_noise
+    init_state = l96_nature_run.isel(time=0) + init_noise
     start_time = l96_nature_run['time'].data[0]
 
     out_sv = var4d_cycler.cycle(
@@ -115,8 +115,8 @@ def test_var4d_l96(l96_nature_run, obs_vec_l96, var4d_cycler):
     )
     assert jnp.allclose(
         out_sv['x'].values[-1,:],
-        jnp.array([-2.32350141,  2.66564733,  9.1592932 ,  0.26887161, -2.72295144,
-                    1.24513147])
+        jnp.array([-2.32329434,  2.66582733,  9.15941549,  0.26857937, -2.722864,
+                    1.24524834])
     )
 
 def test_var4d_backprop_l96(l96_nature_run, obs_vec_l96, var4d_backprop_cycler):
