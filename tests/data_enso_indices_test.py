@@ -11,9 +11,10 @@ def test_initialization():
     var_types = {'wnd': ['ori'],
                  'slp': ['ori', 'std']}
 
-    idx = ENSOIndices(file_dict, var_types)
+    ds = ENSOIndices(file_dict, var_types).load()
 
-    assert idx.values.shape[1] == 3
+    assert ds.system_dim == 3
+    assert ds.dab.flatten().shape[1] == ds.system_dim
 
 
 def test_values_wnd_slp():
@@ -23,12 +24,12 @@ def test_values_wnd_slp():
     var_types = {'wnd': ['ori'],
                  'slp': ['ori']}
 
-    idx = ENSOIndices(file_dict, var_types)
+    ds = ENSOIndices(file_dict, var_types).load().dab.flatten()
 
-    assert idx.values[0, 0] == 15.5
-    assert idx.values[13, 0] == 7.9
-    assert idx.values[0, 1] == 6.0
-    assert idx.values[50, 1] == 10.1
+    assert ds.data[0, 0] == 15.5
+    assert ds.data[13, 0] == 7.9
+    assert ds.data[0, 1] == 6.0
+    assert ds.data[50, 1] == 10.1
 
 
 def test_values_eqsoi():
@@ -37,13 +38,13 @@ def test_values_eqsoi():
     file_dict = {'eqsoi': ['rindo_slpa.for', 'reqsoi.3m.for']}
     var_types = {'eqsoi': ['std']}
 
-    idx = ENSOIndices(file_dict, var_types)
+    ds = ENSOIndices(file_dict, var_types).load().dab.flatten()
 
-    assert idx.values.shape[1] == 2
-    assert idx.values[0, 0] == -0.5
-    assert idx.values[13, 0] == -0.9
-    assert idx.values[0, 1] == -1.0
-    assert idx.values[60, 1] == 0.1
+    assert ds.shape[1] == 2
+    assert ds.data[0, 0] == -0.5
+    assert ds.data[13, 0] == -0.9
+    assert ds.data[0, 1] == -1.0
+    assert ds.data[60, 1] == 0.1
 
 
 def test_values_sst_rsst():
@@ -53,13 +54,13 @@ def test_values_sst_rsst():
     var_types = {'rsst': ['tr_ano', 'sa'],
                  'sst': ['nino12', 'nino34_ano']}
 
-    idx = ENSOIndices(file_dict, var_types)
+    ds = ENSOIndices(file_dict, var_types).load().dab.flatten()
 
-    assert idx.values.shape[1] == 4
-    assert idx.values[0, 0] == -0.20
-    assert idx.values[0, 1] == 25.26
-    assert idx.values[0, 2] == 24.30
-    assert idx.values[0, 3] == 0.13
+    assert ds.shape[1] == 4
+    assert ds.data[0, 0] == -0.20
+    assert ds.data[0, 1] == 25.26
+    assert ds.data[0, 2] == 24.30
+    assert ds.data[0, 3] == 0.13
 
 
 def test_shape_all():
@@ -92,9 +93,10 @@ def test_shape_all():
                       'olr': ['ori', 'ano', 'std'],
                       'cpolr': ['ano']}
 
-    idx = ENSOIndices(file_dict_full, var_types_full)
+    ds = ENSOIndices(file_dict_full, var_types_full).load()
 
-    assert idx.values.shape[1] == 60
+    assert ds.system_dim == 60
+    assert ds.dab.flatten().shape[1] == 60
 
 
 

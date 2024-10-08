@@ -10,7 +10,6 @@ from dabench.data import Lorenz96
 def lorenz96():
     """Defines class Lorenz96 object for rest of tests."""
     params = {'system_dim': 5,
-              'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
@@ -26,60 +25,56 @@ def lorenz96_lyaps(lorenz96):
 def test_initialization():
     """Tests the initialized size of class Lorenz96 after generation."""
     for i in range(1, 10):
-        params = {'system_dim': 5*i,
-                  'time_dim': 200*i
-                  }
+        params = {'system_dim': 5*i}
         lorenz96_1 = Lorenz96(**params)
 
         assert lorenz96_1.system_dim == 5*i
-        assert lorenz96_1.time_dim == 200*i
 
 
 def test_variable_sizes(lorenz96):
     """Test the variable sizes of class Lorenz96."""
     runtime = 1
-    lorenz96.generate(t_final=runtime)
+    traj = lorenz96.generate(t_final=runtime)
 
-    assert lorenz96.system_dim == 5
-    assert lorenz96.time_dim == runtime/lorenz96.delta_t
+    assert traj.system_dim == 5
+    assert traj.sizes['time'] == runtime/lorenz96.delta_t
+    assert traj.delta_t == lorenz96.delta_t
 
 
 def test_trajectory_shape():
     """Tests output shape is (runtime, sys_dim)."""
     params = {'system_dim': 20,
-              'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
     lorenz96_1 = Lorenz96(**params)
     runtime = 1
-    lorenz96_1.generate(t_final=runtime)
+    traj_1 = lorenz96_1.generate(t_final=runtime)
 
-    assert lorenz96_1.values.shape == (int(runtime/lorenz96_1.delta_t),
+    assert traj_1.to_array().shape == (1,
+                                       int(runtime/lorenz96_1.delta_t),
                                        lorenz96_1.system_dim)
 
 
 def test_trajectories_equal():
     """Tests if two trajectories are the same with same initial conditions."""
     params = {'system_dim': 6,
-              'time_dim': 1000,
               'forcing_term': 10.0,
               'delta_t': 0.001
               }
     lorenz96_1 = Lorenz96(**params)
     lorenz96_2 = Lorenz96(**params)
     runtime = 1
-    lorenz96_1.generate(t_final=runtime)
-    lorenz96_2.generate(t_final=runtime)
+    traj1 = lorenz96_1.generate(t_final=runtime)
+    traj2 = lorenz96_2.generate(t_final=runtime)
 
-    assert np.allclose(lorenz96_1.values, lorenz96_2.values, rtol=1e-5,
+    assert np.allclose(traj1.to_array().data, traj2.to_array().data, rtol=1e-5,
                        atol=0)
 
 
 def test_trajectories_notequal():
     """Tests if two trajectories are the same with same initial conditions."""
     params = {'system_dim': 6,
-              'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.01
               }
@@ -89,10 +84,10 @@ def test_trajectories_notequal():
                                        -3.11392061, 3.52697510]),
                           **params)
     runtime = 1
-    lorenz96_1.generate(t_final=runtime)
-    lorenz96_2.generate(t_final=runtime)
+    traj1 = lorenz96_1.generate(t_final=runtime)
+    traj2 = lorenz96_2.generate(t_final=runtime)
 
-    assert not np.allclose(lorenz96_1.values, lorenz96_2.values, rtol=1e-5,
+    assert not np.allclose(traj1.to_array().data, traj2.to_array().data, rtol=1e-5,
                            atol=0)
 
 
@@ -101,9 +96,9 @@ def test_trajectory_changes(lorenz96):
     runtime = 1
     initial_conditions = np.array([7.97355787, 7.97897913, 8.00370696,
                                    7.98444298, 7.97446945])
-    lorenz96.generate(t_final=runtime)
+    traj1 = lorenz96.generate(t_final=runtime, x0 = initial_conditions)
 
-    assert not np.allclose(lorenz96.values[-1], initial_conditions)
+    assert not np.allclose(traj1.isel(time=-1)['x'].data, initial_conditions)
 
 
 def test_generate_saved_results():
@@ -112,7 +107,6 @@ def test_generate_saved_results():
     x0 = 8.0 * np.ones(5)
     x0[2] = x0[2]+0.01
     params = {'system_dim': 5,
-              'time_dim': 1000,
               'forcing_term': 8.0,
               'delta_t': 0.001,
               'x0': x0
@@ -120,7 +114,7 @@ def test_generate_saved_results():
 
     # Generate data
     lorenz96_1 = Lorenz96(**params)
-    lorenz96_1.generate(t_final=10, x0=x0)
+    traj = lorenz96_1.generate(t_final=10, x0=x0)
 
     # Previously generated results with these params and initial conditions
     y_true = np.array(
@@ -135,7 +129,7 @@ def test_generate_saved_results():
              [-5.27402622, -1.10262156, -0.53270967,  7.58069989,  2.84768712],
              [ 4.73878926,  6.27758562, -2.10858776,  3.26147038,  3.168998  ]])
 
-    y_simulated = lorenz96_1.values[::1000]
+    y_simulated = traj['x'].values[::1000]
     assert y_simulated.shape == y_true.shape
     assert np.allclose(y_simulated, y_true, rtol=0.01, atol=0)
     assert np.allclose(np.sum(y_simulated), np.sum(y_true), rtol=1e-3,

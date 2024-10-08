@@ -6,6 +6,8 @@ Requires qgs: https://qgs.readthedocs.io/
 import logging
 import numpy as np
 from copy import deepcopy
+import xarray as xr
+import jax.numpy as jnp
 from dabench.data._utils import integrate
 
 from dabench.data import _data
@@ -227,26 +229,65 @@ class QGS(_data.Data):
                              jax_comps=self.store_as_jax,
                              **kwargs)
 
-        # The generate method specifically stores data in the object,
-        # as opposed to the forecast method, which does not.
-        # Store values and times as part of data object
-        self.values = y[:, :self.system_dim]
-        self.times = t
-        self.time_dim = len(t)
+        # Convert to JAX if necessary
+        self.time_dim = t.shape[0]
+        out_dim = (self.time_dim,) + self.original_dim
+        if self.store_as_jax:
+            y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
+        else:
+            y_out = np.array(y[:,:self.system_dim].reshape(out_dim))
+        # Build Xarray object for output
+        coord_dict = dict(zip(
+            ['time'] + self.coord_names,
+            [t] + [np.arange(dim) for dim in self.original_dim]
+        ))
+        out_vec = xr.Dataset(
+            {self.var_names[0]: (coord_dict.keys(),y_out)},
+            coords=coord_dict,
+            attrs={'store_as_jax':self.store_as_jax,
+                   'system_dim': self.system_dim,
+                   'delta_t': self.delta_t
+            }
+        )
 
         # Return the data series and associated TLMs if requested
         if return_tlm:
             # Reshape M matrix
-            M = np.reshape(y[:, self.system_dim:],
-                           (self.time_dim,
-                            self.system_dim,
-                            self.system_dim)
-                           )
-
             if self.store_as_jax:
-                return M
+                M = jnp.reshape(y[:, self.system_dim:],
+                                (self.time_dim,
+                                self.system_dim,
+                                self.system_dim)
+                                )
             else:
-                return np.array(M)
+                M = np.reshape(y[:, self.system_dim:],
+                                (self.time_dim,
+                                self.system_dim,
+                                self.system_dim)
+                                )
+            M = xr.DataArray(
+                M, dims=('time','system_0','system_n')
+            )
+            return out_vec, M
+        else:
+            return out_vec
+        # self.values = y[:, :self.system_dim]
+        # self.times = t
+        # self.time_dim = len(t)
+
+        # # Return the data series and associated TLMs if requested
+        # if return_tlm:
+        #     # Reshape M matrix
+        #     M = np.reshape(y[:, self.system_dim:],
+        #                    (self.time_dim,
+        #                     self.system_dim,
+        #                     self.system_dim)
+        #                    )
+
+        #     if self.store_as_jax:
+        #         return M
+        #     else:
+        #         return np.array(M)
 
     def rhs_aux(self, x, t):
         """The auxiliary model used to compute the TLM.
@@ -340,9 +381,9 @@ class QGS(_data.Data):
         # Loop over rescale time periods
         for i, (t1, t2) in enumerate(zip(times[:-1], times[1:])):
 
-            M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
-            x_t2 = self.values[-1]
-            M_t2 = M[-1]
+            traj, M = self.generate(t_final=t2-t1, x0=x0, M0=M0, return_tlm=True)
+            x_t2 = traj.isel(time=-1).to_array().data.flatten()
+            M_t2 = M.isel(time=-1).data
 
             Q, R = np.linalg.qr(M_t2)
 

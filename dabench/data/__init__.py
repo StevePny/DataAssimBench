@@ -9,6 +9,7 @@ from .pyqg_jax import PyQGJax
 from .barotropic import Barotropic
 from .enso_indices import ENSOIndices
 from .qgs import QGS
+from ._xarray_accessor import DABenchDatasetAccessor, DABenchDataArrayAccessor
 
 __all__ = [
     'Data',

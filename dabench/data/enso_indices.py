@@ -7,6 +7,7 @@ import warnings
 import jax.numpy as jnp
 import numpy as np
 import textwrap
+import xarray as xr
 
 from dabench.data import _data
 
@@ -57,9 +58,19 @@ class ENSOIndices(_data.Data):
 
         """Initialize ENSOIndices object, subclass of Base"""
 
+        self.file_dict = file_dict
+        self.var_types = var_types
         super().__init__(system_dim=system_dim, time_dim=time_dim,
                          values=None, delta_t=None, **kwargs,
                          store_as_jax=store_as_jax)
+    
+    def generate(self):
+        """Alias for _load_gcp_era5"""
+        warnings.warn('ENSOIndices.generate() is an alias for the load() method. '
+                      'Proceeding with downloading ENSO Indices data...')
+        return self.load()
+
+    def load(self):
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml
@@ -97,13 +108,13 @@ class ENSOIndices(_data.Data):
                           'cpolr': ['ano']}
 
         # Default if file_dict is None
-        if file_dict is None:
-            file_dict = {'wnd': ['zwnd200'],
+        if self.file_dict is None:
+            self.file_dict = {'wnd': ['zwnd200'],
                          'slp': ['darwin']}
 
         # Defaults if var_types in None
-        if var_types is None:
-            var_types = {'wnd': ['ori'],
+        if self.var_types is None:
+            self.var_types = {'wnd': ['ori'],
                          'slp': ['ori'],
                          'soi': ['ano'],
                          'soi3m': ['ori'],
@@ -117,36 +128,36 @@ class ENSOIndices(_data.Data):
         all_years = {}
         all_vals = {}
         # Loop over variable types
-        for var in file_dict:
+        for var in self.file_dict:
             # Loop over file names within variable types
-            for file_name in file_dict[var]:
+            for file_name in self.file_dict[var]:
                 all_vals, all_years = self._download_cpc_vals(
-                        file_name, var, var_types, var_types_full,
+                        file_name, var, self.var_types, var_types_full,
                         all_vals, all_years)
 
         # Combine all variable values and years
-        common_vals, common_years, names = self._combine_vals_years(
+        common_vals, common_years = self._combine_vals_years(
             all_vals, all_years)
 
         # Transpose vals to fit (time_dim, system_dim) convention of dabench
-        self.values = common_vals.T
-        self.x0 = self.values[0]
-        self.times = common_years
-        self.names = names
+        ds = xr.Dataset(
+            {k: ('time', v) for k,v in common_vals.items()},
+            coords={'time':common_years}
+            )
+        ds = ds.assign_attrs(system_dim=ds.dab.flatten().shape[1])
         logging.debug('ENSOIndices.__init__: system dim x time dim: %s x %s',
-                      len(names), len(self.times))
+                      ds.system_dim, ds.sizes['time'])
 
         # Set system_dim
-        if system_dim is None:
-            self.system_dim = len(names)
-        elif system_dim != len(names):
+        if self.system_dim is None:
+            self.system_dim = ds.system_dim
+        elif self.system_dim != ds.system_dim:
             warnings.warn('ENSOIndices.__init__: provided system_dim is '
-                          '{}, but setting to len(names) = {}.'.format(
-                              system_dim, len(names))
-                          )
-            self.system_dim = len(names)
-        self.time_dim = self.times.shape[0]
-        self.original_dim = (self.system_dim,)
+                          '{}, but setting to # of download vars = {}.'.format(
+                              self.system_dim, ds.system_dim))
+            self.system_dim = ds.system_dim
+
+        return ds
 
     def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
                            all_vals, all_years):
@@ -268,21 +279,16 @@ class ENSOIndices(_data.Data):
             common_years = jnp.intersect1d(common_years, valid_years)
 
         # Concatenate values between variables
-        common_vals = []
+        common_vals = {}
         for v in all_vals:
             # Remove duplicate years
             _, indices = jnp.unique(all_years[v], return_index=True)
             all_vals[v] = all_vals[v][np.sort(indices)]
             all_years[v] = all_years[v][np.sort(indices)]
             # Append common_vals
-            common_vals.append(all_vals[v][jnp.isin(all_years[v],
-                                                    common_years)])
-        for f in common_vals:
-            print(f.shape)
-        common_vals = jnp.array(common_vals)
-        names = list(all_vals.keys())
-
-        return common_vals, common_years, names
+            common_vals[v] = all_vals[v][jnp.isin(all_years[v],
+                                                  common_years)]
+        return common_vals, common_years
 
     def _get_vals(self, tmp, n_header):
         """Parses text lines from files of most data types

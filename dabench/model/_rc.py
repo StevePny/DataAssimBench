@@ -7,6 +7,7 @@ import pickle
 from scipy import sparse, stats, linalg
 import numpy as np
 import jax.numpy as jnp
+import xarray as xr
 
 from dabench import vector, model
 
@@ -167,7 +168,7 @@ class RCModel(model.Model):
         self.states = None
         self.Adense = A.asformat('array') if self.sparse_adj_matrix else A
 
-    def generate(self, u, A=None, Win=None, r0=None, save_states=False):
+    def generate(self, state_vec, A=None, Win=None, r0=None):
         """generate reservoir time series from input signal u
         Args:
             u (array_like): (time_dimension, system_dimension), input signal to
@@ -183,6 +184,7 @@ class RCModel(model.Model):
         Returns:
             r (array_like): (time_dim, reservoir_dim), reservoir state
         """
+        u = state_vec.to_stacked_array('system',['time']).data
         r = np.zeros((u.shape[0], self.reservoir_dim))
 
         if r0 is not None:
@@ -194,11 +196,10 @@ class RCModel(model.Model):
         for t in range(0, u.shape[0]):
             r[t, :] = self.update(r[t - 1], u[t - 1, :], A, Win)
 
-        if save_states:
-            self.states = r
-            self.s_last = r[-1]
-        else:
-            return r
+        return xr.Dataset(
+            {'r': (('time', 'reservoir'), r)},
+            coords={'time':state_vec.time}
+        )
 
     def update(self, r, u, A=None, Win=None):
         """Update reservoir state with input signal and previous state
@@ -379,10 +380,9 @@ class RCModel(model.Model):
             Wout (array_like): Trained output weight matrix
         """
 
-        if self.states is None:
-            self.generate(data_obj.values, save_states=True)
-        r = self.states[:, :]
-        u = data_obj.values[:, :]
+        r = self.generate(data_obj)['r'].data
+        # u = data_obj.to_array().transpose(..., 'variable').data.reshape(data_obj.sizes['time'], -1)
+        u = data_obj.to_array().stack(system=['variable','i']).data
         self.Wout = self._compute_Wout(r, u, update_Wout=update_Wout, u=u.T)
 
     def _compute_Wout(self, rt, y, update_Wout=True, u=None):
@@ -480,21 +480,23 @@ class RCModel(model.Model):
 
     def forecast(self, state_vec, n_steps=1):
         if n_steps == 1:
-            new_vals = self.update(state_vec.values,
-                                   self.readout(state_vec.values))
-            new_vec = vector.StateVector(values=new_vals, store_as_jax=True)
-
+            new_vals = self.update(state_vec['r'].data,
+                                   self.readout(state_vec['r'].data))
+            new_vec = xr.Dataset(
+                {'r':(('time','reservoir'), new_vals)}
+            )
         else:
-            r = state_vec.values
+            r = state_vec['r'].data
             r_full = jnp.zeros((n_steps, self.reservoir_dim))
             for i in range(n_steps):
                 r_full = r_full.at[i].set(r)
                 if i < n_steps-1:
                     r = self.update(r, self.readout(r))
 
-            new_vec = vector.StateVector(values=r_full, store_as_jax=True)
-
-        return new_vec
+            new_vec = xr.Dataset(
+                {'r':(('time','reservoir'), r_full)}
+            )
+        return new_vec.isel(time=-1), new_vec.drop_isel(time=-1)
 
     def save_weights(self, pkl_path):
         """Save RC reservoir weights as pkl file.

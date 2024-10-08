@@ -29,10 +29,10 @@ def test_initialization(lorenz):
 def test_variable_sizes(lorenz):
     """Test the variable sizes of class Lorenz63."""
     runtime = 1
-    lorenz.generate(t_final=runtime)
+    l_traj = lorenz.generate(t_final=runtime)
 
-    assert lorenz.system_dim == 3
-    assert lorenz.time_dim == runtime/lorenz.delta_t
+    assert l_traj.system_dim == 3
+    assert l_traj.sizes['time'] == runtime/lorenz.delta_t
 
 
 def test_trajectories_equal(lorenz):
@@ -40,10 +40,10 @@ def test_trajectories_equal(lorenz):
     params = {'system_dimension': 3}
     lorenz2 = Lorenz63(**params)
     runtime = 1
-    lorenz.generate(t_final=runtime)
-    lorenz2.generate(t_final=runtime)
+    l_traj = lorenz.generate(t_final=runtime)
+    l2_traj = lorenz2.generate(t_final=runtime)
 
-    assert np.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
+    assert np.allclose(l_traj.to_array().values, l2_traj.to_array().values, rtol=1e-5, atol=0)
 
 
 def test_trajectories_notequal(lorenz):
@@ -51,37 +51,37 @@ def test_trajectories_notequal(lorenz):
     params = {'system_dimension': 3}
     lorenz2 = Lorenz63(**params)
     runtime = 1
-    lorenz.generate(t_final=runtime)
-    lorenz2.generate(t_final=runtime,
+    l_traj = lorenz.generate(t_final=runtime)
+    l2_traj = lorenz2.generate(t_final=runtime,
                      x0=np.array([-2.2, -2.2, 19.1]))
 
-    assert not np.allclose(lorenz.values, lorenz2.values, rtol=1e-5, atol=0)
+    assert not np.allclose(l_traj.to_array().values, l2_traj.to_array().values, rtol=1e-5, atol=0)
 
 
 def test_trajectory_changes(lorenz):
     """Tests that last time step in trajectory is different from initial state"""
     runtime = 1
-    lorenz.generate(t_final=runtime,
+    l_traj = lorenz.generate(t_final=runtime,
                     x0=np.array([-2.2, -2.2, 19.1]))
 
-    assert not np.allclose(lorenz.values[-1],  np.array([-2.2, -2.2, 19.1]))
+    assert not np.allclose(l_traj.to_array().values[-1],  np.array([-2.2, -2.2, 19.1]))
 
 
 def test_trajectory_shape(lorenz):
     """Tests output shape is (time_dim, system_dim)."""
     # Typical Lorenz63 setup
     runtime = 1
-    lorenz.generate(t_final=runtime)
+    l_traj = lorenz.generate(t_final=runtime)
 
-    assert lorenz.values.shape == (lorenz.time_dim, lorenz.system_dim)
+    assert l_traj.to_array().values.shape == (1,  l_traj.sizes['time'], l_traj.system_dim)
 
 
 def test_return_tlm_shape(lorenz):
     """Tests that tlm shape is (time_dim, system_dim, system_dim)"""
     runtime = 1
-    tlm = lorenz.generate(t_final=runtime, return_tlm=True)
-    assert tlm.shape == (lorenz.time_dim, lorenz.system_dim,
-                         lorenz.system_dim)
+    l_traj, tlm = lorenz.generate(t_final=runtime, return_tlm=True)
+    assert tlm.shape == (l_traj.sizes['time'], l_traj.system_dim,
+                         l_traj.system_dim)
 
 
 def test_lyapunov_exponents(lorenz, lorenz_lyaps):
