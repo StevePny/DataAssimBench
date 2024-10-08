@@ -1,6 +1,7 @@
 """Tests for Observer class (dabench.observer._observer)"""
 
 import pytest
+import xarray as xr
 import numpy as np
 import jax.numpy as jnp
 
@@ -10,68 +11,69 @@ from dabench import observer, data, vector
 def test_obs_l63():
     """Tests observer for Lorenz63"""
     l63 = data.Lorenz63()
-    l63.generate(n_steps=10)
-
+    
+    ds = l63.generate(n_steps=10)
     obs = observer.Observer(
-            l63,
+            ds,
             random_time_density=0.5,
             random_location_density=0.5,
-            error_sd=0.7)
+            error_sd=0.7,
+            random_seed=99)
+
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 8
-    assert obs_vec.num_obs == 8
-    assert obs_vec.times.shape[0] == 8
-    assert obs_vec.time_indices.shape[0] == 8
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(1, 8))
-    assert np.array_equal(obs_vec.location_indices,
-                          np.repeat(0, 8).reshape((8, 1)))
-    assert obs_vec.values[0, 0] == pytest.approx(
-            l63.values[0, 0] + obs_vec.errors[0, 0])
-    assert np.allclose(obs_vec.values, np.array([
-        [-9.81589654], [-10.26987252], [-10.33960451], [-12.08917307],
-        [-11.96410835], [-12.08793537], [-13.37283807], [-12.98607508]]))
-    assert np.allclose(obs_vec.errors, np.array([
-        [0.18410346], [0.22996249], [0.65467059], [-0.6143291],
-        [-0.03212726], [0.26731022], [-0.31677728], [0.50516542]]))
-    assert np.array_equal(obs_vec.times, np.array(
+    assert obs_vec['x'].values.shape[0] == 8
+    assert obs_vec['time'].shape[0] == 8
+    assert np.array_equal(obs_vec['system_index'].values,
+                          np.repeat(1, 8).reshape((1, 8, 1)))
+    assert obs_vec['x'].values[0, 0] == pytest.approx(
+            ds['x'].values[0, 1] + obs_vec.errors[0, 0, 0])
+    assert np.allclose(obs_vec['x'].values, np.array([
+        [-14.77003751], [-14.82969835], [-16.49873315], [-16.21225914],
+        [-16.08467213], [-16.69890358], [-15.45879053], [-15.12257015]]
+        )
+    )
+    assert np.allclose(obs_vec['errors'].values, np.array([[
+        [ 0.22996249], [ 0.65467059], [-0.6143291 ], [-0.03212726],
+        [ 0.26731022], [-0.31677728], [ 0.50516542], [-0.24651439]]]
+        )
+    )
+    assert np.array_equal(obs_vec['time'].values, np.array(
         [0., 0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.09]))
+
 
 
 def test_obs_l63_count():
     """Tests observer for Lorenz63 using random_[time/location]_count"""
     l63 = data.Lorenz63()
-    l63.generate(n_steps=10)
+    ds = l63.generate(n_steps=10)
 
     obs = observer.Observer(
-            l63,
+            ds,
             random_time_count=5,
             random_location_count=2,
             error_sd=0.7)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 5
-    assert obs_vec.num_obs == 5
-    assert obs_vec.times.shape[0] == 5
-    assert obs_vec.time_indices.shape[0] == 5
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(2, 5))
-    assert np.array_equal(obs_vec.location_indices,
-                          np.tile([1, 2], 5).reshape((5, 2)))
-    assert obs_vec.values[0, 0] == pytest.approx(
-            l63.values[1, 1] + obs_vec.errors[0, 0])
-    assert np.allclose(obs_vec.values, np.array([
+    assert obs_vec['x'].shape[0] == 5
+    assert obs_vec['time'].shape[0] == 5
+    assert np.array_equal(obs_vec['system_index'],
+                          np.tile([1, 2], 5).reshape((1, 5, 2)))
+    assert obs_vec['x'].values[0, 0] == pytest.approx(
+            ds['x'].values[1, 1] + obs_vec['errors'].values[0, 0, 0])
+    assert np.allclose(obs_vec['x'].values, np.array([
         [-16.71412359,  23.46140116],
         [-16.5006219,  24.10746168],
         [-17.11500315,  27.69793923],
         [-15.78352562,  29.22759993],
         [-14.87744996,  31.11579368]]))
-    assert np.allclose(obs_vec.errors, np.array([
+    assert np.allclose(obs_vec['errors'].values[0], np.array([
         [-1.22975335,  1.17910212],
         [-0.32048999, -0.41749407],
         [-0.73287729,  0.65225442],
         [0.47248634,  0.87110884],
         [0.6251612,  0.18410346]]))
-    assert np.array_equal(obs_vec.times, np.array(
+    assert np.array_equal(obs_vec['time'], np.array(
         [0.01, 0.03, 0.05, 0.06, 0.08]))
 
 
@@ -79,123 +81,107 @@ def test_obs_l63_diffseed():
     """Tests observer for Lorenz63 with different seed and no errors"""
 
     l63 = data.Lorenz63()
-    l63.generate(n_steps=10)
+    ds = l63.generate(n_steps=10)
 
     obs = observer.Observer(
-            l63,
+            ds,
             random_time_density=0.5,
             random_location_density=0.5,
             error_sd=0.0,
             random_seed=1)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 5
-    assert obs_vec.num_obs == 5
-    assert obs_vec.times.shape[0] == 5
-    assert obs_vec.time_indices.shape[0] == 5
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(2, 5))
-    assert np.array_equal(obs_vec.location_indices,
-                          np.tile([0, 1], 5).reshape((5, 2)))
-    assert obs_vec.values[0, 0] == l63.values[0, 0]
-    assert np.allclose(obs_vec.values,
-                       np.array([[-10., -15.],
-                                 [-10.49983501, -15.48437023],
-                                 [-11.47484398, -16.18013191],
-                                 [-12.73363876, -16.25601196],
-                                 [-13.31179237, -15.50261116]])
-                       )
-    assert np.array_equal(obs_vec.times,
+    assert obs_vec['x'].values.shape[0] == 5
+    assert obs_vec['time'].shape[0] == 5
+    assert np.array_equal(obs_vec['system_index'],
+                          np.tile([0, 2], 5).reshape((1, 5, 2)))
+    assert obs_vec['x'].values[0, 0] == ds['x'].values[0, 0]
+    assert np.allclose(obs_vec['x'].values,
+                       ds.sel(time=obs_vec['time'].values, index=[0,2]
+                              )['x'].values)
+    assert np.array_equal(obs_vec['time'],
                           np.array([0., 0.01, 0.03, 0.06, 0.08]))
-    assert np.array_equal(obs_vec.errors,
-                          np.repeat(0, 10).reshape(5, 2))
+    assert np.array_equal(obs_vec['errors'],
+                          np.repeat(0, 10).reshape(1, 5, 2))
 
 
 def test_obs_l63_specific_locs():
     """Tests observer for Lorenz63 with user-specified loations and times"""
 
     l63 = data.Lorenz63()
-    l63.generate(n_steps=10)
+    ds = l63.generate(n_steps=10)
 
     obs = observer.Observer(
-            l63,
-            location_indices=[2],
-            time_indices=[4, 9],
+            ds,
+            locations={'index':xr.DataArray([2],dims='observations')},
+            times=ds['time'].values[[4, 9]],
             error_sd=1.0)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 2
-    assert obs_vec.num_obs == 2
-    assert obs_vec.times.shape[0] == 2
-    assert obs_vec.time_indices.shape[0] == 2
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(1, 2))
-    assert np.array_equal(obs_vec.location_indices,
-                          np.repeat(2, 2).reshape((2, 1)))
-    assert np.allclose(obs_vec.values - obs_vec.errors,
-                       np.array([[l63.values[4, 2]], [l63.values[9, 2]]]))
-    assert np.array_equal(obs_vec.times,
+    assert obs_vec['x'].shape[0] == 2
+    assert obs_vec['time'].shape[0] == 2
+    assert np.array_equal(obs_vec['system_index'],
+                          np.repeat(2, 2).reshape((1, 2, 1)))
+    assert np.allclose(obs_vec['x'].values - obs_vec['errors'].values,
+                       np.array([[ds['x'].values[4, 2]], [ds['x'].values[9, 2]]]))
+    assert np.array_equal(obs_vec['time'],
                           np.array([0.04, 0.09]))
-    assert np.allclose(obs_vec.errors,
+    assert np.allclose(obs_vec['errors'],
                        np.array([[0.0824943], [-0.46441841]]))
 
 
 def test_obs_l96():
     """Tests observer for Lorenz96"""
     l96 = data.Lorenz96()
-    l96.generate(n_steps=10)
+    ds = l96.generate(n_steps=10)
 
     obs = observer.Observer(
-            l96,
+            ds,
             random_time_density=0.4,
             random_location_density=0.2,
             error_sd=0.7)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 3
-    assert obs_vec.num_obs == 3
-    assert obs_vec.times.shape[0] == 3
-    assert obs_vec.time_indices.shape[0] == 3
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(4, 3))
-    assert np.array_equal(obs_vec.location_indices,
-                          np.tile([0, 6, 13, 29], 3).reshape((3, 4)))
-    assert obs_vec.values[0, 0] == pytest.approx(
-            l96.values[3, 0] + obs_vec.errors[0, 0])
-    assert np.allclose(obs_vec.values[0],
-                       np.array([1.58251908, 1.87502525,
-                                 0.48098366, -1.89712787]))
-    assert np.allclose(obs_vec.errors[0],
-                       np.array([-0.27202828,  0.48749677,
-                                 0.5913821, -0.22663247]))
-    assert np.allclose(obs_vec.times, np.array([0.15, 0.2, 0.45]))
+    assert obs_vec['x'].shape[0] == 3
+    assert obs_vec['time'].shape[0] == 3
+    assert np.array_equal(obs_vec['system_index'].values,
+                          np.tile([16, 9, 31, 32], 3).reshape((1, 3, 4)))
+    assert obs_vec['x'].values[0, 0] == pytest.approx(
+            ds['x'].values[3, 16] + obs_vec['errors'].values[0, 0, 0])
+    assert np.allclose(obs_vec['x'].values[0],
+                       np.array([6.09641725, 2.80249778,
+                                 2.8026745 , 6.91684992]))
+    assert np.allclose(obs_vec['errors'].values[0,0],
+                       np.array([ 0.5913821 , -0.22663247,
+                                 0.00787655, -0.29022197]))
+    assert np.allclose(obs_vec['time'], np.array([0.15, 0.2, 0.45]))
 
 
 def test_obs_l96_moving():
     """Tests non-stationary observer for Lorenz96"""
     l96 = data.Lorenz96()
-    l96.generate(n_steps=10)
+    ds = l96.generate(n_steps=10)
 
     obs = observer.Observer(
-            l96,
+            ds,
             random_time_density=0.4,
             random_location_density=0.3,
             error_sd=1.2,
             stationary_observers=False)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 3
-    assert obs_vec.num_obs == 3
-    assert obs_vec.times.shape[0] == 3
-    assert obs_vec.time_indices.shape[0] == 3
-    assert np.array_equal(obs_vec.obs_dims, np.array([8, 12, 12]))
-    assert obs_vec.location_indices[1][-1] == 32
-    assert obs_vec.values[0][0] == pytest.approx(
-            l96.values[3, 0] + obs_vec.errors[0][0])
-    assert obs_vec.values[2][5] == pytest.approx(2.220523949148202)
-    assert obs_vec.errors[1][4] == pytest.approx(0.3215829246757838)
-    assert np.allclose(obs_vec.times, np.array([0.15, 0.2, 0.45]))
+    assert obs_vec['x'].shape == (3, 12)
+    assert obs_vec['time'].shape[0] == 3
+    assert obs_vec['system_index'].values[0, 2, -1] == 32
+    assert obs_vec['x'].values[0, 0] == pytest.approx(
+            ds['x'].values[3, 10] + obs_vec['errors'].values[0, 0, 0])
+    assert obs_vec['x'].values[2, 5] == pytest.approx(0.010236507277464613)
+    assert obs_vec['errors'].values[0, 1, 4] == pytest.approx(-0.7470301078422978)
+    assert np.allclose(obs_vec['time'], np.array([0.15, 0.2, 0.45]))
 
 
 def test_obs_pyqg():
-    """Tests observer for PyQG"""
+    """Tests observer for PyQG, NOTE: skipping while pyqg is broken"""
     pytest.importorskip("pyqg")
 
     pyqg = data.PyQG()
@@ -225,54 +211,51 @@ def test_obs_pyqg():
 
 def test_obs_gcp():
     """Tests observer for GCP downloaded ERA5 data"""
-    gcp = data.GCP(date_start='2010-01-01', date_end='2010-01-03')
-    gcp.load()
+    gcp = data.GCP(date_start='2010-01-01',
+                   date_end='2010-01-01')
+    ds = gcp.load()
 
     obs = observer.Observer(
-        gcp,
-        random_time_count=10,
+        ds,
+        random_time_count=3,
         random_location_count=50,
         error_sd=0.0,
         error_bias=5.)
     obs_vec = obs.observe()
+    obs_vec_flat = obs_vec.drop_dims('variable').dab.flatten()
 
-    assert obs_vec.values.shape[0] == 10
-    assert obs_vec.num_obs == 10
-    assert obs_vec.times.shape[0] == 10
-    assert obs_vec.time_indices.shape[0] == 10
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(50, 10))
-    assert obs_vec.location_indices[0, 0] == 159
-    assert obs_vec.values[0, 0] == pytest.approx(
-            gcp.values[11, 159] + 5)
-    assert obs_vec.values[8, 42] == pytest.approx(303.95828)
-    assert np.array_equal(obs_vec.errors,
-                          np.repeat(5, 10*50).reshape(10, 50))
-    assert obs_vec.times[1] == np.datetime64('2010-01-02T08:00:00.000000000')
+    assert obs_vec_flat.shape == (3, 50)
+    assert obs_vec['time'].shape[0] == 3
+    assert obs_vec['system_index'].values[0, 0, 0] == 326
+    assert obs_vec_flat.values[0, 0] == pytest.approx(
+            ds.sel(time=obs_vec_flat['time'][0]
+                   ).drop_vars('time').dab.flatten().values[326]
+            + 5)
+    assert obs_vec_flat[2, 42].values == pytest.approx(304.60122681)
+    assert np.array_equal(obs_vec['errors'],
+                          np.repeat(5, 3*50).reshape(1, 3, 50))
+    assert obs_vec['time'][1] == np.datetime64('2010-01-01T18:00:00.000000000')
 
 
 def test_obs_sqgturb():
     """Tests observer for SQGTurb"""
     sqg = data.SQGTurb()
-    sqg.generate(n_steps=10)
+    ds = sqg.generate(n_steps=10)
 
     obs = observer.Observer(
-        sqg,
+        ds,
         random_time_density=0.3,
         random_location_density=0.01,
         error_sd=25.)
     obs_vec = obs.observe()
 
-    assert obs_vec.values.shape[0] == 2
-    assert obs_vec.num_obs == 2
-    assert obs_vec.times.shape[0] == 2
-    assert obs_vec.time_indices.shape[0] == 2
-    assert np.array_equal(obs_vec.obs_dims, np.repeat(204, 2))
-    assert np.array_equal(obs_vec.location_indices[0, 0],
-                          np.array([0, 0, 61]))
-    assert obs_vec.values[1, 123] == pytest.approx(
-            (sqg.values_gridded[obs_vec.time_indices[1]][
-                tuple(obs_vec.location_indices[1, 123])]
-             + obs_vec.errors[1, 123]))
-    assert obs_vec.values[0, 44] == pytest.approx(2934.9163955098516)
-    assert obs_vec.errors[1, 187] == pytest.approx(-16.501806315409056)
-    assert np.allclose(obs_vec.times, np.array([2700., 9000.]))
+    assert obs_vec['pv'].shape == (2, 204)
+    assert obs_vec['time'].shape[0] == 2
+    assert obs_vec['system_index'][0, 0, 0] == 10130
+    assert obs_vec['pv'].values[1, 123] == pytest.approx(
+            (ds.dab.flatten().sel(time=obs_vec['time'][1])[
+                obs_vec['system_index'][0, 1, 123]]
+             + obs_vec['errors'][0, 1, 123]))
+    assert obs_vec['pv'].values[0, 44] == pytest.approx(2128.20749725)
+    assert obs_vec['errors'].values[0, 1, 187] == pytest.approx(25.714826330507496)
+    assert np.allclose(obs_vec['time'], np.array([2700., 9000.]))

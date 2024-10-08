@@ -128,7 +128,6 @@ class SQGTurb(_data.Data):
         pvspec = rfft2(pv)
         self.x0 = pvspec.ravel()
         self.Nv, self.Nx, self.Ny = pvspec.shape
-        self.system_dim = self.Nv * self.Nx * self.Ny
 
         # _x0_gridded property to overwrite base Data class
         self._x0_gridded = None
@@ -143,6 +142,7 @@ class SQGTurb(_data.Data):
             raise ValueError('2nd dim of pv (N) must be even'
                              '(powers of 2 are fastest)')
         self.N = N
+        self.system_dim = 2 * (self.N**2)
 
         # Set data type based on precision attribute
         if precision == 'single':
