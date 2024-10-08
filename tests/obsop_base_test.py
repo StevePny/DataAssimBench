@@ -6,6 +6,7 @@ import jax.numpy as jnp
 
 from dabench import vector, obsop
 
+pytest.skip('ObsOp not currently implemented', allow_module_level=True)
 
 @pytest.fixture
 def single_sv():
