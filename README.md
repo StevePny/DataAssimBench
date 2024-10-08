@@ -59,11 +59,28 @@ All of the data objects are set up with reasonable defaults. Generating data is 
 
 ```python
 l96_obj = dab.data.Lorenz96() # Create data generator object
-l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
-l96_obj.values # View the output values
+ds_l96 = l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data as Xarray Dataset
+ds_l96.dab.flatten().values # View output values flattened along time dimension
 ```
 This example is for a Lorenz96 model, but all of the data objects work in a similar way.  
 
+#### Sampling observations
+
+Now that we have a generated dataset, we can easily generate noisy observations from it like so:
+
+```python
+obs = dab.observer.Observer(
+        ds_l96, # Our generated Dataset object
+        random_time_density=0.4, # Randomly sampling at ~40% of times
+        random_location_density=0.3, # Randomly sample ~30% of variables
+        # random_location_count = 10, # Alternatively, can specify number of locations to sample
+        error_sd=1.2 # Add Gaussian Noise with SD = 1.2
+)
+obs_vec = obs.observe() # Run observe() method to generate observations
+obs_vec
+```
+
+The Observer class is very flexible, allowing users to provide specific times and locations or randomly generate them. You can also choose to use "stationary" or "nonstationary" observers, indicating whether to sample the same locations at each observation time step or to sample different ones (default is "stationary").
 
 #### Customizing generation options
 
@@ -82,8 +99,8 @@ l96_options = {'forcing_term': 7.5,
                'system_dim': 5,
                'delta_t': 0.05}
 l96_obj = dab.data.Lorenz96(**l96_options) # Create data generator object
-l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
-l96_obj.values # View the output values
+ds_l96 = l96_obj.generate(n_steps=1000) # Generate Lorenz96 simulation data
+ds_l96 # View the output values
 ```
 
 - For example, for the Google Cloud (GCP) ERA5 data-downloader, we can select our variables and time period like this:
@@ -93,6 +110,6 @@ gcp_options = {'variables': ['2m_temperature', 'sea_surface_temperature'],
                'date_start': '2020-06-01'
                'date_end': '2020-06-07'}
 gcp_obj = dab.data.GCP(**gcp_options) # Create data generator object
-gcp_obj.load() # Loads data. Can also use gcp_obj.generate()
-gcp_obj.values # View the output values
+ds_gcp = gcp_obj.load() # Loads data. Can also use gcp_obj.generate()
+ds_gcp # View the output values
 ```
