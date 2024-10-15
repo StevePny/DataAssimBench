@@ -37,8 +37,8 @@ def sqgturb():
 def test_variable_sizes(sqgturb):
     """Test the variable sizes of class SQGTurb."""
     n_steps = 10
-    sqgturb.generate(n_steps=n_steps)
+    traj = sqgturb.generate(n_steps=n_steps)
 
-    assert sqgturb.system_dim == 9408
-    assert sqgturb.time_dim == n_steps+1
-    assert sqgturb.values.shape == (sqgturb.time_dim, sqgturb.system_dim)
+    assert traj.system_dim == 18432
+    assert traj.sizes['time'] == n_steps+1
+    assert traj.dab.flatten().shape == (n_steps+1, 18432)
