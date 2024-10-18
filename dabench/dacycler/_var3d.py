@@ -47,7 +47,7 @@ class Var3D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _cycle_obsop(self, X0_ds, obs_values, obs_loc_indices,
+    def _cycle_obsop(self, x0_ds, obs_values, obs_loc_indices,
                      obs_time_mask, obs_loc_mask,
                      H=None, h=None, R=None, B=None):
         """When obsop (H) is linear"""
@@ -70,7 +70,7 @@ class Var3D(dacycler.DACycler):
             else:
                 B = self.B
 
-        x0 = X0_ds.to_stacked_array('system',[]).data.flatten()
+        x0 = x0_ds.to_stacked_array('system',[]).data.flatten()
         y = obs_values.flatten()
 
         # Apply masks to H
@@ -92,4 +92,4 @@ class Var3D(dacycler.DACycler):
         xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=x0, tol=1e-05,
                                            maxiter=1000)
 
-        return X0_ds.assign(x=(X0_ds.dims, xa.T))
+        return x0_ds.assign(x=(x0_ds.dims, xa.T))
