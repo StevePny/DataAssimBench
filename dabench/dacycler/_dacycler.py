@@ -74,11 +74,11 @@ class DACycler():
         """Perform forecast using model object"""
         return self.model_obj.forecast(xa, n_steps=n_steps)
 
-    def _step_cycle(self, xb, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
+    def _step_cycle(self, x0_ds, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
                     H=None, h=None, R=None, B=None, **kwargs):
         if H is not None or h is None:
             vals = self._cycle_obsop(
-                    xb, obs_vals, obs_locs, obs_time_mask,
+                    x0_ds, obs_vals, obs_locs, obs_time_mask,
                     obs_loc_mask, H, R, B, **kwargs)
             return vals
         else:
@@ -256,13 +256,13 @@ class DACycler():
                     xj.from_xarray(input_state),
                     all_filtered_padded)
                 
-        all_vals_xr = xr.Dataset(
+        all_vals_ds = xr.Dataset(
             {var: (('cycle',) + tuple(all_values[var].dims),
                    all_values[var].data)
              for var in all_values.data_vars}
         ).rename_dims({'time': 'cycle_timestep'})
 
         if return_forecast:
-            return all_vals_xr.drop_isel(cycle_timestep=-1)
+            return all_vals_ds.drop_isel(cycle_timestep=-1)
         else:
-            return all_vals_xr.isel(cycle_timestep=0)
+            return all_vals_ds.isel(cycle_timestep=0)
