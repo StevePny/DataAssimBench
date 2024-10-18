@@ -74,11 +74,11 @@ class DACycler():
         """Perform forecast using model object"""
         return self.model_obj.forecast(xa, n_steps=n_steps)
 
-    def _step_cycle(self, X0_ds, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
+    def _step_cycle(self, cur_state, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
                     H=None, h=None, R=None, B=None, **kwargs):
         if H is not None or h is None:
             vals = self._cycle_obsop(
-                    X0_ds, obs_vals, obs_locs, obs_time_mask,
+                    cur_state, obs_vals, obs_locs, obs_time_mask,
                     obs_loc_mask, H, R, B, **kwargs)
             return vals
         else:
