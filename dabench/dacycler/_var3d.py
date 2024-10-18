@@ -33,7 +33,6 @@ class Var3D(dacycler.DACycler):
     def __init__(self,
                  system_dim=None,
                  delta_t=None,
-                 in_4d=False,
                  model_obj=None,
                  B=None,
                  R=None,
@@ -48,7 +47,7 @@ class Var3D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _cycle_obsop(self, x0_xarray, obs_values, obs_loc_indices,
+    def _cycle_obsop(self, X0_ds, obs_values, obs_loc_indices,
                      obs_time_mask, obs_loc_mask,
                      H=None, h=None, R=None, B=None):
         """When obsop (H) is linear"""
@@ -71,15 +70,15 @@ class Var3D(dacycler.DACycler):
             else:
                 B = self.B
 
-        xb = x0_xarray.to_stacked_array('system',[]).data.flatten()
-        yo = obs_values.flatten()
+        x0 = X0_ds.to_stacked_array('system',[]).data.flatten()
+        y = obs_values.flatten()
 
         # Apply masks to H
         H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
         H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Set parameters
-        xdim = xb.size  # Size or get one of the shape params?
+        xdim = x0.size  # Size or get one of the shape params?
         Rinv = jnp.linalg.inv(R)
 
         # 'preconditioning with B'
@@ -87,10 +86,10 @@ class Var3D(dacycler.DACycler):
         BHt = jnp.dot(B, H.T)
         BHtRinv = jnp.dot(BHt, Rinv)
         A = I + jnp.dot(BHtRinv, H)
-        b1 = xb + jnp.dot(BHtRinv, yo)
+        b1 = x0 + jnp.dot(BHtRinv, y)
 
         # Use minimization algorithm to minimize cost function:
-        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=x0, tol=1e-05,
                                            maxiter=1000)
 
-        return x0_xarray.assign(x=(x0_xarray.dims, xa.T))
+        return X0_ds.assign(x=(X0_ds.dims, xa.T))
