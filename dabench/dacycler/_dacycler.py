@@ -85,7 +85,7 @@ class DACycler():
             raise ValueError(
                 'Only linear obs operators (H) are supported right now.')
             vals = self._cycle_general_obsop(
-                    xb, obs_vals, obs_locs, obs_time_mask,
+                    cur_state, obs_vals, obs_locs, obs_time_mask,
                     obs_loc_mask, h, R, B, **kwargs)
             return vals
 
