@@ -36,7 +36,6 @@ class DACycler():
             If not provided will be calculated automatically.
         h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
-        analysis_time_in_window: A
     """
 
     def __init__(self,
