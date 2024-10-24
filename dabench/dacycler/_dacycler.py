@@ -47,7 +47,7 @@ class DACycler():
                  B: ArrayLike | None = None,
                  R: ArrayLike | None = None,
                  H: ArrayLike | None = None,
-                 h: Callable | None =None,
+                 h: Callable | None = None,
                  ):
 
         self.h = h
