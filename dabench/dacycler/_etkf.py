@@ -1,58 +1,57 @@
 """Class for Ensemble Transform Kalman Filter (ETKF) DA Class"""
 
-from functools import partial
 import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.scipy import linalg
 import xarray as xr
 import xarray_jax as xj
+from typing import Callable
 
 from dabench import dacycler
+from dabench.model import Model
 
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
+XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class ETKF(dacycler.DACycler):
     """Class for building ETKF DA Cycler
 
     Attributes:
-        system_dim (int): System dimension.
-        ensemble_dim (int): Number of ensemble instances for ETKF. Default is
-            4. Higher ensemble_dim increases accuracy but has performance cost.
-        delta_t (float): The timestep of the model (assumed uniform)
-        model_obj (dabench.Model): Forecast model object.
-        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
-            Always False for ETKF.
-        ensemble (bool): True for ensemble-based data assimilation techniques
-            (ETKF). Always True for ETKF.
-        B (ndarray): Initial / static background error covariance. Shape:
+        system_dim: System dimension.
+        delta_t: The timestep of the model (assumed uniform)
+        model_obj: Forecast model object.
+        B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
-        R (ndarray): Observation error covariance matrix. Shape
+        R: Observation error covariance matrix. Shape
             (obs_dim, obs_dim). If not provided, will be calculated
             automatically.
-        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+        H: Observation operator with shape: (obs_dim, system_dim).
             If not provided will be calculated automatically.
-        h (function): Optional observation operator as function. More flexible
-            (allows for more complex observation operator).
+        h: Optional observation operator as function. More flexible
+            (allows for more complex observation operator). Default is None.
+        ensemble_dim: Number of ensemble instances for ETKF. Default is
+            4. Higher ensemble_dim increases accuracy but has performance cost.
+        multiplicative_inflation: Scaling factor by which to multiply ensemble
+            deviation. Default is 1.0 (no inflation).
     """
 
     def __init__(self,
-                 system_dim=None,
-                 ensemble_dim=4,
-                 delta_t=None,
-                 model_obj=None,
-                 multiplicative_inflation=1.0,
-                 B=None,
-                 R=None,
-                 H=None,
-                 h=None,
-                 random_seed=99,
-                 **kwargs
+                 system_dim: int,
+                 delta_t: float,
+                 model_obj: Model,
+                 B: ArrayLike | None = None,
+                 R: ArrayLike | None = None,
+                 H: ArrayLike | None = None,
+                 h: Callable | None = None,
+                 ensemble_dim: int = 4,
+                 multiplicative_inflation: float = 1.0
                  ):
 
         self.ensemble_dim = ensemble_dim
-        self.random_seed = random_seed
-        self._rng = np.random.default_rng(self.random_seed)
         self.multiplicative_inflation = multiplicative_inflation
 
         super().__init__(system_dim=system_dim,
@@ -62,7 +61,10 @@ class ETKF(dacycler.DACycler):
                          ensemble=True,
                          B=B, R=R, H=H, h=h)
 
-    def _step_forecast(self, Xa, n_steps):
+    def _step_forecast(self,
+                       Xa: XarrayDatasetLike,
+                       n_steps: int = 1
+                       ) -> XarrayDatasetLike:
         """Ensemble method needs a slightly different _step_forecast method"""
         ensemble_forecasts = []
         ensemble_inputs = []
@@ -77,7 +79,11 @@ class ETKF(dacycler.DACycler):
         return (xr.concat(ensemble_inputs, dim='ensemble'),
                 xr.concat(ensemble_forecasts, dim='ensemble'))
 
-    def _apply_obsop(self, X0, H, h):
+    def _apply_obsop(self,
+                     X0: ArrayLike, 
+                     H: ArrayLike | None,
+                     h: Callable | None
+                     ) -> ArrayLike:
         if H is not None:
             Yb = H @ X0
         else:
@@ -85,22 +91,30 @@ class ETKF(dacycler.DACycler):
 
         return Yb
 
-    def _compute_analysis(self, X0, Y, H, h, R, rho=1.0, yb=None):
+    def _compute_analysis(self,
+                          X0: ArrayLike,
+                          Y: ArrayLike,
+                          H: ArrayLike | None,
+                          h: Callable | None,
+                          R: ArrayLike,
+                          rho: float = 1.0
+                          ) ->  ArrayLike:
         """ETKF analysis algorithm
 
         Args:
-          X0 (ndarray): Forecast/background ensemble with shape
+          X0: Forecast/background ensemble with shape
             (system_dim, ensemble_dim).
-          Y (ndarray): Observation array with shape (obs_time_time, observation_dim)
-          H (ndarray): Observation operator with shape (observation_dim,
+          Y: Observation array with shape (obs_time_time, observation_dim)
+          H: Linear observation operator with shape (observation_dim,
             system_dim).
-          R (ndarray): Observation error covariance matrix with shape
+          h: Callable observation operator (optional).
+          R: Observation error covariance matrix with shape
             (observation_dim, observation_dim)
-          rho (float): Multiplicative inflation factor. Default=1.0,
+          rho: Multiplicative inflation factor. Default=1.0,
             (i.e. no inflation)
 
         Returns:
-          Xa (ndarray): Analysis ensemble [size: (system_dim, ensemble_dim)]
+          Xa: Analysis ensemble [size: (system_dim, ensemble_dim)]
         """
         # Number of state variables, ensemble members and observations
         system_dim, ensemble_dim = X0.shape
@@ -148,9 +162,17 @@ class ETKF(dacycler.DACycler):
 
         return Xa
 
-    def _cycle_obsop(self, X0_ds, obs_values, obs_loc_indices,
-                     obs_time_mask, obs_loc_mask,
-                     H=None, h=None, R=None, B=None):
+    def _cycle_obsop(self,
+                     X0_ds: XarrayDatasetLike,
+                     obs_values: ArrayLike,
+                     obs_loc_indices: ArrayLike,
+                     obs_time_mask: ArrayLike,
+                     obs_loc_mask: ArrayLike,
+                     H: ArrayLike | None = None,
+                     h: Callable | None = None,
+                     R: ArrayLike | None = None,
+                     B: ArrayLike | None = None
+                     ) -> XarrayDatasetLike:
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
