@@ -5,43 +5,50 @@ import jax.numpy as jnp
 import jax
 import xarray as xr
 import xarray_jax as xj
+from typing import Callable
 
 import dabench.dacycler._utils as dac_utils
+from dabench.model import Model
+
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
+XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class DACycler():
     """Base class for DACycler object
 
     Attributes:
-        system_dim (int): System dimension
-        delta_t (float): The timestep of the model (assumed uniform)
-        model_obj (dabench.Model): Forecast model object.
-        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
+        system_dim: System dimension
+        delta_t: The timestep of the model (assumed uniform)
+        model_obj: Forecast model object.
+        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
             Default is False.
-        ensemble (bool): True for ensemble-based data assimilation techniques
+        ensemble: True for ensemble-based data assimilation techniques
             (ETKF). Default is False
-        B (ndarray): Initial / static background error covariance. Shape:
+        B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
-        R (ndarray): Observation error covariance matrix. Shape
+        R: Observation error covariance matrix. Shape
             (obs_dim, obs_dim). If not provided, will be calculated
             automatically.
-        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+        H: Observation operator with shape: (obs_dim, system_dim).
             If not provided will be calculated automatically.
-        h (function): Optional observation operator as function. More flexible
+        h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
+        analysis_time_in_window: A
     """
 
     def __init__(self,
-                 system_dim=None,
-                 delta_t=None,
-                 model_obj=None,
-                 in_4d=False,
-                 ensemble=False,
-                 B=None,
-                 R=None,
-                 H=None,
-                 h=None,
-                 analysis_time_in_window=None
+                 system_dim: int,
+                 delta_t: float,
+                 model_obj: Model,
+                 in_4d: bool = False,
+                 ensemble: bool = False,
+                 B: ArrayLike | None = None,
+                 R: ArrayLike | None = None,
+                 H: ArrayLike | None = None,
+                 h: Callable | None =None,
                  ):
 
         self.h = h
@@ -53,29 +60,47 @@ class DACycler():
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
-        self.analysis_time_in_window = analysis_time_in_window
 
 
-    def _calc_default_H(self, obs_values, obs_loc_indices):
+    def _calc_default_H(self,
+                        obs_values: ArrayLike,
+                        obs_loc_indices: ArrayLike
+                        ) -> jax.Array:
         H = jnp.zeros((obs_values.flatten().shape[0], self.system_dim))
         H = H.at[jnp.arange(H.shape[0]), 
                  obs_loc_indices.flatten(),
                  ].set(1)
         return H
 
-    def _calc_default_R(self, obs_values, obs_error_sd):
+    def _calc_default_R(self,
+                        obs_values: ArrayLike,
+                        obs_error_sd: float
+                        ) -> jax.Array:
         return jnp.identity(obs_values.flatten().shape[0])*(obs_error_sd**2)
 
-    def _calc_default_B(self):
+    def _calc_default_B(self) -> jax.Array:
         """If B is not provided, identity matrix with shape (system_dim, system_dim."""
         return jnp.identity(self.system_dim)
 
-    def _step_forecast(self, xa, n_steps=1):
+    def _step_forecast(self,
+                       xa: XarrayDatasetLike,
+                       n_steps: int = 1
+                       ) -> XarrayDatasetLike:
         """Perform forecast using model object"""
         return self.model_obj.forecast(xa, n_steps=n_steps)
 
-    def _step_cycle(self, cur_state, obs_vals, obs_locs, obs_time_mask, obs_loc_mask,
-                    H=None, h=None, R=None, B=None, **kwargs):
+    def _step_cycle(self,
+                    cur_state: XarrayDatasetLike,
+                    obs_vals: ArrayLike,
+                    obs_locs: ArrayLike,
+                    obs_time_mask: ArrayLike,
+                    obs_loc_mask: ArrayLike,
+                    H: ArrayLike | None = None,
+                    h: Callable | None =None,
+                    R: ArrayLike | None = None,
+                    B:ArrayLike | None = None,
+                    **kwargs
+                    ) -> XarrayDatasetLike:
         if H is not None or h is None:
             vals = self._cycle_obsop(
                     cur_state, obs_vals, obs_locs, obs_time_mask,
@@ -89,7 +114,10 @@ class DACycler():
                     obs_loc_mask, h, R, B, **kwargs)
             return vals
 
-    def _cycle_and_forecast(self, cur_state, filtered_idx):
+    def _cycle_and_forecast(self,
+                            cur_state: xj.XjDataset,
+                            filtered_idx: ArrayLike
+                            ) -> tuple[xj.XjDataset, XarrayDatasetLike]:
         # 1. Get data
         # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
         cur_state = cur_state.to_xarray()
@@ -119,7 +147,10 @@ class DACycler():
 
         return xj.from_xarray(next_state), forecast_states
 
-    def _cycle_and_forecast_4d(self, cur_state, filtered_idx):
+    def _cycle_and_forecast_4d(self,
+                               cur_state: xj.XjDataset,
+                               filtered_idx: ArrayLike
+                               ) -> tuple[xj.XjDataset, XarrayDatasetLike]:
         # 1. Get data
         # 1-b. Calculate obs_time_mask and restore filtered_idx to original values
         cur_state = cur_state.to_xarray()
@@ -160,35 +191,32 @@ class DACycler():
         return xj.from_xarray(next_state), forecast_states
 
     def cycle(self,
-              input_state,
-              start_time,
-              obs_vector,
-              n_cycles,
-              obs_error_sd=None,
-              analysis_window=0.2,
-              analysis_time_in_window=None,
-              return_forecast=False
-              ):
+              input_state: XarrayDatasetLike,
+              start_time: float | np.datetime64,
+              obs_vector: XarrayDatasetLike,
+              n_cycles: int,
+              obs_error_sd: float | ArrayLike | None = None,
+              analysis_window: float = 0.2,
+              analysis_time_in_window: float | None = None,
+              return_forecast: bool = False
+              ) -> XarrayDatasetLike :
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
-            input_state (vector.StateVector): Input state.
-            start_time (float or datetime-like): Starting time.
-            obs_vector (vector.ObsVector): Observations vector.
-            n_cycles (int): Number of analysis cycles to run, each of length
+            input_state: Input state as a Xarray Dataset
+            start_time: Starting time.
+            obs_vector: Observations vector.
+            n_cycles: Number of analysis cycles to run, each of length
                 analysis_window.
-            analysis_window (float): Time window from which to gather
+            analysis_window: Time window from which to gather
                 observations for DA Cycle.
-            analysis_time_in_window (float): Where within analysis_window
+            analysis_time_in_window: Where within analysis_window
                 to perform analysis. For example, 0.0 is the start of the
                 window. Default is None, which selects the middle of the
                 window.
-            return_forecast (bool): If True, returns forecast at each model
+            return_forecast: If True, returns forecast at each model
                 timestep. If False, returns only analyses, one per analysis
-                cycle. Default is False.
-
-        Returns:
-            vector.StateVector of analyses and times.
+                cycle. 
         """
 
         # These could be different if observer doesn't observe all variables
@@ -202,10 +230,11 @@ class DACycler():
         self.analysis_window = analysis_window
 
         # If don't specify analysis_time_in_window, is assumed to be middle
-        if self.analysis_time_in_window is None and analysis_time_in_window is None:
-            analysis_time_in_window = self.analysis_window/2
-        else:
-            analysis_time_in_window = self.analysis_time_in_window
+        if analysis_time_in_window is None:
+            if self.in_4d:
+                analysis_time_in_window = 0
+            else:
+                analysis_time_in_window = self.analysis_window/2
 
         # Steps per window + 1 to include start
         self.steps_per_window = round(analysis_window/self.delta_t) + 1
