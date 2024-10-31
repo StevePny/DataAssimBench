@@ -214,6 +214,11 @@ class Var4D(dacycler.DACycler):
                 return vector.StateVector(jnp.vstack(xi), store_as_jax=True)
 
 
+    def _calc_Jo_term(self, H, M, Rinv, y, x):
+        # The Jo Term (b)
+        D = (y - (H @ x))
+        return M.T @ (H.T @ (Rinv @ D[:, None]))
+
     def _calc_J_term(self, H, M, Rinv, y, x):
         # The Jb Term (A)
         HM = H @ M
@@ -231,30 +236,74 @@ class Var4D(dacycler.DACycler):
         x0_last = x[0]
 
         # Set up Variables
-        SumMtHtRinvHM = jnp.zeros_like(B)             # A input
+        # SumMtHtRinvHM = jnp.zeros_like(B)             # A input
         SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
 
-        # Loop over observations
-        for i, j in enumerate(obs_window_indices):
-            Jb, Jo = jax.lax.cond(
-                    obs_time_mask.at[i].get(mode='fill', fill_value=0),
-                    lambda: self._calc_J_term(Hs.at[i].get(mode='clip'), M[j],
-                                              Rinv, obs_vals[i], x[j]),
-                    lambda: (jnp.zeros_like(SumMtHtRinvHM),
-                             jnp.zeros_like(SumMtHtRinvD))
-                    )
-            SumMtHtRinvHM += Jb
-            SumMtHtRinvD += Jo
         # Compute initial departure
         db0 = xb0 - x0_last
 
+        # Loop over observations
+        for i, j in enumerate(obs_window_indices):
+            Jo = jax.lax.cond(
+                    obs_time_mask.at[i].get(mode='fill', fill_value=0),
+                    lambda: self._calc_Jo_term(Hs.at[i].get(mode='clip'), M[j],
+                                              Rinv, obs_vals[i], x[j]),
+                    lambda: jnp.zeros_like(SumMtHtRinvD)
+                    )
+            SumMtHtRinvD += Jo
+
         # Solve Ax=b for the initial perturbation
-        dx0 = self._solve(db0, SumMtHtRinvHM, SumMtHtRinvD, B)
+        dx0 = self._solve_linop(db0, Hs, Rinv, M, SumMtHtRinvD, B,
+                                obs_window_indices, obs_time_mask)
 
         # New x0 guess is the last guess plus the analyzed delta
         x0_new = x0_last + dx0.ravel()
 
         return x0_new
+
+    @partial(jax.jit, static_argnums=0)
+    def _solve_linop(self, db0, Hs, Rinv, M, SumMtHtRinvD, B,
+                     obs_window_indices, obs_time_mask):
+        """Solve the 4D-Var linear optimization
+
+        Notes:
+            Solves Ax=b for x when:
+            A = B^{-1} + SumMtHtRinvHM
+            b = SumMtHtRinvD + db0[:,None]
+        """
+
+        # Initialize b array
+        system_dim = B.shape[1]
+
+        def MtHtRinvHM(i, j, x):
+            H_temp = Hs.at[i].get(mode='clip')
+            M_temp = M[j]
+            return M_temp.T @ (H_temp.T @ (Rinv @ (H_temp @ (M_temp @ x))))
+
+        def A_func(x):
+            intermediate_x = jnp.zeros_like(x)
+            for i, j in enumerate(obs_window_indices):
+                Jb = jax.lax.cond(
+                        obs_time_mask.at[i].get(mode='fill', fill_value=0),
+                        lambda: MtHtRinvHM(i, j, x),
+                        lambda: jnp.zeros_like(intermediate_x)
+                )
+                intermediate_x += Jb
+            return x + B @ intermediate_x
+
+
+        # Solve 4D-Var cost function
+        if self.solver == 'bicgstab':
+            # Compute A,b inputs to linear minimizer
+            b1 = B @ SumMtHtRinvD + db0[:, None]
+
+            dx0, _ = bicgstab(A_func, b1, x0=jnp.zeros((system_dim, 1)), tol=1e-05)
+
+        else:
+            raise ValueError("Solver not recognized. Options: 'bicgstab'")
+
+        return dx0
+
 
     @partial(jax.jit, static_argnums=0)
     def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
