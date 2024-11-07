@@ -11,7 +11,6 @@ import jax
 from jax.scipy.sparse.linalg import bicgstab
 from copy import deepcopy
 from functools import partial
-import lineax as lx
 
 from dabench import dacycler, vector
 import dabench.dacycler._utils as dac_utils
@@ -226,8 +225,8 @@ class Var4D(dacycler.DACycler):
         MtHtRinv = HM.T @ Rinv
 
         # The Jo Term (b)
-        D = (y - (H.matrix @ x))
-        return MtHtRinv @ HM,  (M.matrix.T @ (H.matrix.T @(Rinv.matrix @ D[:, None])))
+        D = (y - (H @ x))
+        return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
 
 
     @partial(jax.jit, static_argnums=[0, 1])
@@ -237,7 +236,7 @@ class Var4D(dacycler.DACycler):
         x0_last = x[0]
 
         # Set up Variables
-        SumMtHtRinvHM = lx.MatrixLinearOperator(jnp.zeros_like(B))             # A input
+        # SumMtHtRinvHM = jnp.zeros_like(B)             # A input
         SumMtHtRinvD = jnp.zeros((system_dim, 1))     # b input
 
         # Compute initial departure
@@ -245,28 +244,17 @@ class Var4D(dacycler.DACycler):
 
         # Loop over observations
         for i, j in enumerate(obs_window_indices):
-            valid_obs = obs_time_mask.at[i].get(mode='fill', fill_value=0)
-            Jb, Jo = self._calc_J_term(
-                        lx.MatrixLinearOperator(Hs.at[i].get(mode='clip')),
-                        lx.MatrixLinearOperator(M[j]),
-                        lx.MatrixLinearOperator(Rinv), obs_vals[i], x[j]
-                        )
-            # Jb, Jo = jax.lax.cond(
-            #         obs_time_mask.at[i].get(mode='fill', fill_value=0),
-            #         lambda: self._calc_J_term(
-            #             lx.MatrixLinearOperator(Hs.at[i].get(mode='clip')),
-            #             lx.MatrixLinearOperator(M[j]),
-            #             lx.MatrixLinearOperator(Rinv), obs_vals[i], x[j]),
-            #         lambda: (lx.MatrixLinearOperator(jnp.zeros_like(SumMtHtRinvHM)),
-            #                  jnp.zeros_like(SumMtHtRinvD))
-            #         )
-            SumMtHtRinvHM = SumMtHtRinvHM + valid_obs * Jb
-            SumMtHtRinvD = SumMtHtRinvD + valid_obs * Jo
+            Jo = jax.lax.cond(
+                    obs_time_mask.at[i].get(mode='fill', fill_value=0),
+                    lambda: self._calc_Jo_term(Hs.at[i].get(mode='clip'), M[j],
+                                              Rinv, obs_vals[i], x[j]),
+                    lambda: jnp.zeros_like(SumMtHtRinvD)
+                    )
+            SumMtHtRinvD += Jo
 
         # Solve Ax=b for the initial perturbation
-        dx0 = self._solve_lx(db0, SumMtHtRinvHM, SumMtHtRinvD, lx.MatrixLinearOperator(B))
-        # dx0 = self._solve_linop(db0, Hs, Rinv, M, SumMtHtRinvD, B,
-        #                         obs_window_indices, obs_time_mask)
+        dx0 = self._solve_linop(db0, Hs, Rinv, M, SumMtHtRinvD, B,
+                                obs_window_indices, obs_time_mask)
 
         # New x0 guess is the last guess plus the analyzed delta
         x0_new = x0_last + dx0.ravel()
@@ -316,33 +304,6 @@ class Var4D(dacycler.DACycler):
 
         return dx0
 
-    @partial(jax.jit, static_argnums=0)
-    def _solve_lx(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
-        """Solve the 4D-Var linear optimization
-
-        Notes:
-            Solves Ax=b for x when:
-            A = B^{-1} + SumMtHtRinvHM
-            b = SumMtHtRinvD + db0[:,None]
-        """
-
-        # Set identity matrix
-        I_mat = lx.MatrixLinearOperator(jnp.identity(B.in_size()))
-
-        # Solve 4D-Var cost function
-        if self.solver == 'bicgstab':
-            # Compute A,b inputs to linear minimizer
-            b1 = B.matrix @ SumMtHtRinvD + db0[:, None]
-
-            A = I_mat + B @ SumMtHtRinvHM
-            solver = lx.BiCGStab(rtol=1e-5, atol=1e-5)
-
-            dx0 = lx.linear_solve(A, b1[:,0], solver)
-
-        else:
-            raise ValueError("Solver not recognized. Options: 'bicgstab'")
-
-        return dx0.value
 
     @partial(jax.jit, static_argnums=0)
     def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
