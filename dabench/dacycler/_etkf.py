@@ -297,7 +297,6 @@ class ETKF(dacycler.DACycler):
             start_time,
             analysis_window,
             n_cycles)
-            
 
         # Get the obs vectors for each analysis window
         all_filtered_idx = dac_utils._get_obs_indices(

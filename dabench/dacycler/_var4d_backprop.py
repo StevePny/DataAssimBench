@@ -125,7 +125,7 @@ class Var4DBackprop(dacycler.DACycler):
         pred_obs = pred_x @ Ht
         resid = pred_obs.ravel() - obs_vals.ravel()
 
-        return jnp.sum(resid.T @ Rinv @ resid)
+        return jnp.sum(resid.T @ (Rinv @ resid))
 
     def _make_loss(self, xb0, obs_vals,  Hs, Binv, Rinv,
                    obs_window_indices,
