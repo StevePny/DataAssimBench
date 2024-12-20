@@ -219,16 +219,6 @@ class Var4D(dacycler.DACycler):
         D = (y - (H @ x))
         return M.T @ (H.T @ (Rinv @ D[:, None]))
 
-    def _calc_J_term(self, H, M, Rinv, y, x):
-        # The Jb Term (A)
-        HM = H @ M
-        MtHtRinv = HM.T @ Rinv
-
-        # The Jo Term (b)
-        D = (y - (H @ x))
-        return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
-
-
     @partial(jax.jit, static_argnums=[0, 1])
     def _innerloop_4d(self, system_dim, x, xb0, obs_vals, Hs, B, Rinv, M,
                       obs_window_indices, obs_time_mask):
