@@ -11,42 +11,48 @@ import jax
 from jax.scipy.sparse.linalg import bicgstab
 from copy import deepcopy
 from functools import partial
+from typing import Callable
 import xarray as xr
 import xarray_jax as xj
 
 from dabench import dacycler
+from dabench.model import Model
 import dabench.dacycler._utils as dac_utils
 
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
+XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class Var4D(dacycler.DACycler):
     """Class for building 4D DA Cycler
 
     Attributes:
-        system_dim (int): System dimension.
-        delta_t (float): The timestep of the model (assumed uniform)
-        model_obj (dabench.Model): Forecast model object.
-        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
+        system_dim: System dimension.
+        delta_t: The timestep of the model (assumed uniform)
+        model_obj: Forecast model object.
+        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
             Always True for Var4D.
-        ensemble (bool): True for ensemble-based data assimilation techniques
+        ensemble: True for ensemble-based data assimilation techniques
             (ETKF). Always False for Var4D.
-        B (ndarray): Initial / static background error covariance. Shape:
+        B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
-        R (ndarray): Observation error covariance matrix. Shape
+        R: Observation error covariance matrix. Shape
             (obs_dim, obs_dim). If not provided, will be calculated
             automatically.
-        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+        H: Observation operator with shape: (obs_dim, system_dim).
             If not provided will be calculated automatically.
-        h (function): Optional observation operator as function. More flexible
+        h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
-        solver (str): Name of solver to use. Default is 'bicgstab'.
-        n_outer_loops (int): Number of times to run through outer loop over
+        solver: Name of solver to use. Default is 'bicgstab'.
+        n_outer_loops: Number of times to run through outer loop over
             4DVar. Increasing this may result in higher accuracy but slower
             performance. Default is 1.
-        steps_per_window (int): Number of timesteps per analysis window.
+        steps_per_window: Number of timesteps per analysis window.
             If None (default), will calculate automatically based on delta_t
             and .cycle() analysis_window length.
-        obs_window_indices (list): Timestep indices where observations fall
+        obs_window_indices: Timestep indices where observations fall
             within each analysis window. For example, if analysis window is
             0 - 0.05 with delta_t = 0.01 and observations fall at 0, 0.01,
             0.02, 0.03, 0.04, and 0.05, obs_window_indices =
@@ -55,18 +61,18 @@ class Var4D(dacycler.DACycler):
     """
 
     def __init__(self,
-                 system_dim=None,
-                 delta_t=None,
-                 model_obj=None,
-                 B=None,
-                 R=None,
-                 H=None,
-                 h=None,
-                 solver='bicgstab',
-                 n_outer_loops=1,
-                 steps_per_window=1,
-                 obs_window_indices=None,
-                 analysis_time_in_window=0,
+                 system_dim: int,
+                 delta_t: float,
+                 model_obj: Model,
+                 B: ArrayLike | None = None,
+                 R: ArrayLike | None = None,
+                 H: ArrayLike | None = None,
+                 h: Callable | None = None,
+                 solver: str = 'bicgstab',
+                 n_outer_loops: int = 1,
+                 steps_per_window: int = 1,
+                 obs_window_indices: ArrayLike | None = None,
+                 analysis_time_in_window: float = 0,
                  **kwargs
                  ):
 
