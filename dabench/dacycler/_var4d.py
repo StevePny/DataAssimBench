@@ -93,7 +93,9 @@ class Var4D(dacycler.DACycler):
                          B=B, R=R, H=H, h=h,
                          analysis_time_in_window=analysis_time_in_window)
 
-    def _calc_default_H(self, obs_loc_indices):
+    def _calc_default_H(self,
+                        obs_loc_indices: ArrayLike
+                        ) -> jax.Array:
         Hs = jnp.zeros((obs_loc_indices.shape[0], obs_loc_indices.shape[1],
                         self.system_dim),
                        dtype=int)
@@ -102,10 +104,19 @@ class Var4D(dacycler.DACycler):
                        ].set(1)
         return Hs
 
-    def _calc_default_R(self, obs_values, obs_error_sd):
+    def _calc_default_R(self,
+                        obs_values: ArrayLike,
+                        obs_error_sd: float
+                        ) -> jax.Array:
         return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
 
-    def _calc_J_term(self, H, M, Rinv, y, x):
+    def _calc_J_term(self,
+                     H: ArrayLike,
+                     M: ArrayLike,
+                     Rinv: ArrayLike,
+                     y: ArrayLike,
+                     x: ArrayLike
+                     ) -> jax.Array:
         # The Jb Term (A)
         HM = H @ M
         MtHtRinv = HM.T @ Rinv
@@ -115,8 +126,18 @@ class Var4D(dacycler.DACycler):
         return MtHtRinv @ HM,  MtHtRinv @ D[:, None]
 
     @partial(jax.jit, static_argnums=[0, 1])
-    def _innerloop_4d(self, system_dim, Xb_ds, xb0_ds, obs_vals, Hs, B, Rinv, M,
-                      obs_window_indices, obs_time_mask):
+    def _innerloop_4d(self,
+                      system_dim: int,
+                      Xb_ds: XarrayDatasetLike,
+                      xb0_ds: XarrayDatasetLike,
+                      obs_vals: ArrayLike,
+                      Hs: ArrayLike,
+                      B: ArrayLike,
+                      Rinv: ArrayLike,
+                      M: ArrayLike,
+                      obs_window_indices: ArrayLike | list,
+                      obs_time_mask: ArrayLike
+                      ) -> XarrayDatasetLike:
         """4DVar innerloop"""
         x0_prev_ds = Xb_ds.isel(time=0)
         Xb_ar = Xb_ds.to_stacked_array('system',['time'])
@@ -149,11 +170,20 @@ class Var4D(dacycler.DACycler):
 
         return x0_new_ds
 
-    def _make_outerloop_4d(self, xb0_ds, Hs, B, Rinv,
-                           obs_values, obs_window_indices, obs_time_mask,
-                           n_steps):
+    def _make_outerloop_4d(self,
+                           xb0_ds: XarrayDatasetLike,
+                           Hs: ArrayLike,
+                           B: ArrayLike,
+                           Rinv: ArrayLike,
+                           obs_values: ArrayLike,
+                           obs_window_indices: ArrayLike | list,
+                           obs_time_mask: ArrayLike,
+                           n_steps: int
+                           ) -> Callable:
 
-        def _outerloop_4d(x0_ds, _):
+        def _outerloop_4d(x0_ds: XarrayDatasetLike,
+                          _: None
+                          ) -> tuple[XarrayDatasetLike, XarrayDatasetLike]:
             # Get TLM and current forecast trajectory
             # Based on current best guess for x0
             x0_ds = x0_ds.to_xarray()
@@ -173,7 +203,12 @@ class Var4D(dacycler.DACycler):
         return _outerloop_4d
 
     @partial(jax.jit, static_argnums=0)
-    def _solve(self, db0, SumMtHtRinvHM, SumMtHtRinvD, B):
+    def _solve(self,
+               db0: ArrayLike,
+               SumMtHtRinvHM: ArrayLike,
+               SumMtHtRinvD: ArrayLike,
+               B: ArrayLike
+               ) -> jax.Array:
         """Solve the 4D-Var linear optimization
 
         Notes:
@@ -202,9 +237,18 @@ class Var4D(dacycler.DACycler):
 
         return dx0
 
-    def _cycle_obsop(self, x0_ds, obs_values, obs_loc_indices,
-                     obs_time_mask, obs_loc_mask,
-                     H=None, h=None, R=None, B=None, obs_window_indices=None):
+    def _cycle_obsop(self,
+                     x0_ds: XarrayDatasetLike,
+                     obs_values: ArrayLike,
+                     obs_loc_indices: ArrayLike,
+                     obs_time_mask: ArrayLike,
+                     obs_loc_mask: ArrayLike,
+                     H: ArrayLike | None = None,
+                     h: Callable | None = None,
+                     R: ArrayLike | None = None,
+                     B: ArrayLike | None = None,
+                     obs_window_indices = ArrayLike | list | None
+                     ) -> XarrayDatasetLike:
         if H is None and h is None:
             if self.H is None:
                 if self.h is None:
