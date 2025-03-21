@@ -93,7 +93,7 @@ class Data():
                  M0: ArrayLike | None = None,
                  return_tlm: bool = False,
                  stride: int | None = None,
-                 **kwargs) -> None | ArrayLike:
+                 **kwargs) -> xr.Dataset | tuple[xr.Dataset | xr.DataArray]:
         """Generates a dataset and returns xarray state vector.
 
         Notes:
@@ -118,8 +118,8 @@ class Data():
                 convergence tolerance, etc.).
 
         Returns:
-            Nothing if return_tlm=False. If return_tlm=True, a list
-                of TLMs corresponding to the system trajectory.
+            Xarray Dataset of output vector and (if return_tlm=True)
+                Xarray DataArray of TLMs corresponding to the system trajectory.
         """
 
         # Check that n_steps or t_final is supplied
