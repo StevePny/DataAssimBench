@@ -6,7 +6,9 @@ Requires pyqg: https://pyqg.readthedocs.io/
 import logging
 import numpy as np
 from copy import deepcopy
+import jax
 import jax.numpy as jnp
+import xarray as xr
 
 from dabench.data import _data
 
@@ -22,6 +24,9 @@ except ImportError:
         'To install via conda: conda install -c conda-forge pyqg\n'
         'For more information: https://pyqg.readthedocs.io/en/latest/installation.html'
         )
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 
 class Barotropic(_data.Data):
@@ -39,46 +44,47 @@ class Barotropic(_data.Data):
             pp 21-43 doi:10.1017/S0022112084001750.
 
     Attributes:
-        system_dim (int): system dimension
-        beta (float): Gradient of coriolis parameter. Units: meters^-1 *
+        system_dim: system dimension
+        beta: Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1. Default is 0.
-        rek (float): Linear drag in lower layer. Units: seconds^-1.
+        rek: Linear drag in lower layer. Units: seconds^-1.
             Default is 0.
-        rd (float): Deformation radius. Units: meters. Default is 0.
-        H (float): Layer thickness. Units: meters. Default is 1.
-        nx (int): Number of grid points in the x direction. Default is 256.
-        ny (int): Number of grid points in the y direction. Default: nx.
-        L (float): Domain length in x direction. Units: meters. Default is
+        rd: Deformation radius. Units: meters. Default is 0.
+        H: Layer thickness. Units: meters. Default is 1.
+        nx: Number of grid points in the x direction. Default is 256.
+        ny: Number of grid points in the y direction. Default: nx.
+        L: Domain length in x direction. Units: meters. Default is
             2*pi.
-        W (float): Domain width in y direction. Units: meters. Default: L.
+        x0: the initial conditions. Can also be
+            provided when initializing model object. If provided by
+            both, the generate() arg takes precedence.
+        W: Domain width in y direction. Units: meters. Default: L.
         filterfac (float): amplitdue of the spectral spherical filter.
             Default is 23.6.
-        delta_t (float): Numerical timestep. Units: seconds.
-        taveint (float): Time interval for accumulation of diagnostic averages.
+        delta_t: Numerical timestep. Units: seconds.
+        taveint: Time interval for accumulation of diagnostic averages.
             For performance purposes, averaging does not have to occur every
             timestep. Units: seconds. Default is 1 (i.e. every 1000 timesteps
             when delta_t = 0.001)
-        ntd (int): Number of threads to use. Should not exceed the number of
+        ntd: Number of threads to use. Should not exceed the number of
             cores on your machine.
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
     def __init__(self,
-                 beta=0.,
-                 rek=0.,
-                 rd=0.,
-                 H=1.,
-                 L=2*np.pi,
-                 x0=None,
-                 nx=256,
-                 ny=None,
-                 delta_t=0.001,
-                 taveint=1,
-                 ntd=1,
-                 time_dim=None,
-                 values=None,
-                 times=None,
-                 store_as_jax=False,
+                 beta: float = 0.,
+                 rek: float = 0.,
+                 rd: float = 0.,
+                 H: float = 1.,
+                 nx: int = 256,
+                 ny: int | None = None,
+                 L: float = 2*np.pi,
+                 x0: ArrayLike | None = None,
+                 delta_t: float = 0.001,
+                 taveint: float = 1,
+                 ntd: int = 1,
+                 time_dim: int | None = None,
+                 store_as_jax: bool = False,
                  **kwargs):
         """ Initializes Barotropic object, subclass of Data
 
@@ -101,11 +107,16 @@ class Barotropic(_data.Data):
 
         system_dim = self.m.q.size
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, times=times, delta_t=delta_t,
+                         delta_t=delta_t,
                          store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
-    def generate(self, n_steps=None, t_final=40, x0=None):
+    # TODO: Change to produce xarray dataset instead of updating values att.
+    def generate(self,
+                 n_steps: int | None = None,
+                 t_final: float = 40,
+                 x0: ArrayLike | None = None
+                 ) -> xr.Dataset:
         """Generates values and times, saves them to the data object
 
         Notes:
@@ -114,11 +125,11 @@ class Barotropic(_data.Data):
             time_dim attributes.
 
         Args:
-            n_steps (int): Number of timesteps. Default is None, which sets
+            n_steps: Number of timesteps. Default is None, which sets
             n_steps to t_final/delta_t
-            t_final (float): Final time of trajectory. Default is 40, which
+            t_final: Final time of trajectory. Default is 40, which
                 results in n_steps = 40000
-            x0 (ndarray, optional): the initial conditions. Can also be
+            x0: the initial conditions. Can also be
                 provided when initializing model object. If provided by
                 both, the generate() arg takes precedence.
         """
@@ -185,6 +196,7 @@ class Barotropic(_data.Data):
         self.time_dim = qs.shape[0]
         self.values = qs.reshape((self.time_dim, -1))
 
+    # TODO: Remove? I believe this is deprecated
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""
         self.generate(n_steps, t_final, x0)
