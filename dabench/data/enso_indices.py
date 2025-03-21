@@ -4,6 +4,7 @@ from urllib import request
 import ssl
 import logging
 import warnings
+import jax
 import jax.numpy as jnp
 import numpy as np
 import textwrap
@@ -19,11 +20,11 @@ class ENSOIndices(_data.Data):
         Source: https://www.cpc.ncep.noaa.gov/data/indices/
 
     Attributes:
-        system_dim (int): system dimension
-        time_dim (int): total time steps
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        system_dim: system dimension
+        time_dim: total time steps
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
-        file_dict (dict): Lists of files to get. Dict keys are type of data:
+        file_dict: Lists of files to get. Dict keys are type of data:
                 'wnd': Wind
                 'slp': Sea level pressure
                 'soi': Southern Oscillation Index
@@ -37,7 +38,7 @@ class ENSOIndices(_data.Data):
             Dict values are individual files from the website, see full list at
                 https://www.cpc.ncep.noaa.gov/data/indices/
             Default is {'wnd': ['zwnd200'], 'slp': ['darwin']}
-        var_types (dict): List of variables within file to get. Dict keys are
+        var_types: List of variables within file to get. Dict keys are
             type of data (see list in file_dict description). Dict values are
             type of variable:
                 'ori' = Original
@@ -53,8 +54,13 @@ class ENSOIndices(_data.Data):
                 'olr'='ori', 'cpolr'='ano'
     """
 
-    def __init__(self, file_dict=None, var_types=None, system_dim=None,
-                 time_dim=None, store_as_jax=False, **kwargs):
+    def __init__(self,
+                 file_dict: dict | None = None,
+                 var_types: dict | None = None,
+                 system_dim: int | None = None,
+                 time_dim: int | None = None,
+                 store_as_jax: bool = False,
+                 **kwargs):
 
         """Initialize ENSOIndices object, subclass of Base"""
 
@@ -64,13 +70,13 @@ class ENSOIndices(_data.Data):
                          values=None, delta_t=None, **kwargs,
                          store_as_jax=store_as_jax)
     
-    def generate(self):
+    def generate(self) -> xr.Dataset:
         """Alias for _load_gcp_era5"""
         warnings.warn('ENSOIndices.generate() is an alias for the load() method. '
                       'Proceeding with downloading ENSO Indices data...')
         return self.load()
 
-    def load(self):
+    def load(self) -> xr.Dataset:
 
         # Full list of file names at bottom of this page:
         # https://www.cpc.ncep.noaa.gov/data/indices/Readme.index.shtml
@@ -159,21 +165,28 @@ class ENSOIndices(_data.Data):
 
         return ds
 
-    def _download_cpc_vals(self, file_name, var, var_types, var_types_full,
-                           all_vals, all_years):
+    def _download_cpc_vals(
+            self,
+            file_name: str,
+            var: str,
+            var_types: dict,
+            var_types_full: dict,
+            all_vals: dict,
+            all_years: dict
+            ) -> tuple[dict, dict]:
         """Downloads data for one file_name and variable pair
 
         Args:
-            file_name (str): CPC file name.
-            var (str): Variable name, e.g. 'wnd', 'slp', etc.
-            var_types (dict): Types of variables to get for each variable name,
+            file_name: CPC file name.
+            var: Variable name, e.g. 'wnd', 'slp', etc.
+            var_types: Types of variables to get for each variable name,
                 e.g. 'ori' (original), 'ano' (anomaly), etc.
-            var_types_full (dict): Types of variables available for each
+            var_types_full: Types of variables available for each
                 variable name, used to help with parsing.
-            all_vals (dict): Dictionary of variable names and corresponding
+            all_vals: Dictionary of variable names and corresponding
                 values downloaded so far. This method adds new variables
                 and returns.
-            all_years (dict): Dictionary of variable names and corresponding
+            all_years: Dictionary of variable names and corresponding
                 years downloaded so far. This method adds new variables
                 and returns.
 
@@ -256,14 +269,17 @@ class ENSOIndices(_data.Data):
 
         return all_vals, all_years
 
-    def _combine_vals_years(self, all_vals, all_years):
+    def _combine_vals_years(
+            self,
+            all_vals: dict,
+            all_years: dict
+            ) -> tuple[jax.Array, jax.Array, list]:
         """Merges all_vals and all_years dicts into ndarrays
 
         Args:
-            all_vals (dict): Dictionary of downloaded variable names and
+            all_vals: Dictionary of downloaded variable names and
                 corresponding values.
-            all_years (dict): Dictionary of variable names and corresponding
-            all_years (dict): Dictionary of downloaded variable names and
+            all_years: Dictionary of downloaded variable names and
                 corresponding years.
 
         Returns:
@@ -290,12 +306,15 @@ class ENSOIndices(_data.Data):
                                                   common_years)]
         return common_vals, common_years
 
-    def _get_vals(self, tmp, n_header):
+    def _get_vals(self,
+                  tmp: list,
+                  n_header: int
+                  ) -> tuple[jax.Array, jax.Array]:
         """Parses text lines from files of most data types
 
         Args:
-            tmp (list): List of lines from text file
-            n_header (int): Number of lines in header at top of file and
+            tmp: List of lines from text file
+            n_header: Number of lines in header at top of file and
                 between blocks.
 
         Returns:
@@ -327,11 +346,13 @@ class ENSOIndices(_data.Data):
 
         return vals, years
 
-    def _get_eqsoi(self, tmp):
+    def _get_eqsoi(self,
+                   tmp: list
+                   ) -> tuple[jax.Array, jax.Array]:
         """Parses text lines from eqsoi file.
 
         Args:
-            tmp (list): List of lines from text file
+            tmp: List of lines from text file
 
         Returns:
             Tuple of data values (ndarray) and years (ndarray).
@@ -348,12 +369,15 @@ class ENSOIndices(_data.Data):
 
         return vals, years
 
-    def _get_sst(self, tmp, var_types_indices):
+    def _get_sst(self,
+                 tmp: list,
+                 var_types_indices: list
+                 ) -> tuple[jax.Array, jax.Array]:
         """Parses text lines from sst file.
 
         Args:
-            tmp (list): List of lines from text file
-            var_types_indices (list): List of variable type indices. Variable
+            tmp: List of lines from text file
+            var_types_indices: List of variable type indices. Variable
                 types  are: ['nino12', 'nino12_ano', 'nino3', 'nino3_ano',
                              'nino4', 'nino4_ano', 'nino34', 'nino34_ano']
                 [0] is 'nino12' only, [1] is 'nino12_ano', [0, 2] is 'nino12'
