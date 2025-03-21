@@ -12,12 +12,10 @@ version = ''
 extensions = [
     'sphinx.ext.duration',
     'sphinx.ext.doctest',
-    'sphinx.ext.autodoc',
-    'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
+    'autoapi.extension'
 ]
-
-autosummary_generate = True
+autoapi_dirs = ['../dabench']
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),

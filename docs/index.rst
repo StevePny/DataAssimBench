@@ -8,8 +8,6 @@ Contents
 
 .. toctree::
 
-   api
-
 .. note::
 
    This project is under active development.
