@@ -3,6 +3,7 @@
 import copy
 import numpy as np
 import jax.numpy as jnp
+import jax
 import xarray as xr
 import warnings
 from importlib import resources
@@ -11,29 +12,32 @@ from dabench.data._utils import integrate
 from dabench import _suppl_data
 
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
+
 class Data():
     """Generic class for data generator objects.
 
     Attributes:
-        system_dim (int): system dimension
-        time_dim (int): total time steps
-        original_dim (tuple): dimensions in original space, e.g. could be 3x3
+        system_dim: system dimension
+        time_dim: total time steps
+        original_dim: dimensions in original space, e.g. could be 3x3
             for a 2d system with system_dim = 9. Defaults to (system_dim),
             i.e. 1d.
-        random_seed (int): random seed, defaults to 37
-        delta_t (float): the timestep of the data (assumed uniform)
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        random_seed: random seed, defaults to 37
+        delta_t: the timestep of the data (assumed uniform)
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
         """
 
     def __init__(self,
-                 system_dim=3,
-                 time_dim=1,
-                 original_dim=None,
-                 random_seed=37,
-                 delta_t=0.01,
-                 store_as_jax=False,
-                 x0=None,
+                 system_dim: int = 3,
+                 time_dim: int = 1,
+                 original_dim: tuple[int, ...] | None = None,
+                 random_seed: int = 37,
+                 delta_t: float = 0.01,
+                 store_as_jax: bool = False,
+                 x0: ArrayLike | None = None,
                  **kwargs):
         """Initializes the base data object"""
 
@@ -82,8 +86,14 @@ class Data():
         else:
             return self._x0.reshape(self.original_dim)
 
-    def generate(self, n_steps=None, t_final=None, x0=None, M0=None,
-                 return_tlm=False, stride=None, **kwargs):
+    def generate(self,
+                 n_steps: int | None = None,
+                 t_final: float | None = None,
+                 x0: ArrayLike | None = None,
+                 M0: ArrayLike | None = None,
+                 return_tlm: bool = False,
+                 stride: int | None = None,
+                 **kwargs) -> None | ArrayLike:
         """Generates a dataset and returns xarray state vector.
 
         Notes:
@@ -92,17 +102,17 @@ class Data():
             time_dim attributes.
 
         Args:
-            n_steps (int): Number of timesteps. One of n_steps OR
+            n_steps: Number of timesteps. One of n_steps OR
                 t_final must be specified.
-            t_final (float): Final time of trajectory. One of n_steps OR
+            t_final: Final time of trajectory. One of n_steps OR
                 t_final must be specified.
-            M0 (ndarray): the initial condition of the TLM matrix computation
+            x0: initial conditions state vector of shape (system_dim)
+            M0: the initial condition of the TLM matrix computation
                 shape (system_dim, system_dim).
-            return_tlm (bool): specifies whether to compute and return the
+            return_tlm: specifies whether to compute and return the
                 integrated Jacobian as a Tangent Linear Model for each
                 timestep.
-            x0 (ndarray): initial conditions state vector of shape (system_dim)
-            stride (int): specify how many steps to skip in the output data
+            stride: specify how many steps to skip in the output data
                 versus the model timestep (delta_t).
             **kwargs: arguments to the integrate function (permits changes in
                 convergence tolerance, etc.).
@@ -204,12 +214,15 @@ class Data():
         else:
             return out_vec
 
-    def rhs_aux(self, x, t):
+    def rhs_aux(self,
+                x: ArrayLike,
+                t: ArrayLike
+                ) -> jax.Array:
         """The auxiliary model used to compute the TLM.
 
         Args:
-          x (ndarray): State vector with size (system_dim)
-          t (ndarray): Array of times with size (time_dim)
+          x: State vector with size (system_dim)
+          t: Array of times with size (time_dim)
 
         Returns:
           dxaux (ndarray): State vector [size: (system_dim,)]
@@ -228,8 +241,13 @@ class Data():
 
         return dxaux
 
-    def calc_lyapunov_exponents_series(self, total_time=None, rescale_time=1,
-                                       convergence=0.01, x0=None):
+    def calc_lyapunov_exponents_series(
+            self,
+            total_time: float | None =  None,
+            rescale_time: float = 1,
+            convergence: float = 0.01,
+            x0: ArrayLike | None = None
+            ) -> ArrayLike:
         """Computes the spectrum of Lyapunov Exponents.
 
         Notes:
@@ -246,19 +264,19 @@ class Data():
             Lyapunov Exponent, use self.calc_lyapunov_exponents.
 
         Args:
-            total_time (float) : Time to integrate over to compute LEs.
+            total_time: Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
                 computation time). Default depends on model type and are based
                 roughly on how long it takes for satisfactory convergence:
                 For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
                 For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
-            rescale_time (float) : Time for when the algorithm rescales the
+            rescale_time: Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
-            convergence (float) : Prints warning if LE convergence is below
+            convergence: Prints warning if LE convergence is below
                 this number. Default is 0.01.
-            x0 (array) : initial condition to start computing LE.  Needs
+            x0: initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
                 initialization.
@@ -317,27 +335,32 @@ class Data():
 
         return LE
 
-    def calc_lyapunov_exponents_final(self, total_time=None, rescale_time=1,
-                                      convergence=0.05, x0=None):
+    def calc_lyapunov_exponents_final(
+            self,
+            total_time: float | None =  None,
+            rescale_time: float = 1,
+            convergence: float = 0.01,
+            x0: ArrayLike | None = None
+            ) -> ArrayLike:
         """Computes the final Lyapunov Exponents
 
         Notes:
             See self.calc_lyapunov_exponents_series for full info
 
         Args:
-            total_time (float) : Time to integrate over to compute LEs.
+            total_time: Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
                 computation time). Default depends on model type and are based
                 roughly on how long it takes for satisfactory convergence:
                 For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
                 For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
-            rescale_time (float) : Time for when the algorithm rescales the
+            rescale_time: Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
-            convergence (float) : Prints warning if LE convergence is below
+            convergence: Prints warning if LE convergence is below
                 this number. Default is 0.01.
-            x0 (array) : initial condition to start computing LE.  Needs
+            x0: initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
                 initialization.
@@ -346,31 +369,37 @@ class Data():
             Lyapunov exponents array of size (system_dim)
         """
 
-        return self.calc_lyapunov_exponents_series(total_time=total_time,
-                                                   rescale_time=rescale_time,
-                                                   x0=x0,
-                                                   convergence=convergence)[-1]
+        return self.calc_lyapunov_exponents_series(
+            total_time=total_time,
+            rescale_time=rescale_time,
+            x0=x0,
+            convergence=convergence)[-1]
 
-    def load_netcdf(self, filepath=None, include_vars=None, exclude_vars=None,
-                    years_select=None, dates_select=None):
+    def load_netcdf(self,
+                    filepath: str | None = None,
+                    include_vars: list | ArrayLike | None = None,
+                    exclude_vars: list | ArrayLike | None = None,
+                    years_select: list | ArrayLike | None = None,
+                    dates_select: list | ArrayLike | None = None
+                    ) -> xr.Dataset:
                     
         """Loads values from netCDF file, saves them in values attribute
 
         Args:
-            filepath (str): Path to netCDF file to load. If not given,
+            filepath: Path to netCDF file to load. If not given,
                 defaults to loading ERA5 ECMWF SLP data over Japan
                 from 2018 to 2021.
-            include_vars (list-like): Data variables to load from NetCDF. If
+            include_vars: Data variables to load from NetCDF. If
                 None (default), loads all variables. Can be used to exclude bad
                 variables.
-            exclude_vars (list-like): Data variabes to exclude from NetCDF
+            exclude_vars: Data variabes to exclude from NetCDF
                 loading. If None (default), loads all vars (or only those
                 specified in include_vars). It's recommended to only specify
                 include_vars OR exclude_vars (unless you want to do extra
                 typing).
-            years_select (list-like): Years to load (ints). If None, loads all
+            years_select: Years to load (ints). If None, loads all
                 timesteps.
-            dates_select (list-like): Dates to load. Elements must be
+            dates_select: Dates to load. Elements must be
                 datetime date or datetime objects, depending on type of time
                 indices in NetCDF. If both years_select and dates_select
                 are specified, time_stamps overwrites "years" argument. If
@@ -414,12 +443,14 @@ class Data():
             ds = ds[ds.data_vars[ds.data_vars == exclude_vars]]
         return ds
 
-    def save_netcdf(self, ds, filename):
+    def save_netcdf(self,
+                    ds: xr.Dataset,
+                    filename: str):
         """Saves values in values attribute to netCDF file
 
         Args:
-            ds (Xarray Dataset): Xarray dataset
-            filepath (str): Path to netCDF file to save
+            ds: Xarray dataset
+            filepath: Path to netCDF file to save
         """
 
         ds.to_netcdf(filename, mode='w')
