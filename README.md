@@ -1,6 +1,6 @@
-# DataAssimBench
+![Tests](https://github.com/StevePny/DataAssimBench/actions/workflows/python-ci-pip.yml/badge.svg)
 
-![Tests](https://github.com/StevePny/DataAssimBench/actions/workflows/python-ci-conda.yml/badge.svg)
+# DataAssimBench
 
 This work follows the effort initiated by Rasp et al. in the WeatherBench <https://github.com/pangeo-data/WeatherBench>. Here, we create training sets and a process required to develop data assimilation methods and transition them from conception to full scale Earth system models.  
 
@@ -125,3 +125,7 @@ gcp_obj = dab.data.GCP(**gcp_options) # Create data generator object
 ds_gcp = gcp_obj.load() # Loads data. Can also use gcp_obj.generate()
 ds_gcp # View the output values
 ```
+
+## Reference docs
+
+For more detail, see our [documentation](https://dataassimbench.readthedocs.io/en/latest/)
