@@ -45,74 +45,66 @@ from dabench import _suppl_data
 # Set to enable 64bit floats in Jax
 jax.config.update('jax_enable_x64', True)
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
+
 
 class SQGTurb(_data.Data):
     """Class to set up SQGTurb model and manage data.
 
     Attributes:
-        pv (ndarray): Potential vorticity array. If None (default),
+        pv: Potential vorticity array. If None (default),
              loads data from 57600 step spinup with initial conditions taken
              from Jeff Whitaker's original implementation:
              https://github.com/jswhit/sqgturb. 57600 steps matches the
              "nature run" spin up in that repository.
-        system_dim (int): The dimension of the system state
-        time_dim (int): The dimension of the timeseries (not used)
-        delta_t (float): model time step (seconds)
-        x0 (ndarray, float): Initial state, array of floats of size
+        system_dim: The dimension of the system state
+        time_dim: The dimension of the timeseries (not used)
+        delta_t: model time step (seconds)
+        x0: Initial state, array of floats of size
             (system_dim).
-        f (float): coriolis
-        nqr (float): Brunt-Vaisalla (buoyancy) freq squared
-        L (float): size of square domain
-        H (float): height of upper boundary
-        U (float): basic state velocity at z = H
-        r (float): Ekman damping (at z=0)
-        tdiab (float): thermal relaxation damping
-        diff_order (int): hyperdiffusion order
-        diff_efold (float): hyperdiff time scale
-        symmetric (bool): symmetric jet, or jet with U=0 at sf
-        dealias (bool): if True, dealiasing applied using 2/3 rule
-        precision (char): 'single' or 'double'. Default is 'single'
-        tstart (float): initialize time counter
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        f: coriolis
+        nqr: Brunt-Vaisalla (buoyancy) freq squared
+        L: size of square domain
+        H: height of upper boundary
+        U: basic state velocity at z = H
+        r: Ekman damping (at z=0)
+        tdiab: thermal relaxation damping
+        diff_order: hyperdiffusion order
+        diff_efold: hyperdiff time scale
+        symmetric: symmetric jet, or jet with U=0 at sf
+        dealias: if True, dealiasing applied using 2/3 rule
+        precision: 'single' or 'double'. Default is 'single'
+        tstart: initialize time counter
+        delta_t: the timestep of the data (assumed uniform)
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
-        is_spectral (bool): Attribute to track which generators store values
-            in spectral space. Is automatically set to True for SQGTurb.
     """
 
     def __init__(self,
-                 pv=None,
-                 f=1.0e-4,
-                 nsq=1.0e-4,
-                 L=20.0e6,
-                 H=10.0e3,
-                 U=30.0,
-                 r=0.0,
-                 tdiab=10.0 * 86400,
-                 diff_order=8,
-                 diff_efold=86400./3,
-                 symmetric=True,
-                 dealias=True,
-                 precision='single',
-                 tstart=0,
-                 system_dim=None,
-                 input_dim=None,
-                 output_dim=None,
-                 time_dim=None,
-                 values=None,
-                 times=None,
-                 delta_t=900,
-                 store_as_jax=False,
+                 pv: ArrayLike | None = None,
+                 f: float = 1.0e-4,
+                 nsq: float = 1.0e-4,
+                 L: float = 20.0e6,
+                 H: float = 10.0e3,
+                 U: float = 30.0,
+                 r: float = 0.0,
+                 tdiab: float = 10.0 * 86400,
+                 diff_order: int = 8,
+                 diff_efold: float = 86400./3,
+                 symmetric: bool = True,
+                 dealias: bool = True,
+                 precision: str = 'single',
+                 tstart: float = 0,
+                 delta_t: float = 900,
+                 store_as_jax: bool = False,
                  **kwargs,
                  ):
 
         # Attribute to track which generators store spectral values by default
         self.is_spectral = True
 
-        super().__init__(system_dim=system_dim, input_dim=input_dim,
-                         output_dim=output_dim, time_dim=time_dim,
-                         values=values, times=times, delta_t=delta_t,
-                         store_as_jax=store_as_jax, **kwargs)
-
+        super().__init__(delta_t=delta_t, store_as_jax=store_as_jax, **kwargs)
 
         self.coord_names = ['level','x','y']
         self.var_names=['pv']
@@ -300,7 +292,7 @@ class SQGTurb(_data.Data):
         return pvspec
 
     @partial(jax.jit, static_argnums=(0,))
-    def _specpad(self, specarr):
+    def _specpad(self, specarr: ArrayLike) -> jax.Array:
         """Pads spectral arrays with zeros to interpolate to 3/2 larger grid
             using inverse fft."""
         # Take care of normalization factor for inverse transform.
@@ -319,7 +311,7 @@ class SQGTurb(_data.Data):
         return specarr_pad
 
     @partial(jax.jit, static_argnums=(0,))
-    def _spectrunc(self, specarr):
+    def _spectrunc(self, specarr: ArrayLike) -> jax.Array:
         """Truncates spectral array to 2/3 size"""
         specarr_trunc = jnp.zeros((2, self.N, self.N // 2 + 1),
                                   dtype=specarr.dtype)
@@ -332,21 +324,26 @@ class SQGTurb(_data.Data):
         return specarr_trunc
 
     @partial(jax.jit, static_argnums=(0,))
-    def _xyderiv(self, specarr):
+    def _xyderiv(self, specarr: ArrayLike) -> tuple[jax.Array, jax.Array]:
         """Calculates x and y derivatives"""
         xderiv = self.ifft2(self.ik * specarr)
         yderiv = self.ifft2(self.il * specarr)
         return xderiv, yderiv
 
     @partial(jax.jit, static_argnums=(0,))
-    def _xyderiv_dealias(self, specarr):
+    def _xyderiv_dealias(self,
+                         specarr: ArrayLike
+                         ) -> tuple[jax.Array, jax.Array]:
         """Calculates x and y derivatives"""
         specarr_pad = self._specpad(specarr)
         xderiv = self.ifft2(self.ik_pad * specarr_pad)
         yderiv = self.ifft2(self.il_pad * specarr_pad)
         return xderiv, yderiv
 
-    def _rk4(self, x, all_x):
+    def _rk4(self,
+             x: ArrayLike,
+             all_x: ArrayLike | None
+             ) -> tuple[ArrayLike, ArrayLike]:
         """Updates pv using 4th order runge-kutta time step with implicit
             "integrating factor" treatment of hyperdiffusion.
 
@@ -363,7 +360,13 @@ class SQGTurb(_data.Data):
         return self.hyperdiff*y, self.hyperdiff*y
 
     @partial(jax.jit, static_argnums=(0,))
-    def _symmetric_pvbar(self, mu, U, l, H, y):
+    def _symmetric_pvbar(self,
+                         mu: jax.Array,
+                         U: jax.Array,
+                         l: jax.Array,
+                         H: jax.Array,
+                         y: jax.Array
+                         ) -> jax.Array:
         """Computes symmetric pvbar"""
         pvbar = (
             -(mu * 0.5 * U / (l * H))
@@ -374,7 +377,13 @@ class SQGTurb(_data.Data):
         return pvbar
 
     @partial(jax.jit, static_argnums=(0,))
-    def _asymmetric_pvbar(self, mu, U, l, H, y):
+    def _asymmetric_pvbar(self,
+                          mu: jax.Array,
+                          U: jax.Array,
+                          l: jax.Array,
+                          H: jax.Array,
+                          y: jax.Array
+                          ) -> jax.Array:
         """Computes asymmetric pvbar"""
         pvbar = (-(mu * U / (l * H)) *
                  jnp.cos(l * y) / jnp.sinh(mu))
@@ -383,52 +392,75 @@ class SQGTurb(_data.Data):
 
     # Public support methods
     @partial(jax.jit, static_argnums=(0,))
-    def fft2(self, pv):
+    def fft2(self,
+             pv: jax.Array
+             ) -> jax.Array:
         """Alias method for FFT of PV"""
         return rfft2(pv)
 
     @partial(jax.jit, static_argnums=(0,))
-    def ifft2(self, pvspec):
+    def ifft2(self,
+              pvspec: jax.Array
+              ) -> jax.Array:
         """Alias method for inverse FFT of PV Spectral"""
         return irfft2(pvspec)
 
     @partial(jax.jit, static_argnums=(0,))
-    def map2dto1d(self, pv):
+    def map2dto1d(self,
+                  pv: jax.Array
+                  ) -> jax.Array:
         """Maps 2D PV to 1D system state"""
         return pv.ravel()
 
     @partial(jax.jit, static_argnums=(0,))
-    def map1dto2d(self, x):
+    def map1dto2d(self,
+                  x: jax.Array
+                  ) -> jax.Array:
         """Maps 1D state vector to 2D PV"""
         return jnp.reshape(x, (self.Nv, self.Nx, self.Ny))
 
     @partial(jax.jit, static_argnums=(0,))
-    def fft2_2dto1d(self, pv):
+    def fft2_2dto1d(self,
+                    pv: jax.Array
+                    ) -> jax.Array:
         """Runs FFT then maps from 2D to 1D"""
         pvspec = self.fft2(pv)
         return self.map2dto1d(pvspec)
 
     @partial(jax.jit, static_argnums=(0,))
-    def ifft2_2dto1d(self, pvspec):
+    def ifft2_2dto1d(self,
+                     pvspec: jax.Array
+                     ) -> jax.Array:
         """Runs inverse FFT then maps from 2D to 1D"""
         pv = self.ifft2(pvspec)
         return self.map2dto1d(pv)
 
     @partial(jax.jit, static_argnums=(0,))
-    def map1dto2d_fft2(self, x):
+    def map1dto2d_fft2(self,
+                       x: jax.Array
+                       ) -> jax.Array:
         """Maps for 1D to 2D then runs FFT"""
         pv = self.map1dto2d(x)
         return self.fft2(pv)
 
     @partial(jax.jit, static_argnums=(0,))
-    def map1dto2d_ifft2(self,  x):
+    def map1dto2d_ifft2(self,
+                        x: jax.Array
+                        ) -> jax.Array:
         """Maps for 1D to 2D then runs inverse FFT"""
         pvspec = self.map1dto2d(x)
         return self.ifft2(pvspec)
 
     # Integration methods
-    def integrate(self, f, x0, t_final, delta_t=None, include_x0=True,
-                  t=None, **kwargs):
+    def integrate(self,
+                  f: None,
+                  x0: ArrayLike,
+                  t_final: float,
+                  delta_t: float | None = None,
+                  include_x0: bool = True,
+                  t: float | None = None,
+                  **kwargs
+                  ) -> tuple[jax.Array, jax.Array]:
         """Advances pv forward number of timesteps given by self.n_steps.
 
         Note:
@@ -483,7 +515,9 @@ class SQGTurb(_data.Data):
 
         return values, times
 
-    def rhs(self, pvspec):
+    def rhs(self,
+            pvspec: ArrayLike
+            ) -> jax.Array:
         """Computes pv deriv on z=0, inverts pv to get streamfunction."""
 
         psispec = self._invert(pvspec)
@@ -516,7 +550,7 @@ class SQGTurb(_data.Data):
         self.v = psix
         return dpvspecdt
 
-    def _to_original_dim(self):
+    def _to_original_dim(self) -> np.ndarray:
         """Going back to 2D is a bit trickier for sqgturb"""
         gridded_vals = np.zeros((self.time_dim, self.Nv, self.Nx, self.Nx))
 

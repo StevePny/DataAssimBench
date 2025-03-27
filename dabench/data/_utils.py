@@ -2,27 +2,37 @@
 
 import logging
 import numpy as np
+import jax
 import jax.numpy as jnp
 from scipy.integrate import odeint as spodeint
 from jax.experimental.ode import odeint
 
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
+
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
-
-def integrate(function, x0, t_final, delta_t, method='odeint', stride=None,
-              jax_comps=True,
-              **kwargs):
-    """ Integrate forward in time.
+def integrate(function: ArrayLike,
+              x0: ArrayLike,
+              t_final: float,
+              delta_t: float,
+              method: str = 'odeint',
+              stride: float | None = None,
+              jax_comps: bool = True,
+              **kwargs
+              ) -> tuple[ArrayLike, ArrayLike]:
+    """Integrate forward in time.
 
     Args:
-        function (ndarray): the model equations to integrate
-        x0 (ndarray): initial conditions state vector with shape (system_dim)
-        t_final (float): the final absolute time
+        function: the model equations to integrate
+        x0: initial conditions state vector with shape (system_dim)
+        t_final: the final absolute time
         delta_t (float): timestep size
-        method (str): Integration method, one of 'odeint', 'euler',
+        method: Integration method, one of 'odeint', 'euler',
             'adambash2', 'ode_adambash2', 'rk2'. Right now, only odeint is
             implemented
-        stride (float): stride for output data
+        stride: stride for output data
         **kwargs: keyword arguments for the integrator
 
     Returns:

@@ -6,13 +6,18 @@ Requires pyqg-jax: https://pyqg-jax.readthedocs.io/
 import logging
 import numpy as np
 from copy import deepcopy
-import jax
 import functools
+import jax
+import jax.numpy as jnp
+import xarray as xr
 import jax.numpy as jnp
 
 from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 try:
     import pyqg_jax
@@ -37,45 +42,38 @@ class PyQGJax(_data.Data):
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
     Attributes:
-        beta (float): Gradient of coriolis parameter. Units: meters^-1 *
+        beta: Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1
-        rek (float): Linear drag in lower layer. Units: seconds^-1
-        rd (float): Deformation radius. Units: meters.
-        delta (float): Layer thickness ratio (H1/H2)
-        U1 (float): Upper layer flow. Units: m/s
-        U2 (float): Lower layer flow. Units: m/s
-        H1 (float): Layer thickness (sets both H1 and H2).
-        nx (int): Number of grid points in the x direction.
-        ny (int): Number of grid points in the y direction (default: nx).
-        L (float): Domain length in x direction. Units: meters.
-        W (float): Domain width in y direction. Units: meters (default: L).
-        filterfac (float): amplitdue of the spectral spherical filter
-            (originally 18.4, later changed to 23.6).
-        delta_t (float): Numerical timestep. Units: seconds.
-        tmax (float): Total time of integration (overwritten by t_final).
-            Units: seconds.
-        ntd (int): Number of threads to use. Should not exceed the number of
-            cores on your machine.
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        rd: Deformation radius. Units: meters.
+        delta: Layer thickness ratio (H1/H2)
+        H1: Layer thickness (sets both H1 and H2 if H2 not specified).
+        H2: Layer 2 thickness.
+        U1: Upper layer flow. Units: m/s
+        U2: Lower layer flow. Units: m/s
+        x0: the initial conditions. Can also be
+            provided when initializing model object. If provided by
+            both, the generate() arg takes precedence.
+        nx: Number of grid points in the x direction.
+        ny: Number of grid points in the y direction (default: nx).
+        delta_t: Numerical timestep. Units: seconds.
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
     def __init__(self,
-                 beta=1.5e-11,
-                 rd=15000.0,
-                 delta=0.25,
-                 H1=500,
-                 H2=None,
-                 U1=0.025,
-                 U2=0.0,
-                 x0=None,
-                 nx=64,
-                 ny=None,
-                 delta_t=7200,
-                 random_seed=37,
-                 time_dim=None,
-                 values=None,
-                 times=None,
-                 store_as_jax=False,
+                 beta: float = 1.5e-11,
+                 rd: float = 15000.0,
+                 delta: float = 0.25,
+                 H1: float = 500,
+                 H2: float | None = None,
+                 U1: float = 0.025,
+                 U2: float = 0.0,
+                 x0: ArrayLike | None = None,
+                 nx: int = 64,
+                 ny: int | None = None,
+                 delta_t: float = 7200,
+                 random_seed: int = 37,
+                 time_dim: int | None = None,
+                 store_as_jax: bool = False,
                  **kwargs):
         """ Initialize PyQGJax QGModel object, subclass of Base
 
@@ -112,8 +110,8 @@ class PyQGJax(_data.Data):
                 jax.random.PRNGKey(0)
                 )
         super().__init__(system_dim=system_dim, original_dim=original_dim,
-                         time_dim=time_dim, values=values, times=times,
-                         delta_t=delta_t, store_as_jax=store_as_jax, x0=x0,
+                         time_dim=time_dim, delta_t=delta_t,
+                         store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
     @functools.partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -133,7 +131,9 @@ class PyQGJax(_data.Data):
         return traj_steps
 
 
-    def _spec_var(self, ph):
+    def _spec_var(self,
+                  ph: np.ndarray
+                    ) -> float:
         """Compute variance of p from Fourier coefficients ph
 
         Note: Taken from original pyqg package:
@@ -147,7 +147,12 @@ class PyQGJax(_data.Data):
 
         return var_dens.sum()
 
-    def generate(self, n_steps=None, t_final=None, x0=None):
+    # TODO: Change to produce xarray dataset instead of updating values att.
+    def generate(self,
+                 n_steps: int | None = None,
+                 t_final: float = 40,
+                 x0: ArrayLike | None = None
+                 ) -> xr.Dataset:
         """Generates values and times, saves them to the data object
 
         Notes:
@@ -156,11 +161,11 @@ class PyQGJax(_data.Data):
             time_dim attributes.
 
         Args:
-            n_steps (int): Number of timesteps. One of n_steps OR
+            n_steps: Number of timesteps. One of n_steps OR
                 t_final must be specified.
-            t_final (float): Final time of trajectory. One of n_steps OR
+            t_final: Final time of trajectory. One of n_steps OR
                 t_final must be specified.
-            x0 (ndarray, optional): the initial conditions. Can also be
+            x0: the initial conditions. Can also be
                 provided when initializing model object. If provided by
                 both, the generate() arg takes precedence.
         """
@@ -223,6 +228,7 @@ class PyQGJax(_data.Data):
         self.time_dim = qs.shape[0]
         self.values = qs.reshape((self.time_dim, -1))
 
+    # TODO: Remove? Believe this is deprecated
     def forecast(self, n_steps=None, t_final=None, x0=None):
         """Alias for self.generate(), except returns values as output"""
         self.generate(n_steps, t_final, x0)

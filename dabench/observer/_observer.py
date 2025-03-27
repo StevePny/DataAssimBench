@@ -6,43 +6,49 @@ Input is  generated data, returns ObsVector with values, times, coords, etc
 import warnings 
 
 import numpy as np
+import jax
 import jax.numpy as jnp
 import xarray as xr
+
+from dabench.data import Data
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 
 class Observer():
     """Base class for Observer objects
 
     Attributes:
-        data_obj (dabench.data.Data): Data generator/loader object from which
+        data_obj: Data generator/loader object from which
             to gather observations.
-        random_location_density (float or tuple): Fraction of locations in
+        random_location_density: Fraction of locations in
             system_dim to randomly select for observing, must be value
             between 0 and 1. Default is 1.
-        random_time_density (float): Fraction of times to randomly select
+        random_time_density: Fraction of times to randomly select
             for observing must be value between 0 and 1. Default is 1.
-        random_location_count (int): Number of locations in data_obj's
+        random_location_count: Number of locations in data_obj's
             system_dim to randomly select for observing. Default is None.
             User should specify one of: random_location_count,
             random_location_density, or location_indices.
             If random_location_count is specified, it takes precedent over
             random_location_density.
-        random_time_count (int): Number of times to randomly select for
+        random_time_count: Number of times to randomly select for
             observing. Default is None. User should specify one of:
             random_time_count, random_time_density, or time_indices.
             If random_time_count is specified, it takes precedent over
             random_time_density.
-        location_indices (ndarray): Manually specified indices for observing.
+        locations: Manually specified indices for observing.
             If 1D array provided, assumed to be for flattened system_dim.
             If >1D, must have same dimensionality as data generator's
             original_dim (e.g. (x, y, z)). If stationary_observers=False,
             expects leading time dimension. If not specified, will be randomly
             generated according to random_location_density OR
             random_location_count. Default is None.
-        time_indices (ndarray): Indices of times to gather observations from.
+        times: Indices of times to gather observations from.
             If not specified, randomly generate according to
             random_time_density OR random_time_count. Default is None.
-        stationary_observers (bool): If True, samples from same indices at
+        stationary_observers: If True, samples from same indices at
             each time step. If False, randomly generates/expects new
             observation indices at each timestep. Default is True.
             If False:
@@ -53,37 +59,37 @@ class Observer():
                     of locations at each times step..
                 If using location_indices, expects indices to either be 2D
                     (time_dim, system_dim) or >2D (time_dim, original_dim).
-        error_bias (float or array): Mean of normal distribution of
+        error_bias: Mean of normal distribution of
             observation errors. If provided as an array, it is taken to be
             variable-specific and the length must be equal to
             data_obj.system_dim. Default is 0.
-        error_sd (float or array): Standard deviation of observation errors.
+        error_sd: Standard deviation of observation errors.
             observation errors. If provided as an array, it is taken to be
             variable-specific and the length be equal to data_obj.system_dim.
             Default is 0.
-        error_positive_only (bool): Clip errors to be positive only. Default is
+        error_positive_only: Clip errors to be positive only. Default is
             False.
-        random_seed (int): Random seed for sampling times and locations.
+        random_seed: Random seed for sampling times and locations.
             Default is 99.
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
 
     """
 
     def __init__(self,
-                 state_vec,
-                 random_time_density=1.,
-                 random_location_density=1.,
-                 random_time_count=None,
-                 random_location_count=None,
-                 times=None,
-                 locations=None,
-                 stationary_observers=True,
-                 error_bias=0.,
-                 error_sd=0.,
-                 error_positive_only=False,
-                 random_seed=99,
-                 store_as_jax=False,
+                 state_vec: xr.Dataset,
+                 random_time_density: float = 1.,
+                 random_location_density: float | tuple[float, ...] = 1.,
+                 random_time_count: int | None = None,
+                 random_location_count: int | tuple[int, ...] | None = None,
+                 times: ArrayLike | None = None,
+                 locations: ArrayLike | None = None,
+                 stationary_observers: bool = True,
+                 error_bias: ArrayLike | float = 0.,
+                 error_sd: ArrayLike | float = 0.,
+                 error_positive_only: bool = False,
+                 random_seed: int = 99,
+                 store_as_jax: bool = False,
                  ):
 
         self.state_vec = state_vec
@@ -173,7 +179,10 @@ class Observer():
                  
         self.error_positive_only = error_positive_only
 
-    def _generate_times(self, rng):
+    def _generate_times(
+            self,
+            rng: np.random.Generator
+            ):
         if self.random_time_count is not None:
             self.times = np.sort(rng.choice(
                     self.state_vec['time'],
@@ -187,7 +196,10 @@ class Observer():
                                  ).astype('bool')
                     )[0]]
 
-    def _generate_stationary_locs(self, rng):
+    def _generate_stationary_locs(
+            self,
+            rng: np.random.Generator
+            ):
         if self.random_location_count is not None:
             location_count = self.random_location_count
         else:
@@ -211,7 +223,10 @@ class Observer():
         }
         self.location_dim = location_count
 
-    def _generate_nonstationary_locs(self, rng):
+    def _generate_nonstationary_locs(
+            self,
+            rng: np.random.Generator
+            ):
         """Generate different locations for each observation time"""
         if self.random_location_count is not None:
             self._location_counts = np.repeat(
@@ -245,7 +260,7 @@ class Observer():
 
         self.location_dim = np.max(self._location_counts)
 
-    def observe(self):
+    def observe(self) -> xr.Dataset:
         """Generate observations.
 
         Returns:

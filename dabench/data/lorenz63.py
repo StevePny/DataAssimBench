@@ -1,46 +1,50 @@
 """Lorenz 1963 3-variable model data generation"""
 
 import logging
+import numpy as np
+import jax
 import jax.numpy as jnp
 
 from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 class Lorenz63(_data.Data):
     """ Class to set up Lorenz 63 model data
 
     Attributes:
-        sigma (float): Lorenz 63 param. Default is 10., the original value
+        sigma: Lorenz 63 param. Default is 10., the original value
             used in Lorenz, 1963.
             https://doi.org/10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2
-        rho (float): Lorenz 63 param. Default is 28., the value used in
+        rho: Lorenz 63 param. Default is 28., the value used in
             Lorenz, 1963 (see DOI above)
-        beta (float): Lorenz 63 param. Default is 8./3., the value used in
+        beta: Lorenz 63 param. Default is 8./3., the value used in
             Lorenz, 1963 (see DOI above)
-        x0 (ndarray, float): Initial state, array of floats of size
+        delta_t: length of one time step
+        x0: Initial state, array of floats of size
             (system_dim). Default is jnp.array([-10.0, -15.0, 21.3]), which
             is the system state after a 6000 step spinup with delta_t=0.01
             and initial conditions [0., 1., 0.], a spinup which replicates
             the simulation described in Lorenz, 1963.
-        system_dim (int): system dimension. Must be 3 for Lorenz63.
-        time_dim (int): total time steps
-        delta_t (float): length of one time step
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        system_dim: system dimension. Must be 3 for Lorenz63.
+        time_dim: total time steps
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
 
     def __init__(self,
-                 sigma=10.,
-                 rho=28.,
-                 beta=8./3.,
-                 delta_t=0.01,
-                 x0=jnp.array([-10.0, -15.0, 21.3]),
-                 system_dim=3,
-                 time_dim=None,
-                 values=None,
-                 store_as_jax=False,
+                 sigma: float = 10.,
+                 rho: float = 28.,
+                 beta: float = 8./3.,
+                 delta_t: float = 0.01,
+                 x0: ArrayLike | None = jnp.array([-10.0, -15.0, 21.3]),
+                 system_dim: int = 3,
+                 time_dim: int | None = None,
+                 values: ArrayLike | None = None,
+                 store_as_jax: bool = False,
                  **kwargs):
         """Initialize Lorenz63 object, subclass of Base"""
 
@@ -65,7 +69,10 @@ class Lorenz63(_data.Data):
         # Initial conditions
         self.x0 = x0
 
-    def rhs(self, x, t=None):
+    def rhs(self,
+            x: ArrayLike,
+            t: ArrayLike | None =  None
+            ) -> jax.Array:
         """vector field of Lorenz 63
 
         Args:
@@ -84,8 +91,10 @@ class Lorenz63(_data.Data):
 
         return dx
 
-    def Jacobian(self, x):
-        """ Jacobian of the L63 system
+    def Jacobian(self,
+                 x: ArrayLike
+                 ) -> jax.Array:
+        """Jacobian of the L63 system
 
         Args:
             x: state vector with shape (system_dim)

@@ -7,6 +7,7 @@ import logging
 import numpy as np
 from copy import deepcopy
 import xarray as xr
+import jax
 import jax.numpy as jnp
 from dabench.data._utils import integrate
 
@@ -27,6 +28,9 @@ except ImportError:
         'For more information: https://qgs.readthedocs.io/en/latest/files/general_information.html'
         )
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
+
 
 class QGS(_data.Data):
     """ Class to set up QGS quasi-geostrophic model
@@ -35,25 +39,23 @@ class QGS(_data.Data):
     See https://qgs.readthedocs.io/
 
     Attributes:
-        model_params (QgParams): qgs parameter object. See:
+        model_params: qgs parameter object. See:
             https://qgs.readthedocs.io/en/latest/files/technical/configuration.html#qgs.params.params.QgParams
             If None, will use defaults specified by:
             De Cruz, et al. (2016). Geosci. Model Dev., 9, 2793-2808.
-        delta_t (float): Numerical timestep. Units: seconds.
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        x0: Initial state vector, array of floats. Default is:
+        delta_t: Numerical timestep. Units: seconds.
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
-        x0 (ndarray): Initial state vector, array of floats. Default is:
     """
     def __init__(self,
-                 model_params=None,
-                 x0=None,
-                 delta_t=0.1,
-                 system_dim=None, 
-                 time_dim=None,
-                 values=None,
-                 times=None,
-                 store_as_jax=False,
-                 random_seed=37,
+                 model_params: QgParams | None = None,
+                 x0: ArrayLike | None = None,
+                 delta_t: ArrayLike | None =  0.1,
+                 system_dim: int | None = None,
+                 time_dim: int | None = None,
+                 store_as_jax: bool = False,
+                 random_seed: int = 37,
                  **kwargs):
         """ Initialize qgs object, subclass of Base
 
@@ -85,13 +87,12 @@ class QGS(_data.Data):
             x0 = self._rng.random(system_dim)*0.001
 
         super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=values, times=times, delta_t=delta_t,
-                         store_as_jax=store_as_jax, x0=x0,
+                         delta_t=delta_t, store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
         self.f, self.Df = create_tendencies(self.model_params)
 
-    def _create_default_qgparams(self):
+    def _create_default_qgparams(self) -> QgParams:
         model_params = QgParams()
 
         # Mode truncation at the wavenumber 2 in both x and y spatial
@@ -117,11 +118,14 @@ class QGS(_data.Data):
 
         return model_params
 
-    def rhs(self, x, t=0):
+    def rhs(self,
+            x: ArrayLike,
+            t: float | None = 0
+            ) -> np.ndarray:
         """Vector field (tendencies) of qgs system
 
         Arg:
-            x (ndarray): State vector, shape: (system_dim)
+            x: State vector, shape: (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
         Returns:
@@ -133,11 +137,14 @@ class QGS(_data.Data):
 
         return dx
 
-    def Jacobian(self, x, t=0):
+    def Jacobian(self,
+                 x: ArrayLike,
+                 t: float | None =  0
+                 ) -> np.ndarray:
         """Jacobian of the qgs system
 
         Arg:
-            x (ndarray): State vector, shape: (system_dim)
+            x: State vector, shape: (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
 
@@ -150,8 +157,14 @@ class QGS(_data.Data):
 
         return J
 
-    def generate(self, n_steps=None, t_final=None, x0=None, M0=None,
-                 return_tlm=False, stride=None, **kwargs):
+    def generate(self,
+                 n_steps: int | None = None,
+                 t_final: float | None = None,
+                 x0: ArrayLike | None = None,
+                 M0: ArrayLike | None = None,
+                 return_tlm: bool = False,
+                 stride: int | None = None,
+                 **kwargs) -> xr.Dataset | tuple[xr.Dataset | xr.DataArray]:
         """Generates a dataset and assigns values and times to the data object.
 
         Notes:
@@ -176,8 +189,8 @@ class QGS(_data.Data):
                 convergence tolerance, etc.).
 
         Returns:
-            Nothing if return_tlm=False. If return_tlm=True, a list
-                of TLMs corresponding to the system trajectory.
+            Xarray Dataset of output vector and (if return_tlm=True)
+                Xarray DataArray of TLMs corresponding to the system trajectory.
         """
 
         # Check that n_steps or t_final is supplied
@@ -271,34 +284,19 @@ class QGS(_data.Data):
             return out_vec, M
         else:
             return out_vec
-        # self.values = y[:, :self.system_dim]
-        # self.times = t
-        # self.time_dim = len(t)
 
-        # # Return the data series and associated TLMs if requested
-        # if return_tlm:
-        #     # Reshape M matrix
-        #     M = np.reshape(y[:, self.system_dim:],
-        #                    (self.time_dim,
-        #                     self.system_dim,
-        #                     self.system_dim)
-        #                    )
-
-        #     if self.store_as_jax:
-        #         return M
-        #     else:
-        #         return np.array(M)
-
-    def rhs_aux(self, x, t):
+    def rhs_aux(self,
+                x: ArrayLike,
+                t: ArrayLike
+                ) -> jax.Array:
         """The auxiliary model used to compute the TLM.
 
         Args:
-          x (ndarray): State vector with size (system_dim)
-          t (ndarray): Array of times with size (time_dim)
+          x: State vector with size (system_dim)
+          t: Array of times with size (time_dim)
 
         Returns:
           dxaux (ndarray): State vector [size: (system_dim,)]
-
         """
         # Compute M
         dxdt = self.rhs(x[:self.system_dim], t)
@@ -313,8 +311,13 @@ class QGS(_data.Data):
 
         return dxaux
 
-    def calc_lyapunov_exponents_series(self, total_time=None, rescale_time=1,
-                                       convergence=0.01, x0=None):
+    def calc_lyapunov_exponents_series(
+            self,
+            total_time: float | None =  None,
+            rescale_time: float = 1,
+            convergence: float = 0.01,
+            x0: ArrayLike | None = None
+            ) -> ArrayLike:
         """Computes the spectrum of Lyapunov Exponents.
 
         Notes:
@@ -331,19 +334,19 @@ class QGS(_data.Data):
             Lyapunov Exponent, use self.calc_lyapunov_exponents.
 
         Args:
-            total_time (float) : Time to integrate over to compute LEs.
+            total_time: Time to integrate over to compute LEs.
                 Usually there's a tradeoff between accuracy and computation
                 time (more total_time leads to higher accuracy but more
                 computation time). Default depends on model type and are based
                 roughly on how long it takes for satisfactory convergence:
                 For Lorenz63: n_steps=15000 (total_time=150 for delta_t=0.01)
                 For Lorenz96: n_steps=50000 (total_time=500 for delta_t=0.01)
-            rescale_time (float) : Time for when the algorithm rescales the
+            rescale_time: Time for when the algorithm rescales the
                 propagator to reduce the exponential growth in errors.
                 Default is 1 (i.e. 100 timesteps when delta_t = 0.01).
-            convergence (float) : Prints warning if LE convergence is below
+            convergence: Prints warning if LE convergence is below
                 this number. Default is 0.01.
-            x0 (array) : initial condition to start computing LE.  Needs
+            x0: initial condition to start computing LE.  Needs
                 to be on the attractor (i.e., remove transients). Default is
                 None, which will fallback to use the x0 set during model object
                 initialization.
@@ -352,7 +355,6 @@ class QGS(_data.Data):
             Lyapunov exponents for all timesteps, array of size
                 (total_time/rescale_time - 1, system_dim)
         """
-
         # Set total_time
         if total_time is None:
             subclass_name = self.__class__.__name__

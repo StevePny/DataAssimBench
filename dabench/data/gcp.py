@@ -25,39 +25,35 @@ class GCP(_data.Data):
         Data is hourly
 
     Attributes:
-        system_dim (int): System dimension
-        time_dim (int): Total time steps
-        variables (list of strings): Names of ERA5 variables to
+        variables: Names of ERA5 variables to
             load. For description of variables, see:
             https://github.com/google-research/arco-era5?tab=readme-ov-file#full_37-1h-0p25deg-chunk-1zarr-v3
             Default is ['2m_temperature'] (Air temperature at 2 metres)
-        date_start (string): Start of time range to download, in 'yyyy-mm-dd'
+        date_start: Start of time range to download, in 'yyyy-mm-dd'
             format. Can also just specify year ('yyyy') or year and month
             ('yyyy-mm'). Default is '2020-06-01'.
-        date_end (string): End of time range to download, in 'yyyy-mm-dd'
+        date_end: End of time range to download, in 'yyyy-mm-dd'
             format. Can also just specify year ('yyyy') or year and month
             ('yyyy-mm'). Default is '2020-9-30'.
-        min_lat (float): Minimum latitude for bounding box. If None, loads
+        min_lat: Minimum latitude for bounding box. If None, loads
             global data (which can be VERY large). Bounding box default covers
             Cuba.
-        max_lat (float): Max latitude for bounding box (see min_lat for info).
-        min_lon (float): Min latitude for bounding box (see min_lat for info).
-        max_lon (float): Max latitude for bounding box (see min_lat for info).
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        max_lat: Max latitude for bounding box (see min_lat for info).
+        min_lon: Min latitude for bounding box (see min_lat for info).
+        max_lon: Max latitude for bounding box (see min_lat for info).
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
     def __init__(
             self,
-            variables=['2m_temperature'],
-            date_start='2020-01-01',
-            date_end='2020-12-31',
-            min_lat=19.8554808619,
-            max_lat=23.1886107447,
-            min_lon=-84.9749110583,
-            max_lon=-74.1780248685,
-            system_dim=None,
-            time_dim=None,
-            store_as_jax=False,
+            variables: list[str] = ['2m_temperature'],
+            date_start: str = '2020-01-01',
+            date_end: str = '2020-12-31',
+            min_lat: float = 19.8554808619,
+            max_lat: float =  23.1886107447,
+            min_lon: float = -84.9749110583,
+            max_lon: float = -74.1780248685,
+            store_as_jax: bool = False,
             **kwargs
             ):
 
@@ -69,13 +65,12 @@ class GCP(_data.Data):
         self.min_lon = min_lon
         self.max_lon = max_lon
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
-                         values=None, delta_t=None, store_as_jax=store_as_jax,
-                         x0=None,
+        super().__init__(values=None, delta_t=None,
+                         store_as_jax=store_as_jax, x0=None,
                          **kwargs)
 
 
-    def _load_gcp_era5(self):
+    def _load_gcp_era5(self) -> xr.Dataset:
         """Load ERA5 data from Google Cloud Platform"""
 
         url = 'http://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
@@ -117,12 +112,12 @@ class GCP(_data.Data):
 
         return ds
 
-    def generate(self):
+    def generate(self) -> xr.Dataset:
         """Alias for _load_gcp_era5"""
         warnings.warn('GCP.generate() is an alias for the load() method. '
                       'Proceeding with downloading ERA5 data from GCP...')
         return self._load_gcp_era5()
 
-    def load(self):
+    def load(self) -> xr.Dataset:
         """Alias for _load_gcp_era5"""
         return self._load_gcp_era5()

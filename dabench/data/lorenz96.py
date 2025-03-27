@@ -1,10 +1,15 @@
 """Lorenz 96 model data generator"""
 import logging
+import jax
 import jax.numpy as jnp
+import numpy as np
 
 from dabench.data import _data
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 
 class Lorenz96(_data.Data):
@@ -15,9 +20,9 @@ class Lorenz96(_data.Data):
         eapsweb.mit.edu/sites/default/files/Predicability_a_Problem_2006.pdf
 
     Attributes:
-        forcing_term (float): Forcing constant for Lorenz96, prevents energy
+        forcing_term: Forcing constant for Lorenz96, prevents energy
             from decaying to 0. Default is 8.0.
-        x0 (ndarray, float): Initial state vector, array of floats of size
+        x0: Initial state vector, array of floats of size
             (system_dim). For system_dim of 5, 6, or 36, defaults are the final
             state of a 14400 timestep spinup  starting with an initial state
             (x0) of all 0s except the first element, which is set to 0.01.
@@ -26,23 +31,23 @@ class Lorenz96(_data.Data):
             delta_t = 0.01 (more frequently used today) For all other
             system_dim settings, default is all 0s except the first element,
             which is set to 0.01.
-        system_dim (int): System dimension, must be between 4 and 40.
+        system_dim: System dimension, must be between 4 and 40.
             Default is 36.
-        time_dim (int): Total time steps
-        delta_t (float): Length of one time step. Default is 0.05 from
+        time_dim: Total time steps
+        delta_t: Length of one time step. Default is 0.05 from
             Lorenz, 1996, but on  modern computers 0.01 is often used.
-        store_as_jax (bool): Store values as jax array instead of numpy array.
+        store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
 
     def __init__(self,
-                 forcing_term=8.,
-                 delta_t=0.05,
-                 x0=None,
-                 system_dim=36,
-                 time_dim=None,
-                 values=None,
-                 store_as_jax=False,
+                 forcing_term: float = 8.,
+                 delta_t: float = 0.05,
+                 x0: ArrayLike | None = None,
+                 system_dim: int = 36,
+                 time_dim: int | None = None,
+                 values: ArrayLike | None = None,
+                 store_as_jax: bool = False,
                  **kwargs):
         """Initialize Lorenz96 object, subclass of Base"""
 
@@ -113,7 +118,10 @@ class Lorenz96(_data.Data):
                                           jnp.zeros(system_dim-1)])
         self.x0 = x0
 
-    def rhs(self, x, t=None):
+    def rhs(self,
+            x: ArrayLike,
+            t: ArrayLike | None =  None
+            ) -> jax.Array:
         """Computes vector field of Lorenz 96
 
         Args:
@@ -144,7 +152,9 @@ class Lorenz96(_data.Data):
 
         return dx
 
-    def Jacobian(self, x):
+    def Jacobian(self,
+                 x: ArrayLike
+                 ) -> jax.Array:
         """Computes the Jacobian of the Lorenz96 system
 
         Args:

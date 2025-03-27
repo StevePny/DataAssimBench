@@ -1,7 +1,13 @@
 """Deterministic metrics"""
 
 import jax.numpy as jnp
+import numpy as np
+import jax
+
 from dabench.metrics import _utils
+
+# For typing
+ArrayLike = np.ndarray | jax.Array
 
 
 __all__ = [
@@ -12,7 +18,10 @@ __all__ = [
     ]
 
 
-def pearson_r(predictions, targets):
+def pearson_r(
+        predictions: ArrayLike,
+        targets: ArrayLike
+        ) -> jax.Array:
     """JAX array implementation of Pearson R
 
     Args:
@@ -31,7 +40,10 @@ def pearson_r(predictions, targets):
 
     return top/bottom
 
-def mse(predictions, targets):
+def mse(
+        predictions: ArrayLike,
+        targets: ArrayLike
+        ) -> jax.Array:
     """JAX array implementation of Mean Squared Error
 
     Args:
@@ -44,7 +56,10 @@ def mse(predictions, targets):
     """
     return jnp.mean(jnp.square(predictions - targets))
 
-def rmse(predictions, targets):
+def rmse(
+         predictions: ArrayLike,
+         targets: ArrayLike
+         ) -> jax.Array:
     """JAX array implementation of Root Mean Squared Error
 
     Args:
@@ -57,7 +72,10 @@ def rmse(predictions, targets):
     """
     return jnp.sqrt(mse(predictions, targets))
 
-def mae(predictions, targets):
+def mae(
+        predictions: ArrayLike,
+        targets: ArrayLike
+        ) -> jax.Array:
     """JAX array implementation of Mean Absolute Error
 
     Args:
