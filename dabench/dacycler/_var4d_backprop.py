@@ -134,13 +134,13 @@ class Var4DBackprop(dacycler.DACycler):
 
     # @partial(jax.jit, static_argnums=[0])
     def _calc_obs_term(self,
-                       Xb: ArrayLike,
+                       X: ArrayLike,
                        obs_vals: ArrayLike,
                        Ht: ArrayLike,
                        Rinv: ArrayLike
                        ) -> jax.Array:
-        Yb = Xb @ Ht
-        resid = Yb.ravel() - obs_vals.ravel()
+        Y = X @ Ht
+        resid = Y.ravel() - obs_vals.ravel()
 
         return jnp.sum(resid.T @ Rinv @ resid)
 
@@ -163,7 +163,7 @@ class Var4DBackprop(dacycler.DACycler):
 
             # Make new prediction
             # NOTE: [1] selects the full forecast instead of last timestep only
-            Xb = self._step_forecast(
+            X = self._step_forecast(
                 x0, n_steps)[1].to_stacked_array('system',['time']).data
 
             # Calculate observation term of J_0
@@ -171,7 +171,7 @@ class Var4DBackprop(dacycler.DACycler):
             for i, j in enumerate(obs_window_indices):
                 obs_term += jax.lax.cond(
                         obs_time_mask.at[i].get(mode='fill', fill_value=0),
-                        lambda: self._calc_obs_term(Xb[j], obs_vals[i],
+                        lambda: self._calc_obs_term(X[j], obs_vals[i],
                                                     Hs.at[i].get(mode='clip').T,
                                                     Rinv),
                         lambda: 0.0
@@ -220,15 +220,15 @@ class Var4DBackprop(dacycler.DACycler):
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
             x0_ar.data = optax.apply_updates(
                 x0_ar.data, updates)
-            x0_new_ds = x0_ar.to_unstacked_dataset('system').assign_attrs(
+            xa0_ds = x0_ar.to_unstacked_dataset('system').assign_attrs(
                 x0_ds.attrs
             )
-            return (xj.from_xarray(x0_new_ds), init_loss, opt_state), loss_val
+            return (xj.from_xarray(xa0_ds), init_loss, opt_state), loss_val
 
         return _backprop_epoch
 
     def _cycle_obsop(self,
-                     x0_ds: XarrayDatasetLike,
+                     xb0_ds: XarrayDatasetLike,
                      obs_values: ArrayLike,
                      obs_loc_indices: ArrayLike,
                      obs_time_mask: ArrayLike,
@@ -281,7 +281,7 @@ class Var4DBackprop(dacycler.DACycler):
                 Binv + Hs.at[0].get().T @ Rinv @ Hs.at[0].get())
 
         loss_func = self._make_loss(
-                x0_ds,
+                xb0_ds,
                 obs_values,
                 Hs,
                 Binv,
@@ -295,15 +295,15 @@ class Var4DBackprop(dacycler.DACycler):
                 1,
                 self.lr_decay)
         optimizer = optax.sgd(lr)
-        opt_state = optimizer.init(x0_ds.to_stacked_array('system',[]).data)
+        opt_state = optimizer.init(xb0_ds.to_stacked_array('system',[]).data)
 
         # Make initial forecast and calculate loss
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer,
                                                         hessian_inv)
         epoch_state_tuple, loss_vals = jax.lax.scan(
-                backprop_epoch_func, init=(xj.from_xarray(x0_ds), 0., opt_state),
+                backprop_epoch_func, init=(xj.from_xarray(xb0_ds), 0., opt_state),
                 xs=jnp.arange(self.num_iters))
 
-        x0_new_ds = epoch_state_tuple[0].to_xarray()
+        xa0_ds = epoch_state_tuple[0].to_xarray()
 
-        return x0_new_ds
+        return xa0_ds

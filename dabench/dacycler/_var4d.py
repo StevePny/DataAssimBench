@@ -126,7 +126,7 @@ class Var4D(dacycler.DACycler):
     @partial(jax.jit, static_argnums=[0, 1])
     def _innerloop_4d(self,
                       system_dim: int,
-                      Xb_ds: XarrayDatasetLike,
+                      X_ds: XarrayDatasetLike,
                       xb0_ds: XarrayDatasetLike,
                       obs_vals: ArrayLike,
                       Hs: ArrayLike,
@@ -137,8 +137,8 @@ class Var4D(dacycler.DACycler):
                       obs_time_mask: ArrayLike
                       ) -> XarrayDatasetLike:
         """4DVar innerloop"""
-        x0_prev_ds = Xb_ds.isel(time=0)
-        Xb_ar = Xb_ds.to_stacked_array('system',['time'])
+        x0_ds = X_ds.isel(time=0)
+        X_ar = X_ds.to_stacked_array('system',['time'])
 
         # Set up Variables
         SumMtHtRinvHM = jnp.zeros_like(B)             # A input
@@ -151,22 +151,22 @@ class Var4D(dacycler.DACycler):
                     lambda: self._calc_J_term(
                         Hs.at[i].get(mode='clip'),
                         M.data[j],
-                        Rinv, obs_vals[i], Xb_ar.data[j]),
+                        Rinv, obs_vals[i], X_ar.data[j]),
                     lambda: (jnp.zeros_like(SumMtHtRinvHM),
                              jnp.zeros_like(SumMtHtRinvD))
                     )
             SumMtHtRinvHM += Jb
             SumMtHtRinvD += Jo
         # Compute initial departure
-        db0 = (xb0_ds - x0_prev_ds).to_stacked_array('system',[]).data
+        db0 = (xb0_ds - x0_ds).to_stacked_array('system',[]).data
 
         # Solve Ax=b for the initial perturbation
         dx0 = self._solve(db0, SumMtHtRinvHM, SumMtHtRinvD, B)
 
         # New x0 guess is the last guess plus the analyzed delta
-        x0_new_ds = x0_prev_ds + dx0.ravel()
+        xa0_ds = x0_ds + dx0.ravel()
 
-        return x0_new_ds
+        return xa0_ds
 
     def _make_outerloop_4d(self,
                            xb0_ds: XarrayDatasetLike,
@@ -185,18 +185,18 @@ class Var4D(dacycler.DACycler):
             # Get TLM and current forecast trajectory
             # Based on current best guess for x0
             x0_ds = x0_ds.to_xarray()
-            xb_ds, M = self.model_obj.compute_tlm(
+            X_ds, M = self.model_obj.compute_tlm(
                 n_steps=n_steps,
                 state_vec=x0_ds
             )
 
             # 4D-Var inner loop
-            x0_new_ds = self._innerloop_4d(
-                self.system_dim, xb_ds, xb0_ds, obs_values,
+            xa0_ds = self._innerloop_4d(
+                self.system_dim, X_ds, xb0_ds, obs_values,
                 Hs, B, Rinv, M, obs_window_indices, obs_time_mask
                 )
 
-            return xj.from_xarray(x0_new_ds.assign_coords(x0_ds.coords)), x0_ds
+            return xj.from_xarray(xa0_ds.assign_coords(x0_ds.coords)), x0_ds
 
         return _outerloop_4d
 
@@ -236,7 +236,7 @@ class Var4D(dacycler.DACycler):
         return dx0
 
     def _cycle_obsop(self,
-                     x0_ds: XarrayDatasetLike,
+                     xb0_ds: XarrayDatasetLike,
                      obs_values: ArrayLike,
                      obs_loc_indices: ArrayLike,
                      obs_time_mask: ArrayLike,
@@ -284,14 +284,12 @@ class Var4D(dacycler.DACycler):
         # Static Variables
         Rinv = jscipy.linalg.inv(R)
 
-        # Best guess for x0 starts as background
-        x0_new_ds = deepcopy(x0_ds)
-
         outerloop_4d_func = self._make_outerloop_4d(
-                x0_ds, Hs, B, Rinv, obs_values, obs_window_indices,
+                xb0_ds, Hs, B, Rinv, obs_values, obs_window_indices,
                 obs_time_mask, self.steps_per_window)
 
-        x0_new_ds, all_x0s = jax.lax.scan(outerloop_4d_func, init=xj.from_xarray(x0_new_ds),
+        xa0_ds, all_x0s = jax.lax.scan(outerloop_4d_func,
+                                          init=xj.from_xarray(xb0_ds),
                 xs=None, length=self.n_outer_loops)
 
-        return x0_new_ds.to_xarray()
+        return xa0_ds.to_xarray()
