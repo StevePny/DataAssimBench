@@ -198,7 +198,7 @@ class DACycler():
               analysis_window: float = 0.2,
               analysis_time_in_window: float | None = None,
               return_forecast: bool = False
-              ) -> XarrayDatasetLike :
+              ) -> XarrayDatasetLike:
         """Perform DA cycle repeatedly, including analysis and forecast
 
         Args:
