@@ -104,7 +104,7 @@ class ETKF(dacycler.DACycler):
         Args:
           Xb: Forecast/background ensemble with shape
             (system_dim, ensemble_dim).
-          Y: Observation array with shape (obs_time_time, observation_dim)
+          Y: Observation array with shape (obs_time_dim, observation_dim)
           H: Linear observation operator with shape (observation_dim,
             system_dim).
           h: Callable observation operator (optional).

@@ -22,10 +22,6 @@ class Var3D(dacycler.DACycler):
         system_dim: System dimension.
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
-        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
-            Always False for Var3D.
-        ensemble: True for ensemble-based data assimilation techniques
-            (ETKF). Always False for Var3D
         B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
