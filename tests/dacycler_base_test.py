@@ -9,7 +9,8 @@ def test_dacycler_init():
 
     params = {'system_dim': 6,
               'delta_t': 0.5,
-              'ensemble': True}
+              'ensemble': True,
+              'model_obj':dab.model.RCModel(6, 10)}
 
     test_dac = dab.dacycler.DACycler(**params)
 

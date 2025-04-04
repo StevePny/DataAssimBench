@@ -2,43 +2,46 @@
 
 import numpy as np
 import jax.numpy as jnp
+import jax
 import jax.scipy as jscipy
+import xarray as xr
+import xarray_jax as xj
+from typing import Callable
 
 from dabench import dacycler
+from dabench.model import Model
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
+XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class Var3D(dacycler.DACycler):
     """Class for building 3DVar DA Cycler
 
     Attributes:
-        system_dim (int): System dimension.
-        delta_t (float): The timestep of the model (assumed uniform)
-        model_obj (dabench.Model): Forecast model object.
-        in_4d (bool): True for 4D data assimilation techniques (e.g. 4DVar).
-            Always False for Var3D.
-        ensemble (bool): True for ensemble-based data assimilation techniques
-            (ETKF). Always False for Var3D
-        B (ndarray): Initial / static background error covariance. Shape:
+        system_dim: System dimension.
+        delta_t: The timestep of the model (assumed uniform)
+        model_obj: Forecast model object.
+        B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
-        R (ndarray): Observation error covariance matrix. Shape
+        R: Observation error covariance matrix. Shape
             (obs_dim, obs_dim). If not provided, will be calculated
             automatically.
-        H (ndarray): Observation operator with shape: (obs_dim, system_dim).
+        H: Observation operator with shape: (obs_dim, system_dim).
             If not provided will be calculated automatically.
-        h (function): Optional observation operator as function. More flexible
+        h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
         """
 
     def __init__(self,
-                 system_dim=None,
-                 delta_t=None,
-                 in_4d=False,
-                 model_obj=None,
-                 B=None,
-                 R=None,
-                 H=None,
-                 h=None,
+                 system_dim: int,
+                 delta_t: float,
+                 model_obj: Model,
+                 B: ArrayLike | None = None,
+                 R: ArrayLike | None = None,
+                 H: ArrayLike | None = None,
+                 h: Callable | None = None,
                  ):
 
         super().__init__(system_dim=system_dim,
@@ -48,9 +51,16 @@ class Var3D(dacycler.DACycler):
                          ensemble=False,
                          B=B, R=R, H=H, h=h)
 
-    def _cycle_obsop(self, x0_xarray, obs_values, obs_loc_indices,
-                     obs_time_mask, obs_loc_mask,
-                     H=None, h=None, R=None, B=None):
+    def _cycle_obsop(self,
+                     xb_ds: XarrayDatasetLike,
+                     obs_values: ArrayLike,
+                     obs_loc_indices: ArrayLike,
+                     obs_time_mask: ArrayLike,
+                     obs_loc_mask: ArrayLike,
+                     H: ArrayLike,
+                     h: Callable | None = None,
+                     R: ArrayLike | None = None,
+                     B: ArrayLike | None = None) -> XarrayDatasetLike:
         """When obsop (H) is linear"""
         if H is None and h is None:
             if self.H is None:
@@ -71,8 +81,8 @@ class Var3D(dacycler.DACycler):
             else:
                 B = self.B
 
-        xb = x0_xarray.to_stacked_array('system',[]).data.flatten()
-        yo = obs_values.flatten()
+        xb = xb_ds.to_stacked_array('system',[]).data.flatten()
+        y = obs_values.flatten()
 
         # Apply masks to H
         H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
@@ -87,10 +97,10 @@ class Var3D(dacycler.DACycler):
         BHt = jnp.dot(B, H.T)
         BHtRinv = jnp.dot(BHt, Rinv)
         A = I + jnp.dot(BHtRinv, H)
-        b1 = xb + jnp.dot(BHtRinv, yo)
+        b1 = xb + jnp.dot(BHtRinv, y)
 
         # Use minimization algorithm to minimize cost function:
         xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
                                            maxiter=1000)
 
-        return x0_xarray.assign(x=(x0_xarray.dims, xa.T))
+        return xb_ds.assign(x=(xb_ds.dims, xa.T))

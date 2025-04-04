@@ -57,7 +57,8 @@ pyqg = [
 ]
 
 qgs = [
-    "qgs"
+    "sparse == 0.15.4",
+    "qgs == 0.2.8"
 ]
 
 full = [
