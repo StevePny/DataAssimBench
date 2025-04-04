@@ -57,7 +57,7 @@ pyqg = [
 ]
 
 qgs = [
-    "qgs"
+    "qgs == 0.2.8"
 ]
 
 full = [

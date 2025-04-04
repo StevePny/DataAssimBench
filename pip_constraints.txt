@@ -1,5 +1,0 @@
-cython==0.29.37
-pyfftw==1.0
-pyqg==0.7.1
-numpy==1.12
-qgs==0.2.8
