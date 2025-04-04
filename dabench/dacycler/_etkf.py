@@ -80,19 +80,19 @@ class ETKF(dacycler.DACycler):
                 xr.concat(ensemble_forecasts, dim='ensemble'))
 
     def _apply_obsop(self,
-                     X0: ArrayLike, 
+                     Xb: ArrayLike,
                      H: ArrayLike | None,
                      h: Callable | None
                      ) -> ArrayLike:
         if H is not None:
-            Yb = H @ X0
+            Yb = H @ Xb
         else:
-            Yb = h(X0)
+            Yb = h(Xb)
 
         return Yb
 
     def _compute_analysis(self,
-                          X0: ArrayLike,
+                          Xb: ArrayLike,
                           Y: ArrayLike,
                           H: ArrayLike | None,
                           h: Callable | None,
@@ -102,7 +102,7 @@ class ETKF(dacycler.DACycler):
         """ETKF analysis algorithm
 
         Args:
-          X0: Forecast/background ensemble with shape
+          Xb: Forecast/background ensemble with shape
             (system_dim, ensemble_dim).
           Y: Observation array with shape (obs_time_time, observation_dim)
           H: Linear observation operator with shape (observation_dim,
@@ -117,22 +117,22 @@ class ETKF(dacycler.DACycler):
           Xa: Analysis ensemble [size: (system_dim, ensemble_dim)]
         """
         # Number of state variables, ensemble members and observations
-        system_dim, ensemble_dim = X0.shape
+        system_dim, ensemble_dim = Xb.shape
 
         # Auxiliary matrices that will ease the computations
         U = jnp.ones((ensemble_dim, ensemble_dim))/ensemble_dim
         I = jnp.identity(ensemble_dim)
 
         # The ensemble is inflated (rho=1.0 is no inflation)
-        X0_pert = X0 @ (I-U)
-        X0 = X0_pert + X0 @ U
+        Xb_pert = Xb @ (I-U)
+        Xb = Xb_pert + Xb @ U
 
         # Map every ensemble member into observation space
-        Yb = self._apply_obsop(X0, H, h)
+        Yb = self._apply_obsop(Xb, H, h)
 
         # Get ensemble means and perturbations
-        X0_bar = jnp.mean(X0,  axis=1)
-        X0_pert = X0 @ (I-U)
+        Xb_bar = jnp.mean(Xb,  axis=1)
+        Xb_pert = Xb @ (I-U)
 
         yb_bar = jnp.mean(Yb, axis=1)
         Yb_pert = Yb @ (I-U)
@@ -153,9 +153,9 @@ class ETKF(dacycler.DACycler):
 
         wa = Pa_ens @ Yb_pert.T @ Rinv @ (Y.flatten()-yb_bar)
 
-        Xa_pert = X0_pert @ Wa
+        Xa_pert = Xb_pert @ Wa
 
-        Xa_bar = X0_bar + jnp.ravel(X0_pert @ wa)
+        Xa_bar = Xb_bar + jnp.ravel(Xb_pert @ wa)
 
         v = jnp.ones((1, ensemble_dim))
         Xa = Xa_pert + Xa_bar[:, None] @ v
@@ -163,7 +163,7 @@ class ETKF(dacycler.DACycler):
         return Xa
 
     def _cycle_obsop(self,
-                     X0_ds: XarrayDatasetLike,
+                     Xb_ds: XarrayDatasetLike,
                      obs_values: ArrayLike,
                      obs_loc_indices: ArrayLike,
                      obs_time_mask: ArrayLike,
@@ -192,8 +192,8 @@ class ETKF(dacycler.DACycler):
             else:
                 B = self.B
 
-        X0 = X0_ds.to_stacked_array('system',['ensemble']).data.T
-        n_sys, n_ens = X0.shape
+        Xb = Xb_ds.to_stacked_array('system',['ensemble']).data.T
+        n_sys, n_ens = Xb.shape
         assert n_ens == self.ensemble_dim, (
                 'cycle:: model_forecast must have dimension {}x{}').format(
                     self.ensemble_dim, self.system_dim)
@@ -203,11 +203,11 @@ class ETKF(dacycler.DACycler):
         H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Analysis cycles over all obs in data_obs
-        Xa = self._compute_analysis(X0=X0,
+        Xa = self._compute_analysis(Xb=Xb,
                                     Y=obs_values,
                                     H=H,
                                     h=h,
                                     R=R,
                                     rho=self.multiplicative_inflation)
 
-        return X0_ds.assign(x=(['ensemble','i'], Xa.T))
+        return Xb_ds.assign(x=(['ensemble','i'], Xa.T))
