@@ -16,6 +16,9 @@ extensions = [
     'autoapi.extension'
 ]
 autoapi_dirs = ['../dabench']
+autoapi_options = ['members', 'undoc-members', 'show-inheritance',
+                   'show-module-summary',  'special-members',
+                   'imported-members']
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
