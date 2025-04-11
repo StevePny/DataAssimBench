@@ -13,12 +13,15 @@ extensions = [
     'sphinx.ext.duration',
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
-    'autoapi.extension'
+    'autoapi.extension',
+    'sphinx.ext.autodoc.typehints',
+    'sphinx.ext.napoleon'
 ]
 autoapi_dirs = ['../dabench']
 autoapi_options = ['members', 'undoc-members', 'show-inheritance',
                    'show-module-summary',  'special-members',
                    'imported-members']
+autodoc_typehints = 'description'
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
