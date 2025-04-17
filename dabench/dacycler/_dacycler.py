@@ -18,7 +18,7 @@ XarrayDatasetLike = xr.Dataset | xj.XjDataset
 class DACycler():
     """Base class for DACycler object
 
-    Attributes:
+    Args:
         system_dim: System dimension
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
