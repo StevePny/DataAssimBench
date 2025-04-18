@@ -1,3 +1,4 @@
+"""Observer module"""
 from ._observer import Observer
 
 __all__ = [

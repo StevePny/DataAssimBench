@@ -1,3 +1,4 @@
+"""Data generators and downloaders"""
 from ._data import Data
 
 from ._lorenz63 import Lorenz63
