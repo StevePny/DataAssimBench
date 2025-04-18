@@ -19,7 +19,7 @@ class Lorenz96(_data.Data):
         Default values come from Lorenz, 1996:
         eapsweb.mit.edu/sites/default/files/Predicability_a_Problem_2006.pdf
 
-    Attributes:
+    Args:
         forcing_term: Forcing constant for Lorenz96, prevents energy
             from decaying to 0. Default is 8.0.
         x0: Initial state vector, array of floats of size

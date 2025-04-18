@@ -24,7 +24,7 @@ class GCP(_data.Data):
         Source: https://cloud.google.com/storage/docs/public-datasets/era5
         Data is hourly
 
-    Attributes:
+    Args:
         variables: Names of ERA5 variables to
             load. For description of variables, see:
             https://github.com/google-research/arco-era5?tab=readme-ov-file#full_37-1h-0p25deg-chunk-1zarr-v3

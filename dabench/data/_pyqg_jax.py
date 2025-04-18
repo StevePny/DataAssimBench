@@ -41,7 +41,7 @@ class PyQGJax(_data.Data):
         Uses default attribute values from pyqg_jax.QGModel:
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
-    Attributes:
+    Args:
         beta: Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1
         rd: Deformation radius. Units: meters.

@@ -19,7 +19,7 @@ class ENSOIndices(_data.Data):
     Notes:
         Source: https://www.cpc.ncep.noaa.gov/data/indices/
 
-    Attributes:
+    Args:
         system_dim: system dimension
         time_dim: total time steps
         store_as_jax: Store values as jax array instead of numpy array.

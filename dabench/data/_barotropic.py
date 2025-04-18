@@ -43,7 +43,7 @@ class Barotropic(_data.Data):
             vortices in turbulent flow. Journal of Fluid Mechanics, 146,
             pp 21-43 doi:10.1017/S0022112084001750.
 
-    Attributes:
+    Args:
         system_dim: system dimension
         beta: Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1. Default is 0.

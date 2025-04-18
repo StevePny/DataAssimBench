@@ -38,7 +38,7 @@ class QGS(_data.Data):
     The QGS class is simply a wrapper of an *optional* qgs package.
     See https://qgs.readthedocs.io/
 
-    Attributes:
+    Args:
         model_params: qgs parameter object. See:
             https://qgs.readthedocs.io/en/latest/files/technical/configuration.html#qgs.params.params.QgParams
             If None, will use defaults specified by:

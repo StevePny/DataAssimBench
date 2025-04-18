@@ -15,7 +15,7 @@ ArrayLike = np.ndarray | jax.Array
 class Lorenz63(_data.Data):
     """ Class to set up Lorenz 63 model data
 
-    Attributes:
+    Args:
         sigma: Lorenz 63 param. Default is 10., the original value
             used in Lorenz, 1963.
             https://doi.org/10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2

@@ -18,7 +18,7 @@ ArrayLike = np.ndarray | jax.Array
 class Data():
     """Generic class for data generator objects.
 
-    Attributes:
+    Args:
         system_dim: system dimension
         time_dim: total time steps
         original_dim: dimensions in original space, e.g. could be 3x3
