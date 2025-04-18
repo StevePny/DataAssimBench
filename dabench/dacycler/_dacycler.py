@@ -22,10 +22,6 @@ class DACycler():
         system_dim: System dimension
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
-        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
-            Default is False.
-        ensemble: True for ensemble-based data assimilation techniques
-            (ETKF). Default is False
         B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
@@ -36,14 +32,19 @@ class DACycler():
             If not provided will be calculated automatically.
         h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
+    
+    Attributes:
+        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
+        ensemble: True for ensemble-based data assimilation techniques
+            (ETKF).
     """
+    in_4d = False
+    ensemble = False
 
     def __init__(self,
                  system_dim: int,
                  delta_t: float,
                  model_obj: Model,
-                 in_4d: bool = False,
-                 ensemble: bool = False,
                  B: ArrayLike | None = None,
                  R: ArrayLike | None = None,
                  H: ArrayLike | None = None,
@@ -54,8 +55,6 @@ class DACycler():
         self.H = H
         self.R = R
         self.B = B
-        self.in_4d = in_4d
-        self.ensemble = ensemble
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj

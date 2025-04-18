@@ -18,7 +18,7 @@ XarrayDatasetLike = xr.Dataset | xj.XjDataset
 class Var3D(dacycler.DACycler):
     """Class for building 3DVar DA Cycler
 
-    Attributes:
+    Args:
         system_dim: System dimension.
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
@@ -33,6 +33,8 @@ class Var3D(dacycler.DACycler):
         h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
         """
+    in_4d = False
+    ensemble = False
 
     def __init__(self,
                  system_dim: int,
