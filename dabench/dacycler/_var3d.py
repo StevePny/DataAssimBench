@@ -49,8 +49,6 @@ class Var3D(dacycler.DACycler):
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         in_4d=False,
-                         ensemble=False,
                          B=B, R=R, H=H, h=h)
 
     def _cycle_obsop(self,

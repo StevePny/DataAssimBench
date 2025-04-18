@@ -95,8 +95,6 @@ class Var4DBackprop(dacycler.DACycler):
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         in_4d=True,
-                         ensemble=False,
                          B=B, R=R, H=H, h=h)
 
     def _calc_default_H(self,
