@@ -17,9 +17,9 @@ ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class ETKF(dacycler.DACycler):
-    """Class for building ETKF DA Cycler
+    """Ensemble transform Kalman filter DA Cycler
 
-    Attributes:
+    Args:
         system_dim: System dimension.
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
@@ -38,6 +38,8 @@ class ETKF(dacycler.DACycler):
         multiplicative_inflation: Scaling factor by which to multiply ensemble
             deviation. Default is 1.0 (no inflation).
     """
+    _in_4d: bool = False
+    _uses_ensemble: bool = True
 
     def __init__(self,
                  system_dim: int,
@@ -57,8 +59,6 @@ class ETKF(dacycler.DACycler):
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         in_4d=False,
-                         ensemble=True,
                          B=B, R=R, H=H, h=h)
 
     def _step_forecast(self,

@@ -1,3 +1,4 @@
+"""Model classes"""
 from ._model import Model
 from ._rc import RCModel
 

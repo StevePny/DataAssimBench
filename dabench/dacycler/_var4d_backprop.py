@@ -25,16 +25,12 @@ XarrayDatasetLike = xr.Dataset | xj.XjDataset
 ScheduleState = Any
 
 class Var4DBackprop(dacycler.DACycler):
-    """Class for building Backpropagation 4D DA Cycler
+    """Backpropagation 4D-Var DA Cycler
 
-    Attributes:
+    Args:
         system_dim: System dimension.
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
-        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
-            Always True for Var4DBackprop.
-        ensemble: True for ensemble-based data assimilation techniques
-            (ETKF). Always False for Var4DBackprop.
         B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
@@ -65,6 +61,8 @@ class Var4DBackprop(dacycler.DACycler):
             return an error. This prevents it from hanging indefinitely
             when loss grows exponentionally. Default is 10.
     """
+    _in_4d: bool = True
+    _uses_ensemble: bool = False
 
     def __init__(self,
                  system_dim: int,
@@ -97,8 +95,6 @@ class Var4DBackprop(dacycler.DACycler):
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         in_4d=True,
-                         ensemble=False,
                          B=B, R=R, H=H, h=h)
 
     def _calc_default_H(self,

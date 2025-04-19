@@ -16,16 +16,12 @@ ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class DACycler():
-    """Base class for DACycler object
+    """Base for all DACyclers
 
-    Attributes:
+    Args:
         system_dim: System dimension
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
-        in_4d: True for 4D data assimilation techniques (e.g. 4DVar).
-            Default is False.
-        ensemble: True for ensemble-based data assimilation techniques
-            (ETKF). Default is False
         B: Initial / static background error covariance. Shape:
             (system_dim, system_dim). If not provided, will be calculated
             automatically.
@@ -37,13 +33,13 @@ class DACycler():
         h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
     """
+    _in_4d: bool = False
+    _uses_ensemble: bool = False
 
     def __init__(self,
                  system_dim: int,
                  delta_t: float,
                  model_obj: Model,
-                 in_4d: bool = False,
-                 ensemble: bool = False,
                  B: ArrayLike | None = None,
                  R: ArrayLike | None = None,
                  H: ArrayLike | None = None,
@@ -54,8 +50,6 @@ class DACycler():
         self.H = H
         self.R = R
         self.B = B
-        self.in_4d = in_4d
-        self.ensemble = ensemble
         self.system_dim = system_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
@@ -230,7 +224,7 @@ class DACycler():
 
         # If don't specify analysis_time_in_window, is assumed to be middle
         if analysis_time_in_window is None:
-            if self.in_4d:
+            if self._in_4d:
                 analysis_time_in_window = 0
             else:
                 analysis_time_in_window = self.analysis_window/2
@@ -257,7 +251,7 @@ class DACycler():
             obs_times=jnp.array(obs_vector.time.values),
             analysis_times=all_times+_time_offset,
             start_inclusive=True,
-            end_inclusive=self.in_4d,
+            end_inclusive=self._in_4d,
             analysis_window=analysis_window
         )
         input_state = input_state.assign(_cur_time=start_time)
@@ -273,7 +267,7 @@ class DACycler():
                 obs_vector[self._observed_vars].to_array().data)
             self._obs_vector=self._obs_vector.fillna(0)
         
-        if self.in_4d:
+        if self._in_4d:
             cur_state, all_values = jax.lax.scan(
                     self._cycle_and_forecast_4d,
                     xj.from_xarray(input_state),

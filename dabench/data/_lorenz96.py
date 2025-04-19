@@ -13,13 +13,13 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Lorenz96(_data.Data):
-    """Class to set up Lorenz 96 model data.
+    """Lorenz 96 model data generator.
 
     Notes:
         Default values come from Lorenz, 1996:
         eapsweb.mit.edu/sites/default/files/Predicability_a_Problem_2006.pdf
 
-    Attributes:
+    Args:
         forcing_term: Forcing constant for Lorenz96, prevents energy
             from decaying to 0. Default is 8.0.
         x0: Initial state vector, array of floats of size
@@ -33,7 +33,6 @@ class Lorenz96(_data.Data):
             which is set to 0.01.
         system_dim: System dimension, must be between 4 and 40.
             Default is 36.
-        time_dim: Total time steps
         delta_t: Length of one time step. Default is 0.05 from
             Lorenz, 1996, but on  modern computers 0.01 is often used.
         store_as_jax: Store values as jax array instead of numpy array.
@@ -45,13 +44,12 @@ class Lorenz96(_data.Data):
                  delta_t: float = 0.05,
                  x0: ArrayLike | None = None,
                  system_dim: int = 36,
-                 time_dim: int | None = None,
                  values: ArrayLike | None = None,
                  store_as_jax: bool = False,
                  **kwargs):
         """Initialize Lorenz96 object, subclass of Base"""
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
+        super().__init__(system_dim=system_dim,
                          values=values, delta_t=delta_t,
                          store_as_jax=store_as_jax, **kwargs)
 
