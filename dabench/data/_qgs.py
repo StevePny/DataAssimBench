@@ -123,7 +123,7 @@ class QGS(_data.Data):
             ) -> np.ndarray:
         """Vector field (tendencies) of qgs system
 
-        Arg:
+        Args:
             x: State vector, shape: (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
@@ -142,7 +142,7 @@ class QGS(_data.Data):
                  ) -> np.ndarray:
         """Jacobian of the qgs system
 
-        Arg:
+        Args:
             x: State vector, shape: (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
