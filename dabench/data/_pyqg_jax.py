@@ -72,7 +72,6 @@ class PyQGJax(_data.Data):
                  ny: int | None = None,
                  delta_t: float = 7200,
                  random_seed: int = 37,
-                 time_dim: int | None = None,
                  store_as_jax: bool = False,
                  **kwargs):
         """ Initialize PyQGJax QGModel object, subclass of Base
@@ -110,7 +109,7 @@ class PyQGJax(_data.Data):
                 jax.random.PRNGKey(0)
                 )
         super().__init__(system_dim=system_dim, original_dim=original_dim,
-                         time_dim=time_dim, delta_t=delta_t,
+                         delta_t=delta_t,
                          store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
@@ -157,8 +156,7 @@ class PyQGJax(_data.Data):
 
         Notes:
             Either provide n_steps or t_final in order to indicate the length
-            of the forecast. These are used to set the values, times, and
-            time_dim attributes.
+            of the forecast.
 
         Args:
             n_steps: Number of timesteps. One of n_steps OR

@@ -59,7 +59,6 @@ class SQGTurb(_data.Data):
              https://github.com/jswhit/sqgturb. 57600 steps matches the
              "nature run" spin up in that repository.
         system_dim: The dimension of the system state
-        time_dim: The dimension of the timeseries (not used)
         delta_t: model time step (seconds)
         x0: Initial state, array of floats of size
             (system_dim).
@@ -499,7 +498,6 @@ class SQGTurb(_data.Data):
         if include_x0:
             n_steps = n_steps + 1
 
-        self.time_dim = n_steps
         times = t + jnp.arange(n_steps)*delta_t
 
         # Integrate in spectral spacestep_n
@@ -549,12 +547,3 @@ class SQGTurb(_data.Data):
         self.u = -psiy
         self.v = psix
         return dpvspecdt
-
-    def _to_original_dim(self) -> np.ndarray:
-        """Going back to 2D is a bit trickier for sqgturb"""
-        gridded_vals = np.zeros((self.time_dim, self.Nv, self.Nx, self.Nx))
-
-        for t in np.arange(self.time_dim):
-            gridded_vals[t] = self.map1dto2d_ifft2(self.values[t])
-
-        return gridded_vals

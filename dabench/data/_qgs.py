@@ -53,7 +53,6 @@ class QGS(_data.Data):
                  x0: ArrayLike | None = None,
                  delta_t: ArrayLike | None =  0.1,
                  system_dim: int | None = None,
-                 time_dim: int | None = None,
                  store_as_jax: bool = False,
                  random_seed: int = 37,
                  **kwargs):
@@ -86,7 +85,7 @@ class QGS(_data.Data):
         if x0 is None:
             x0 = self._rng.random(system_dim)*0.001
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
+        super().__init__(system_dim=system_dim,
                          delta_t=delta_t, store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
@@ -169,8 +168,7 @@ class QGS(_data.Data):
 
         Notes:
             Either provide n_steps or t_final in order to indicate the length
-            of the forecast. These are used to set the values, times, and
-            time_dim attributes.
+            of the forecast.
 
         Args:
             n_steps (int): Number of timesteps. One of n_steps OR
@@ -243,8 +241,8 @@ class QGS(_data.Data):
                              **kwargs)
 
         # Convert to JAX if necessary
-        self.time_dim = t.shape[0]
-        out_dim = (self.time_dim,) + self.original_dim
+        time_dim = t.shape[0]
+        out_dim = (time_dim,) + self.original_dim
         if self.store_as_jax:
             y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
         else:
@@ -268,13 +266,13 @@ class QGS(_data.Data):
             # Reshape M matrix
             if self.store_as_jax:
                 M = jnp.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )
             else:
                 M = np.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )

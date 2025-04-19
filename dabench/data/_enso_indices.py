@@ -21,7 +21,6 @@ class ENSOIndices(_data.Data):
 
     Args:
         system_dim: system dimension
-        time_dim: total time steps
         store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
         file_dict: Lists of files to get. Dict keys are type of data:
@@ -58,7 +57,6 @@ class ENSOIndices(_data.Data):
                  file_dict: dict | None = None,
                  var_types: dict | None = None,
                  system_dim: int | None = None,
-                 time_dim: int | None = None,
                  store_as_jax: bool = False,
                  **kwargs):
 
@@ -66,7 +64,7 @@ class ENSOIndices(_data.Data):
 
         self.file_dict = file_dict
         self.var_types = var_types
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
+        super().__init__(system_dim=system_dim,
                          values=None, delta_t=None, **kwargs,
                          store_as_jax=store_as_jax)
     

@@ -30,7 +30,6 @@ class Lorenz63(_data.Data):
             and initial conditions [0., 1., 0.], a spinup which replicates
             the simulation described in Lorenz, 1963.
         system_dim: system dimension. Must be 3 for Lorenz63.
-        time_dim: total time steps
         store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
     """
@@ -42,7 +41,6 @@ class Lorenz63(_data.Data):
                  delta_t: float = 0.01,
                  x0: ArrayLike | None = jnp.array([-10.0, -15.0, 21.3]),
                  system_dim: int = 3,
-                 time_dim: int | None = None,
                  values: ArrayLike | None = None,
                  store_as_jax: bool = False,
                  **kwargs):
@@ -57,7 +55,7 @@ class Lorenz63(_data.Data):
             print('Assigning system_dim to 3.')
             system_dim = 3
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
+        super().__init__(system_dim=system_dim,
                          values=values, delta_t=delta_t,
                          store_as_jax=store_as_jax, **kwargs)
 

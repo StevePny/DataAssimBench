@@ -20,7 +20,6 @@ class Data():
 
     Args:
         system_dim: system dimension
-        time_dim: total time steps
         original_dim: dimensions in original space, e.g. could be 3x3
             for a 2d system with system_dim = 9. Defaults to (system_dim),
             i.e. 1d.
@@ -32,7 +31,6 @@ class Data():
 
     def __init__(self,
                  system_dim: int = 3,
-                 time_dim: int = 1,
                  original_dim: tuple[int, ...] | None = None,
                  random_seed: int = 37,
                  delta_t: float = 0.01,
@@ -42,7 +40,6 @@ class Data():
         """Initializes the base data object"""
 
         self.system_dim = system_dim
-        self.time_dim = time_dim
         self.random_seed = random_seed
         self.delta_t = delta_t
         self.store_as_jax = store_as_jax
@@ -98,8 +95,7 @@ class Data():
 
         Notes:
             Either provide n_steps or t_final in order to indicate the length
-            of the forecast. These are used to set the values, times, and
-            time_dim attributes.
+            of the forecast.
 
         Args:
             n_steps: Number of timesteps. One of n_steps OR
@@ -172,8 +168,8 @@ class Data():
                              **kwargs)
 
         # Convert to JAX if necessary
-        self.time_dim = t.shape[0]
-        out_dim = (self.time_dim,) + self.original_dim
+        time_dim = t.shape[0]
+        out_dim = (time_dim,) + self.original_dim
         if self.store_as_jax:
             y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
         else:
@@ -197,13 +193,13 @@ class Data():
             # Reshape M matrix
             if self.store_as_jax:
                 M = jnp.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )
             else:
                 M = np.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )
