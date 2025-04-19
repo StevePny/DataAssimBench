@@ -15,5 +15,5 @@ def test_dacycler_init():
 
     assert test_dac.system_dim == 6
     assert test_dac.delta_t == 0.5
-    assert test_dac.ensemble
+    assert not test_dac._uses_ensemble
     assert not test_dac._in_4d
