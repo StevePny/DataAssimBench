@@ -33,8 +33,8 @@ class Var3D(dacycler.DACycler):
         h: Optional observation operator as function. More flexible
             (allows for more complex observation operator). Default is None.
         """
-    in_4d = False
-    ensemble = False
+    _in_4d: bool = False
+    _uses_ensemble: bool = False
 
     def __init__(self,
                  system_dim: int,

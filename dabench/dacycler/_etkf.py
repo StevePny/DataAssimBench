@@ -38,8 +38,8 @@ class ETKF(dacycler.DACycler):
         multiplicative_inflation: Scaling factor by which to multiply ensemble
             deviation. Default is 1.0 (no inflation).
     """
-    in_4d = False
-    ensemble = True
+    _in_4d: bool = False
+    _uses_ensemble: bool = True
 
     def __init__(self,
                  system_dim: int,

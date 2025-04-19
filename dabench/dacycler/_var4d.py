@@ -55,8 +55,8 @@ class Var4D(dacycler.DACycler):
             [0, 1, 2, 3, 4, 5]. If None (default), will calculate
             automatically.
     """
-    in_4d = True
-    ensemble = False
+    _in_4d: bool = True
+    _uses_ensemble: bool = False
 
     def __init__(self,
                  system_dim: int,

@@ -61,8 +61,8 @@ class Var4DBackprop(dacycler.DACycler):
             return an error. This prevents it from hanging indefinitely
             when loss grows exponentionally. Default is 10.
     """
-    in_4d = True
-    ensemble = False
+    _in_4d: bool = True
+    _uses_ensemble: bool = False
 
     def __init__(self,
                  system_dim: int,
