@@ -25,7 +25,7 @@ except ImportError:
 
 
 class PyQG(_data.Data):
-    """ Class to set up quasi-geotropic model
+    """PyQG quasi-geotropic model data generator.
 
     The PyQG class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io

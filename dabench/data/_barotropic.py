@@ -30,9 +30,9 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Barotropic(_data.Data):
-    """ Class to set up barotropic model
+    """Barotropic model data generator based on pyqg
 
-    The data class is a wrapper of a "optional" pyqg package.
+    This data class is a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:

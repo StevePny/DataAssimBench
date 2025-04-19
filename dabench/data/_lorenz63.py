@@ -13,7 +13,7 @@ logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 ArrayLike = np.ndarray | jax.Array
 
 class Lorenz63(_data.Data):
-    """ Class to set up Lorenz 63 model data
+    """Lorenz 63 model data generator.
 
     Args:
         sigma: Lorenz 63 param. Default is 10., the original value

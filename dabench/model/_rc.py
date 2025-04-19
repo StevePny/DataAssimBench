@@ -15,7 +15,7 @@ logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
 
 class RCModel(model.Model):
-    """Class for a simple Reservoir Computing data-driven model
+    """A simple Reservoir Computing data-driven model
 
     Args:
         system_dim (int): Dimension of reservoir output.

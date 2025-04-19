@@ -33,7 +33,7 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class QGS(_data.Data):
-    """ Class to set up QGS quasi-geostrophic model
+    """QGS quasi-geostrophic model data generator.
 
     The QGS class is simply a wrapper of an *optional* qgs package.
     See https://qgs.readthedocs.io/

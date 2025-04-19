@@ -17,7 +17,7 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Observer():
-    """Base class for Observer objects
+    """Flexibly samples observations from generated data
 
     Args:
         data_obj: Data generator/loader object from which

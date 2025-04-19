@@ -32,7 +32,7 @@ except ImportError:
 
 
 class PyQGJax(_data.Data):
-    """Class to set up quasi-geotropic model
+    """PyQGJax quasi-geotropic model data generator.
 
     The PyQGJax class is simply a wrapper of the "optional" pyqg-jax package.
     See https://pyqg-jax.readthedocs.io

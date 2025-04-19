@@ -16,7 +16,7 @@ from dabench import _suppl_data
 ArrayLike = np.ndarray | jax.Array
 
 class Data():
-    """Generic class for data generator objects.
+    """Base for all data generator objects.
 
     Args:
         system_dim: system dimension

@@ -13,7 +13,7 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Lorenz96(_data.Data):
-    """Class to set up Lorenz 96 model data.
+    """Lorenz 96 model data generator.
 
     Notes:
         Default values come from Lorenz, 1996:

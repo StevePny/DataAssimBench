@@ -8,7 +8,7 @@ from typing import Any
 import xarray as xr
 
 class Model():
-    """Base class for Model object
+    """Base for Model objects
 
     Args:
         system_dim: system dimension

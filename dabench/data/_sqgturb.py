@@ -50,7 +50,7 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class SQGTurb(_data.Data):
-    """Class to set up SQGTurb model and manage data.
+    """SQGTurb model data generator.
 
     Args:
         pv: Potential vorticity array. If None (default),

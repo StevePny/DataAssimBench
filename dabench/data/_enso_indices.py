@@ -14,7 +14,7 @@ from dabench.data import _data
 
 
 class ENSOIndices(_data.Data):
-    """Class to get ENSO indices from CPC website
+    """Gets ENSO indices from CPC website
 
     Notes:
         Source: https://www.cpc.ncep.noaa.gov/data/indices/
