@@ -128,7 +128,7 @@ class QGS(_data.Data):
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
         Returns:
-            dx: vector field of qgs
+            Vector field of qgs
 
         """
 
@@ -138,7 +138,7 @@ class QGS(_data.Data):
 
     def Jacobian(self,
                  x: ArrayLike,
-                 t: float | None =  0
+                 t: float | None = 0
                  ) -> np.ndarray:
         """Jacobian of the qgs system
 
@@ -148,7 +148,7 @@ class QGS(_data.Data):
                 integrators but unused.
 
         Returns:
-            J (ndarray): Jacobian matrix, shape: (system_dim, system_dim)
+            J: Jacobian matrix, shape: (system_dim, system_dim)
 
         """
 
@@ -294,7 +294,7 @@ class QGS(_data.Data):
           t: Array of times with size (time_dim)
 
         Returns:
-          dxaux (ndarray): State vector [size: (system_dim,)]
+            State vector [size: (system_dim,)]
         """
         # Compute M
         dxdt = self.rhs(x[:self.system_dim], t)
