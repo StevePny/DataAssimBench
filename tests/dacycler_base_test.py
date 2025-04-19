@@ -9,7 +9,6 @@ def test_dacycler_init():
 
     params = {'system_dim': 6,
               'delta_t': 0.5,
-              'ensemble': True,
               'model_obj':dab.model.RCModel(6, 10)}
 
     test_dac = dab.dacycler.DACycler(**params)
@@ -17,4 +16,4 @@ def test_dacycler_init():
     assert test_dac.system_dim == 6
     assert test_dac.delta_t == 0.5
     assert test_dac.ensemble
-    assert not test_dac.in_4d
+    assert not test_dac._in_4d
