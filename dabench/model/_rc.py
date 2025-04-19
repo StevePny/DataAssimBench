@@ -170,6 +170,7 @@ class RCModel(model.Model):
 
     def generate(self, state_vec, A=None, Win=None, r0=None):
         """generate reservoir time series from input signal u
+
         Args:
             u (array_like): (time_dimension, system_dimension), input signal to
                 reservoir
@@ -287,6 +288,7 @@ class RCModel(model.Model):
 
     def readout(self, rt, Wout=None, utm1=None):
         """use Wout to map reservoir state to output
+
         Args:
             rt (array_like): 1D or 2D with dims: (Nr,) or (Ntime, Nr)
                 reservoir state, either passed as single time snapshot,
@@ -294,9 +296,11 @@ class RCModel(model.Model):
             utm1 (array_like): 1D or 2D with dims: (Nu,) or (Ntime, Nu)
                 u(t-1) for r(t), only used if readout_method = 'biased',
                 then Wout*[1, u(t-1), r(t)]=u(t)
+
         Returns:
             vt (array_like): 1D or 2D with dims: (Nout,) or (Ntime, Nout)
                 depending on shape of input array
+
         Todo:
             generalize similar to DiffRC
         """
@@ -346,6 +350,7 @@ class RCModel(model.Model):
                 Default is None.
             Wout (array_like, optional): Rutput weight matrix. If None,
                 uses self.Wout. Default is None.
+
         Returns:
             y (Data): data object with predicted signal from reservoir
         """
@@ -451,8 +456,8 @@ class RCModel(model.Model):
         return self.Wout
 
     def _linsolve(self, X, Y, beta=None, **kwargs):
-        '''Linear solver wrapper
-        Solve for A in Y = AX
+        '''Linear solver wrapper for A in Y = AX
+
         Args:
             X (matrix) : independent variable
             Y (matrix) : dependent variable
@@ -464,9 +469,11 @@ class RCModel(model.Model):
 
     def _linsolve_pinv(self, X, Y, beta=None):
         """Solve for A in Y = AX, assuming X and Y are known.
+
         Args:
           X : independent variable, square matrix
           Y : dependent variable, square matrix
+
         Returns:
           A : Solution matrix, rectangular matrix
         """
