@@ -16,7 +16,7 @@ ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class DACycler():
-    """Base class for DACycler object
+    """Base for all DACyclers
 
     Args:
         system_dim: System dimension

@@ -16,7 +16,7 @@ ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class Var3D(dacycler.DACycler):
-    """Class for building 3DVar DA Cycler
+    """3D-Var DA Cycler
 
     Args:
         system_dim: System dimension.

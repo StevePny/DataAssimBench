@@ -17,7 +17,7 @@ ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 
 class ETKF(dacycler.DACycler):
-    """Class for building ETKF DA Cycler
+    """Ensemble transform Kalman filter DA Cycler
 
     Args:
         system_dim: System dimension.

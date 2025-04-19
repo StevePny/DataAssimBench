@@ -25,7 +25,7 @@ XarrayDatasetLike = xr.Dataset | xj.XjDataset
 ScheduleState = Any
 
 class Var4DBackprop(dacycler.DACycler):
-    """Class for building Backpropagation 4D DA Cycler
+    """Backpropagation 4D-Var DA Cycler
 
     Args:
         system_dim: System dimension.
