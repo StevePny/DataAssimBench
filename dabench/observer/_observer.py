@@ -20,7 +20,7 @@ class Observer():
     """Flexibly samples observations from generated data
 
     Args:
-        data_obj: Data generator/loader object from which
+        state_vec: Data generator/loader object from which
             to gather observations.
         random_location_density: Fraction of locations in
             system_dim to randomly select for observing, must be value
@@ -275,7 +275,7 @@ class Observer():
 
         Returns:
             ObsVector containing observation values, times, locations, and
-                errors
+            errors
         """
 
         # Define random num generator
