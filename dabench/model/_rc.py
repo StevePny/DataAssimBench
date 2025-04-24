@@ -183,7 +183,7 @@ class RCModel(model.Model):
                 If False, returns states. Default: False.
 
         Returns:
-            r (array_like): (time_dim, reservoir_dim), reservoir state
+            Reservoirs state, size (time_dim, reservoir_dim)
         """
         u = state_vec.to_stacked_array('system',['time']).data
         r = np.zeros((u.shape[0], self.reservoir_dim))
@@ -215,7 +215,7 @@ class RCModel(model.Model):
                 reservoir input weight matrix. If None, uses self.Win.
                 Default is None
         Returns:
-            q (array_like): (reservoir_dim,) Reservoir state at next time step
+            Reservoir state at next time step, of size (reservoir_dim,)
         """
 
         if A is None:
@@ -249,8 +249,7 @@ class RCModel(model.Model):
             r0 (array_like, optional): initial reservoir state
 
         Returns:
-            dataobj_pred (vector.StateVector): StateVector object covering
-                prediction period
+            Data object covering prediction period
         """
 
         # Recompute the initial reservoir spinup to get reservoir states
@@ -298,8 +297,8 @@ class RCModel(model.Model):
                 then Wout*[1, u(t-1), r(t)]=u(t)
 
         Returns:
-            vt (array_like): 1D or 2D with dims: (Nout,) or (Ntime, Nout)
-                depending on shape of input array
+            1D or 2D array with dims(Nout,) or (Ntime, Nout)
+            depending on shape of input array
 
         Todo:
             generalize similar to DiffRC
@@ -352,7 +351,7 @@ class RCModel(model.Model):
                 uses self.Wout. Default is None.
 
         Returns:
-            y (Data): data object with predicted signal from reservoir
+            Data object with predicted signal from reservoir
         """
 
         s = jnp.zeros((n_samples, self.reservoir_dim))
@@ -402,8 +401,8 @@ class RCModel(model.Model):
                 initialize it by rewriting the ybar and sbar matrices
 
         Returns:
-            Wout (array_like): 2D with dims (output_dim, reservoir_dim),
-                this is also stored within the object
+            Wout array, 2D with dims (output_dim, reservoir_dim),
+            this is also stored within the object
 
         Sets Attributes:
             ybar (array_like): y.T @ st, st is rt with readout_method accounted
@@ -475,7 +474,7 @@ class RCModel(model.Model):
           Y : dependent variable, square matrix
 
         Returns:
-          A : Solution matrix, rectangular matrix
+            Solution matrix, rectangular matrix
         """
         if beta is not None:
             Xinv = linalg.pinv(X+beta*np.eye(X.shape[0]))
