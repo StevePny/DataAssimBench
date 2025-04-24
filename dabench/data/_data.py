@@ -114,8 +114,8 @@ class Data():
                 convergence tolerance, etc.).
 
         Returns:
-            Xarray Dataset of output vector and (if return_tlm=True)
-                Xarray DataArray of TLMs corresponding to the system trajectory.
+            Xarray Dataset of output vector, and if return_tlm=True
+            Xarray DataArray of TLMs corresponding to the system trajectory.
         """
 
         # Check that n_steps or t_final is supplied
@@ -279,7 +279,7 @@ class Data():
 
         Returns:
             Lyapunov exponents for all timesteps, array of size
-                (total_time/rescale_time - 1, system_dim)
+            (total_time/rescale_time - 1, system_dim)
         """
 
         # Set total_time

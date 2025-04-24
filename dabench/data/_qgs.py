@@ -124,12 +124,11 @@ class QGS(_data.Data):
         """Vector field (tendencies) of qgs system
 
         Args:
-            x: State vector, shape: (system_dim)
+            x: State vector of size (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
         Returns:
             Vector field of qgs
-
         """
 
         dx = self.f(t, x)
@@ -143,13 +142,12 @@ class QGS(_data.Data):
         """Jacobian of the qgs system
 
         Args:
-            x: State vector, shape: (system_dim)
+            x: State vector of size (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
 
         Returns:
-            J: Jacobian matrix, shape: (system_dim, system_dim)
-
+            Jacobian matrix of size (system_dim, system_dim)
         """
 
         J = self.Df(t, x)
@@ -187,8 +185,8 @@ class QGS(_data.Data):
                 convergence tolerance, etc.).
 
         Returns:
-            Xarray Dataset of output vector and (if return_tlm=True)
-                Xarray DataArray of TLMs corresponding to the system trajectory.
+            Xarray Dataset of output vector, and if return_tlm=True
+            Xarray DataArray of TLMs corresponding to the system trajectory.
         """
 
         # Check that n_steps or t_final is supplied
@@ -294,7 +292,7 @@ class QGS(_data.Data):
           t: Array of times with size (time_dim)
 
         Returns:
-            State vector [size: (system_dim,)]
+            State vector of size (system_dim,)
         """
         # Compute M
         dxdt = self.rhs(x[:self.system_dim], t)
@@ -351,7 +349,7 @@ class QGS(_data.Data):
 
         Returns:
             Lyapunov exponents for all timesteps, array of size
-                (total_time/rescale_time - 1, system_dim)
+            (total_time/rescale_time - 1, system_dim)
         """
         # Set total_time
         if total_time is None:
