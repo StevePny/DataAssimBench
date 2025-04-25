@@ -10,6 +10,8 @@ Today, applied DA has matured in operational weather forecasting to include the 
 
 Most of the software here was adapted from code developed for the following publications. Please cite these works when using this software package: 
 
+- Solvik, K., Penny, S. G., & Hoyer, S. (2025). 4D-Var using hessian approximation and backpropagation applied to automatically differentiable numerical and machine learning models. Journal of Advances in Modeling Earth Systems, 17, e2024MS004608. https://doi.org/10.1029/2024MS004608  
+
 - Penny, S. G., Smith, T. A., Chen, T.-C., Platt, J. A., Lin, H.-Y., Goodliff, M., & Abarbanel, H. D. I. (2022). Integrating recurrent neural networks with data assimilation for scalable data-driven state estimation. Journal of Advances in Modeling Earth Systems, 14, e2021MS002843. https://doi.org/10.1029/2021MS002843  
 
 - Smith, T. A., Penny, S. G., Platt, J. A., & Chen, T.-C. (2023). Temporal subsampling diminishes small spatial scales in recurrent neural network emulators of geophysical turbulence. Journal of Advances in Modeling Earth Systems, 15, e2023MS003792. https://doi.org/10.1029/2023MS003792  
