@@ -1,14 +1,15 @@
+"""Data generators and downloaders"""
 from ._data import Data
 
-from .lorenz63 import Lorenz63
-from .lorenz96 import Lorenz96
-from .sqgturb import SQGTurb
-from .gcp import GCP
-from .pyqg import PyQG
-from .pyqg_jax import PyQGJax
-from .barotropic import Barotropic
-from .enso_indices import ENSOIndices
-from .qgs import QGS
+from ._lorenz63 import Lorenz63
+from ._lorenz96 import Lorenz96
+from ._sqgturb import SQGTurb
+from ._gcp import GCP
+from ._pyqg import PyQG
+from ._pyqg_jax import PyQGJax
+from ._barotropic import Barotropic
+from ._enso_indices import ENSOIndices
+from ._qgs import QGS
 from ._xarray_accessor import DABenchDatasetAccessor, DABenchDataArrayAccessor
 
 __all__ = [

@@ -33,12 +33,12 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class QGS(_data.Data):
-    """ Class to set up QGS quasi-geostrophic model
+    """QGS quasi-geostrophic model data generator.
 
     The QGS class is simply a wrapper of an *optional* qgs package.
     See https://qgs.readthedocs.io/
 
-    Attributes:
+    Args:
         model_params: qgs parameter object. See:
             https://qgs.readthedocs.io/en/latest/files/technical/configuration.html#qgs.params.params.QgParams
             If None, will use defaults specified by:
@@ -53,7 +53,6 @@ class QGS(_data.Data):
                  x0: ArrayLike | None = None,
                  delta_t: ArrayLike | None =  0.1,
                  system_dim: int | None = None,
-                 time_dim: int | None = None,
                  store_as_jax: bool = False,
                  random_seed: int = 37,
                  **kwargs):
@@ -86,7 +85,7 @@ class QGS(_data.Data):
         if x0 is None:
             x0 = self._rng.random(system_dim)*0.001
 
-        super().__init__(system_dim=system_dim, time_dim=time_dim,
+        super().__init__(system_dim=system_dim,
                          delta_t=delta_t, store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
@@ -124,13 +123,12 @@ class QGS(_data.Data):
             ) -> np.ndarray:
         """Vector field (tendencies) of qgs system
 
-        Arg:
-            x: State vector, shape: (system_dim)
+        Args:
+            x: State vector of size (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
         Returns:
-            dx: vector field of qgs
-
+            Vector field of qgs
         """
 
         dx = self.f(t, x)
@@ -139,18 +137,17 @@ class QGS(_data.Data):
 
     def Jacobian(self,
                  x: ArrayLike,
-                 t: float | None =  0
+                 t: float | None = 0
                  ) -> np.ndarray:
         """Jacobian of the qgs system
 
-        Arg:
-            x: State vector, shape: (system_dim)
+        Args:
+            x: State vector of size (system_dim)
             t: times vector. Required as argument slot for some numerical
                 integrators but unused.
 
         Returns:
-            J (ndarray): Jacobian matrix, shape: (system_dim, system_dim)
-
+            Jacobian matrix of size (system_dim, system_dim)
         """
 
         J = self.Df(t, x)
@@ -169,8 +166,7 @@ class QGS(_data.Data):
 
         Notes:
             Either provide n_steps or t_final in order to indicate the length
-            of the forecast. These are used to set the values, times, and
-            time_dim attributes.
+            of the forecast.
 
         Args:
             n_steps (int): Number of timesteps. One of n_steps OR
@@ -189,8 +185,8 @@ class QGS(_data.Data):
                 convergence tolerance, etc.).
 
         Returns:
-            Xarray Dataset of output vector and (if return_tlm=True)
-                Xarray DataArray of TLMs corresponding to the system trajectory.
+            Xarray Dataset of output vector, and if return_tlm=True
+            Xarray DataArray of TLMs corresponding to the system trajectory.
         """
 
         # Check that n_steps or t_final is supplied
@@ -243,8 +239,8 @@ class QGS(_data.Data):
                              **kwargs)
 
         # Convert to JAX if necessary
-        self.time_dim = t.shape[0]
-        out_dim = (self.time_dim,) + self.original_dim
+        time_dim = t.shape[0]
+        out_dim = (time_dim,) + self.original_dim
         if self.store_as_jax:
             y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
         else:
@@ -268,13 +264,13 @@ class QGS(_data.Data):
             # Reshape M matrix
             if self.store_as_jax:
                 M = jnp.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )
             else:
                 M = np.reshape(y[:, self.system_dim:],
-                                (self.time_dim,
+                                (time_dim,
                                 self.system_dim,
                                 self.system_dim)
                                 )
@@ -296,7 +292,7 @@ class QGS(_data.Data):
           t: Array of times with size (time_dim)
 
         Returns:
-          dxaux (ndarray): State vector [size: (system_dim,)]
+            State vector of size (system_dim,)
         """
         # Compute M
         dxdt = self.rhs(x[:self.system_dim], t)
@@ -353,7 +349,7 @@ class QGS(_data.Data):
 
         Returns:
             Lyapunov exponents for all timesteps, array of size
-                (total_time/rescale_time - 1, system_dim)
+            (total_time/rescale_time - 1, system_dim)
         """
         # Set total_time
         if total_time is None:

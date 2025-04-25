@@ -8,23 +8,20 @@ from typing import Any
 import xarray as xr
 
 class Model():
-    """Base class for Model object
+    """Base for Model objects
 
-    Attributes:
-        system_dim (int): system dimension
-        time_dim (int): total time steps
-        delta_t (float): the timestep of the model (assumed uniform)
-        model_obj (obj): underlying model object, e.g. pytorch neural network.
+    Args:
+        system_dim: system dimension
+        delta_t: the timestep of the model (assumed uniform)
+        model_obj: underlying model object, e.g. pytorch neural network.
     """
     def __init__(self,
                  system_dim: int | None = None,
-                 time_dim: int | None = None,
                  delta_t: int | None = None,
-                 model_obj: int | None = None
+                 model_obj: Any | None = None
                  ):
 
         self.system_dim = system_dim
-        self.time_dim = time_dim
         self.delta_t = delta_t
         self.model_obj = model_obj
 

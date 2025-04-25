@@ -17,10 +17,10 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Observer():
-    """Base class for Observer objects
+    """Flexibly samples observations from generated data
 
-    Attributes:
-        data_obj: Data generator/loader object from which
+    Args:
+        state_vec: Data generator/loader object from which
             to gather observations.
         random_location_density: Fraction of locations in
             system_dim to randomly select for observing, must be value
@@ -73,6 +73,16 @@ class Observer():
             Default is 99.
         store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+
+    Attributes:
+        locations (ArrayLike): Location indices for making
+            observations. In system_dim (1D) or original dim
+            (>1D) of self.state_vec.
+        location_dim (int): Number of locations sampled from (max
+            in a single time step, if non-stationary observers).
+        times (ArrayLike): Time indices to gather observations
+            from.
+        time_dim (int): Number of times sampled from.
 
     """
 
@@ -265,7 +275,7 @@ class Observer():
 
         Returns:
             ObsVector containing observation values, times, locations, and
-                errors
+            errors
         """
 
         # Define random num generator

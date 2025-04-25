@@ -30,12 +30,13 @@ ArrayLike = np.ndarray | jax.Array
 
 
 class Barotropic(_data.Data):
-    """ Class to set up barotropic model
+    """Barotropic model data generator based on pyqg
 
-    The data class is a wrapper of a "optional" pyqg package.
+    This data class is a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:
+        DEPRECATED
         Uses default attribute values from pyqg.BTModel:
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.BTModel
         Those values originally come from Mcwilliams 1984:
@@ -43,7 +44,7 @@ class Barotropic(_data.Data):
             vortices in turbulent flow. Journal of Fluid Mechanics, 146,
             pp 21-43 doi:10.1017/S0022112084001750.
 
-    Attributes:
+    Args:
         system_dim: system dimension
         beta: Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1. Default is 0.
@@ -207,8 +208,8 @@ class Barotropic(_data.Data):
         """Advances the QG model according to set attributes
 
         Returns:
-            qs (array_like): absolute potential vorticity (relative potential
-                vorticity + background vorticity).
+            Array of absolute potential vorticity (relative potential
+            vorticity + background vorticity).
         """
         qs = []
         for _ in self.m.run_with_snapshots(tsnapstart=0, tsnapint=self.m.dt):

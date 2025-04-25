@@ -25,16 +25,17 @@ except ImportError:
 
 
 class PyQG(_data.Data):
-    """ Class to set up quasi-geotropic model
+    """PyQG quasi-geotropic model data generator.
 
     The PyQG class is simply a wrapper of a "optional" pyqg package.
     See https://pyqg.readthedocs.io
 
     Notes:
+        DEPRECATED
         Uses default attribute values from pyqg.QGModel:
         https://pyqg.readthedocs.io/en/latest/api.html#pyqg.QGModel
 
-    Attributes:
+    Args:
         beta (float): Gradient of coriolis parameter. Units: meters^-1 *
             seconds^-1
         rek (float): Linear drag in lower layer. Units: seconds^-1
@@ -47,7 +48,7 @@ class PyQG(_data.Data):
         ny (int): Number of grid points in the y direction (default: nx).
         L (float): Domain length in x direction. Units: meters.
         W (float): Domain width in y direction. Units: meters (default: L).
-        filterfac (float): amplitdue of the spectral spherical filter
+        filterfac (float): amplitude of the spectral spherical filter
             (originally 18.4, later changed to 23.6).
         delta_t (float): Numerical timestep. Units: seconds.
         twrite (int): Interval for cfl writeout. Units: number of timesteps.
@@ -191,8 +192,8 @@ class PyQG(_data.Data):
         """Advances the QG model according to set attributes
 
         Returns:
-            qs (array_like): absolute potential vorticity (relative potential
-                vorticity + background vorticity).
+            Array of absolute potential vorticity (relative potential
+            vorticity + background vorticity).
         """
         qs = []
         for _ in self.m.run_with_snapshots(tsnapstart=0, tsnapint=self.m.dt):
