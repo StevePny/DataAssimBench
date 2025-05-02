@@ -6,6 +6,7 @@ import pickle
 
 from scipy import sparse, stats, linalg
 import numpy as np
+import jax
 import jax.numpy as jnp
 import xarray as xr
 
@@ -13,55 +14,60 @@ from dabench import vector, model
 
 logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
+# For typing
+ArrayLike = np.ndarray | jax.Array
+
 
 class RCModel(model.Model):
     """A simple Reservoir Computing data-driven model
 
     Args:
-        system_dim (int): Dimension of reservoir output.
-        input_dim (int): Dimension of reservoir input signal.
-        reservoir_dim (int): Dimension of reservoir state. Default: 512.
-        sparsity (float): the percentage of zero-valued entries in the
+        system_dim: Dimension of reservoir output.
+        input_dim: Dimension of reservoir input signal.
+        reservoir_dim: Dimension of reservoir state. Default: 512.
+        sparsity: the percentage of zero-valued entries in the
             adjacency matrix (A). Default: 0.99.
-        sparse_adj_matrix (bool): If True, A is computed using scipy sparse.
-        sigma (float): Scaling of the input weight matrix. Default: 0.5.
-        sigma_bias (float): Bias term for sigma. Default: 0.
-        leak_rate (float): ``(1-leak_rate)`` of the reservoir state at the
+        sparse_adj_matrix: If True, A is computed using scipy sparse.
+        sigma: Scaling of the input weight matrix. Default: 0.5.
+        sigma_bias: Bias term for sigma. Default: 0.
+        leak_rate: ``(1-leak_rate)`` of the reservoir state at the
             previous time step is incorporated during timestep update.
             Default: 1.
-        spectral_radius (float): Scaling of the reservoir adjacency
+        spectral_radius: Scaling of the reservoir adjacency
             matrix. Default: 0.9.
-        tikhonov_parameter (float): Regularization parameter in the linear
+        tikhonov_parameter: Regularization parameter in the linear
             solving, penalizing amplitude of weight matrix elements. Default: 0.0.
-        readout_method (str): How to handle reservoir state elements during
+        readout_method: How to handle reservoir state elements during
             readout. One of 'linear', 'biased', or 'quadratic'.
             Default: 'linear'.
-        random_seed (int): Random seed for random number generation. Default
+        random_seed: Random seed for random number generation. Default
             is 1.
-        s (ndarray): Model states over entire time series.
-        s_last (ndarray): Last
-        ybar (ndarray): y.T @ st, set in _compute_Wout.
-        sbar (ndarray): st.T @ st, set in _compute_Wout.
-        A (ndarray): reservoir adjacency weight matrix, set in
+
+    Attributes:
+        s (ArrayLike): Model states over entire time series.
+        s_last (ArrayLike): Last model state
+        ybar (ArrayLike): y.T @ st, set in _compute_Wout.
+        sbar (ArrayLike): st.T @ st, set in _compute_Wout.
+        A (ArrayLike): reservoir adjacency weight matrix, set in
             ``.weights_init()``.
-        Win (ndarray): reservoir input weight matrix, set in
+        Win (ArrayLike): reservoir input weight matrix, set in
             ``.weights_init()``.
-        Wout (ndarray): trained output weight matrix, set in ``.train()``.
+        Wout (ArrayLike): trained output weight matrix, set in ``.train()``.
     """
 
     def __init__(self,
-                 system_dim,
-                 input_dim,
-                 reservoir_dim=512,
-                 sparsity=0.99,
-                 sparse_adj_matrix=False,
-                 sigma=0.5,
-                 sigma_bias=0,
-                 leak_rate=1.0,
-                 spectral_radius=0.9,
-                 tikhonov_parameter=0,
-                 readout_method='linear',
-                 random_seed=1,
+                 system_dim: int,
+                 input_dim: int,
+                 reservoir_dim:int = 512,
+                 sparsity: float = 0.99,
+                 sparse_adj_matrix: bool = False,
+                 sigma: float = 0.5,
+                 sigma_bias: float = 0.,
+                 leak_rate: float = 1.0,
+                 spectral_radius: float = 0.9,
+                 tikhonov_parameter: float = 0.,
+                 readout_method: bool = 'linear',
+                 random_seed: int = 1,
                  **kwargs):
 
         self.system_dim = system_dim
@@ -99,11 +105,11 @@ class RCModel(model.Model):
             matrices for computational speed up.
 
         Sets Attributes:
-            A (array_like): (reservoir_dim, reservoir_dim),
+            A (ArrayLike): (reservoir_dim, reservoir_dim),
                 reservoir adjacency matrix
-            Win (array_like): (reservoir_dim, input_dim),
+            Win (ArrayLike): (reservoir_dim, input_dim),
                 reservoir input weight matrix
-            Adense (array_like): stores dense version of A if A is specified
+            Adense (ArrayLike): stores dense version of A if A is specified
                 as sparse format.
         """
 
@@ -165,19 +171,22 @@ class RCModel(model.Model):
         self.states = None
         self.Adense = A.asformat('array') if self.sparse_adj_matrix else A
 
-    def generate(self, state_vec, A=None, Win=None, r0=None):
-        """generate reservoir time series from input signal u
+    def readin(self,
+               state_vec: xr.Dataset,
+               A: ArrayLike | None = None,
+               Win: ArrayLike | None = None,
+               r0: ArrayLike | None = None
+               ) -> xr.Dataset:
+        """Generate reservoir state time series from input time series
 
         Args:
-            u (array_like): (time_dimension, system_dimension), input signal to
-                reservoir
-            A (array_like, optional): (reservoir_dim, reservoir_dim),
-                reservoir adjacency matrix
-            Win (array_like, optional): (reservoir_dim, system_dimension),
-                reservoir input weight matrix
-            r0 (array_like, optional): (reservoir_dim,) initial reservoir state
-            save_states (bool): If True, saves reservoir states as self.states.
-                If False, returns states. Default: False.
+            state_vec: input signal to reservoir, size (time_dim, input_dim)
+            A: Reservoir adjacency martrix, size (reservoir_dim,
+                reservoir_dim). If None, will use self.A.
+            Win: Reservoir input weight matrix, size (reservoir_dim,
+                input_dim). If None, will use self.Win.
+            r0: Initial reservoir state, size (reservoir_dim,). If None,
+                start from all 0s.
 
         Returns:
             Reservoirs state, size (time_dim, reservoir_dim)
@@ -187,7 +196,7 @@ class RCModel(model.Model):
 
         if r0 is not None:
             logging.debug(
-                    'generate:: using initial reservoir state: %s', r0)
+                    'readin:: using initial reservoir state: %s', r0)
             r[0, :] = np.reshape(r0, (1, self.reservoir_dim))
 
         # Encoding input signal {u(t)} -> {s(t)}
@@ -199,20 +208,24 @@ class RCModel(model.Model):
             coords={'time':state_vec.time}
         )
 
-    def update(self, r, u, A=None, Win=None):
+    def update(self,
+               r: ArrayLike,
+               u: ArrayLike,
+               A: ArrayLike | None = None,
+               Win: ArrayLike | None = None
+               ) -> ArrayLike:
         """Update reservoir state with input signal and previous state
 
         Args:
-            r (array_like): (reservoir_dim,) Previous reservoir state
-            u (array_like): (input_dimension,) input signal
-            A (array_like, optional): (reservoir_dim, reservoir_dim),
-                reservoir adjacency matrix. If None, uses self.A. Default
-                is None.
-            Win (array_like, optional): (reservoir_dim, input_dimension),
-                reservoir input weight matrix. If None, uses self.Win.
-                Default is None
+            r: Previous reservoir state, size (reservoir_dim,).
+            u: input signal, size (input_dim,) 
+            A: Reservoir adjacency martrix, size (reservoir_dim,
+                reservoir_dim). If None, will use self.A.
+            Win: Reservoir input weight matrix, size (reservoir_dim,
+                input_dim). If None, will use self.Win.
+
         Returns:
-            Reservoir state at next time step, of size (reservoir_dim,)
+            Reservoir state at next time step, size (reservoir_dim,)
         """
 
         if A is None:
@@ -232,69 +245,26 @@ class RCModel(model.Model):
 
         return q
 
-    def predict(self, state_vec, delta_t, initial_index=0, n_steps=100,
-                spinup_steps=0, r0=None, keep_spinup=True):
-        """Compute the prediction phase of the RC
-
-        Args:
-            dataobj (Data): data object containing the initial conditions
-            initial_index (int, optional): time index of initial conditions in
-                the data object 'values'
-            n_steps (int, optional): number of steps to conduct the prediction
-            spinup_steps (int, optional): number of steps before the
-                initial_index to use for spinning up the reservoir state
-            r0 (array_like, optional): initial reservoir state
-
-        Returns:
-            Data object covering prediction period
-        """
-
-        # Recompute the initial reservoir spinup to get reservoir states
-        if spinup_steps > 0:
-            u = state_vec.values[(initial_index-spinup_steps):initial_index]
-            r = self.generate(u, r0=r0, save_states=False)
-            r0 = r[-1, ]
-
-        if r0 is not None:
-            s_last = r0
-        else:
-            s_last = self.states[initial_index-1]
-
-        u_last = state_vec.values[max(initial_index-1, 0), :]
-
-        # Use these if possible
-        A = getattr(self, 'A', None)
-        Win = getattr(self, 'Win', None)
-        predicted_obj = self._predict_backend(n_steps, s_last.T, u_last.T,
-                                              delta_t, A=A, Win=Win)
-
-        if keep_spinup and spinup_steps > 0:
-            predicted_values = jnp.concatenate([u, predicted_obj.values])
-            predicted_times = state_vec.times
-        else:
-            predicted_values = predicted_obj.values
-            predicted_times = state_vec.times[initial_index:]
-
-        out_vec = vector.StateVector(
-                values=predicted_values,
-                times=predicted_times,
-                store_as_jax=True)
-
-        return out_vec
-
-    def readout(self, rt, Wout=None, utm1=None):
+    def readout(self,
+                rt: ArrayLike,
+                Wout: ArrayLike | None = None,
+                utm1: ArrayLike | None = None
+                ) -> ArrayLike:
         """use Wout to map reservoir state to output
 
         Args:
-            rt (array_like): 1D or 2D with dims: (Nr,) or (Ntime, Nr)
-                reservoir state, either passed as single time snapshot,
+            rt: Reservoir state(s), either passed as single time snapshot with
+                size (reservoir_dim,) or as 2D array with reservoir_dim as 
+                last dim (time_dim, reservoir_dim).
                 or as matrix, with reservoir dimension as last index
-            utm1 (array_like): 1D or 2D with dims: (Nu,) or (Ntime, Nu)
-                u(t-1) for r(t), only used if readout_method = 'biased',
+            Wout: Reservoir output weight matrix, size (reservoir_dim,
+                input_dim). If None, will use self.Wout.
+            utm1: 1D or 2D with size (u_dim,) or (time_dim, u_dim)
+                u(t-1) for r(t). Only used if readout_method = 'biased',
                 then Wout*[1, u(t-1), r(t)]=u(t)
 
         Returns:
-            1D or 2D array with dims(Nout,) or (Ntime, Nout)
+            1D or 2D array with size (system_dim,) or (time_dim, system_dim)
             depending on shape of input array
 
         Todo:
@@ -328,86 +298,49 @@ class RCModel(model.Model):
 
         return vt
 
-    def _predict_backend(self, n_samples, s_last, u_last, delta_t,
-                         A=None, Win=None, Wout=None):
-        """Apply the learned weights to new input.
-
-        Args:
-            n_samples (int): number of time steps to predict
-            s_last (array_like): 1D vector with final reservoir state before
-                prediction.
-            u_last (array_like): 1D vector with final input signal before
-                prediction.
-            delta_t (float): full time length of spinup and prediction windows
-            A (array_like, optional): (reservoir_dim, reservoir_dim),
-                adjacency matrix. If None, uses self.A. Default is None.
-            Win (array_like, optional): (reservoir_dim, input_dimension),
-                input weight matrix. If None, uses self.Win.
-                Default is None.
-            Wout (array_like, optional): Rutput weight matrix. If None,
-                uses self.Wout. Default is None.
-
-        Returns:
-            Data object with predicted signal from reservoir
-        """
-
-        s = jnp.zeros((n_samples, self.reservoir_dim))
-        y = jnp.zeros((n_samples, self.system_dim))
-        s = s.at[0].set(self.update(s_last, u_last, A, Win))
-        y = y.at[0].set(self.readout(s[0, :], Wout, utm1=u_last))
-
-        for t in range(n_samples - 1):
-            s = s.at[t + 1].set(self.update(s[t, :], y[t, :], A, Win))
-            y = y.at[t + 1].set(self.readout(s[t + 1, :], Wout, utm1=y[t, :]))
-
-        y_obj = vector.StateVector(
-            system_dim=y.shape[1],
-            time_dim=y.shape[0],
-            values=y,
-            times=jnp.arange(1, y.shape[0]+1)*delta_t,
-            store_as_jax=True)
-
-        return y_obj
-
-    def train(self, data_obj, update_Wout=True):
+    def train(self,
+              state_vec: xr.Dataset,
+              update_Wout: bool = True):
         """Train the localized RC model
 
         Args:
-            dataobj (Data): Data object containing training data
-            update_Wout (bool): if True, update Wout, otherwise
+            state_vec: Training data with size (time_dim, output_dim)
+            update_Wout: if True, update Wout, otherwise
                 initialize it by rewriting the ybar and sbar matrices
 
         Sets Attributes:
-            Wout (array_like): Trained output weight matrix
+            Wout (ArrayLike): Trained output weight matrix
         """
 
-        r = self.generate(data_obj)['r'].data
-        # u = data_obj.to_array().transpose(..., 'variable').data.reshape(data_obj.sizes['time'], -1)
-        u = data_obj.to_array().stack(system=['variable','index']).data
-        self.Wout = self._compute_Wout(r, u, update_Wout=update_Wout, u=u.T)
+        r = self.readin(state_vec)['r'].data
+        y = state_vec.to_array().stack(system=['variable','index']).data
+        self.Wout = self._compute_Wout(r, y, update_Wout=update_Wout, u=y.T)
 
-    def _compute_Wout(self, rt, y, update_Wout=True, u=None):
+    def _compute_Wout(self,
+                      rt: ArrayLike,
+                      y: ArrayLike,
+                      update_Wout: bool = True,
+                      u: ArrayLike | None = None
+                      ) -> ArrayLike:
         """Solve linear system with multiple RHS for readout weight matrix
 
         Args:
-            rt (array_like): 2D with dims (time_dim, reservoir_dim),
-                reservoir state
-            y (array_like): 2D with dims (time_dim, output_dim),
-                target reservoir output
+            rt: Reservoir states, size (time_dim, reservoir_dim),
+            y: Target reservoir ouptut, size (time_dim, output_dim),
             update_Wout (bool): if True, update Wout, otherwise,
                 initialize it by rewriting the ybar and sbar matrices
 
         Returns:
-            Wout array, 2D with dims (output_dim, reservoir_dim),
-            this is also stored within the object
+            Wout array, size (output_dim, reservoir_dim),
+            If this is also stored within the object
 
         Sets Attributes:
-            ybar (array_like): y.T @ st, st is rt with readout_method accounted
+            ybar (ArrayLike): y.T @ st, st is rt with readout_method accounted
                 for.
-            sbar (array_like): st.T @ st, st is rt with readout_method
+            sbar (ArrayLike): st.T @ st, st is rt with readout_method
                 accounted for.
-            Wout (array_like): see Returns.
-            y_last, s_last, u_last (array_like): the last element of output,
+            Wout (ArrayLike): see Returns.
+            y_last, s_last, u_last (ArrayLike): the last element of output,
                 reservoir, and input states
         """
         # Prepare for nonlinear readout function:
@@ -441,7 +374,6 @@ class RCModel(model.Model):
                  * np.eye(self.sbar.shape[0])),
                 self.ybar)
         
-
         # These are from the old update_Wout method,
         # although I'm not sure what they're for
         self.y_last = y[-1, ...]
@@ -451,24 +383,37 @@ class RCModel(model.Model):
 
         return self.Wout
 
-    def _linsolve(self, X, Y, beta=None, **kwargs):
+    def _linsolve(self,
+                  X: ArrayLike,
+                  Y: ArrayLike,
+                  beta: float | None =  None,
+                  **kwargs
+                  ) -> ArrayLike:
         '''Linear solver wrapper for A in Y = AX
 
         Args:
-            X (matrix) : independent variable
-            Y (matrix) : dependent variable
-            beta (float): Tikhonov regularization
+            X: independent variable, square matrix
+            Y: dependent variable, square matrix
+            beta: Tikhonov regularization
+        
+        Returns: 
+            Solution matrix, rectangular matrix
         '''
         A = self._linsolve_pinv(X, Y, beta)
 
         return A.T
 
-    def _linsolve_pinv(self, X, Y, beta=None):
+    def _linsolve_pinv(self, 
+                  X: ArrayLike,
+                  Y: ArrayLike,
+                  beta: float | None = None,
+                  ) -> ArrayLike:
         """Solve for A in Y = AX, assuming X and Y are known.
 
         Args:
           X : independent variable, square matrix
           Y : dependent variable, square matrix
+          beta: Tikhonov regularization
 
         Returns:
             Solution matrix, rectangular matrix
@@ -481,15 +426,34 @@ class RCModel(model.Model):
 
         return A
 
-    def forecast(self, state_vec, n_steps=1):
+    def forecast(self,
+                 res_state_vec: xr.Dataset,
+                 n_steps: int =  1
+                 ) -> xr.Dataset:
+        """Run reservoir prediction from single reservoir state
+
+        Notes:
+            This is the method called by dab.dacycler's cycle() method.
+            It performs the forecast in the reservoir space. self.readout()
+            must be applied to the output to convert to system space.
+
+        Args:
+            res_state_vec: Xarray dataset containing reservoir state as
+                data_var 'r'
+            n_steps: Number of prediction steps
+        
+        Returns:
+            Tuple of (last reservoir state, all reservoir states for n_steps).
+
+        """
         if n_steps == 1:
-            new_vals = self.update(state_vec['r'].data,
-                                   self.readout(state_vec['r'].data))
+            new_vals = self.update(res_state_vec['r'].data,
+                                   self.readout(res_state_vec['r'].data))
             new_vec = xr.Dataset(
                 {'r':(('time','reservoir'), new_vals)}
             )
         else:
-            r = state_vec['r'].data
+            r = res_state_vec['r'].data
             r_full = jnp.zeros((n_steps, self.reservoir_dim))
             for i in range(n_steps):
                 r_full = r_full.at[i].set(r)
@@ -501,20 +465,26 @@ class RCModel(model.Model):
             )
         return new_vec.isel(time=-1), new_vec
 
-    def save_weights(self, pkl_path):
+    def save_weights(self,
+                     pkl_path: str):
         """Save RC reservoir weights as pkl file.
 
         Args:
-            pkl_path (str): Filepath for saving with .pkl extension
+            pkl_path: Filepath for saving with .pkl extension
+        
         """
         with open(pkl_path, 'wb') as pkl:
             pickle.dump(self.Wout, pkl)
 
-    def load_weights(self, pkl_path):
+    def load_weights(self,
+                     pkl_path: str):
         """Load RC reservoir weights from pkl file.
 
         Args:
-            pkl_path (str): Filepath with save weight matrix.
+            pkl_path: Filepath with save weight matrix.
+
+        Sets Attributes:
+            Wout (np.ndarray): Output weight matrix
         """
         with open(pkl_path, 'rb') as pkl:
             self.Wout = pickle.load(pkl)
