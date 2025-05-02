@@ -210,4 +210,4 @@ class ETKF(dacycler.DACycler):
                                     R=R,
                                     rho=self.multiplicative_inflation)
 
-        return Xb_ds.assign(x=(['ensemble','i'], Xa.T))
+        return Xb_ds.assign({list(Xb_ds.data_vars)[0]:(Xb_ds.dims, Xa.T)})
