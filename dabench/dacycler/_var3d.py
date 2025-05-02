@@ -103,4 +103,4 @@ class Var3D(dacycler.DACycler):
         xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
                                            maxiter=1000)
 
-        return xb_ds.assign(x=(xb_ds.dims, xa.T))
+        return xb_ds.assign({list(xb_ds.data_vars)[0]:(xb_ds.dims, xa.T)})

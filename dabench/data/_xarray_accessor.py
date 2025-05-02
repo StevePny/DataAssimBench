@@ -48,6 +48,7 @@ class DABenchDatasetAccessor:
         for sl in split_lengths:
             end_i = start_i + sl
             out_ds.append(self._obj.isel(time=slice(start_i, end_i)))
+            start_i = end_i
         return tuple(out_ds)
 
 
