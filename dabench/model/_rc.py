@@ -21,7 +21,6 @@ class RCModel(model.Model):
         system_dim (int): Dimension of reservoir output.
         input_dim (int): Dimension of reservoir input signal.
         reservoir_dim (int): Dimension of reservoir state. Default: 512.
-
         sparsity (float): the percentage of zero-valued entries in the
             adjacency matrix (A). Default: 0.99.
         sparse_adj_matrix (bool): If True, A is computed using scipy sparse.
@@ -37,10 +36,8 @@ class RCModel(model.Model):
         readout_method (str): How to handle reservoir state elements during
             readout. One of 'linear', 'biased', or 'quadratic'.
             Default: 'linear'.
-
         random_seed (int): Random seed for random number generation. Default
             is 1.
-
         s (ndarray): Model states over entire time series.
         s_last (ndarray): Last
         ybar (ndarray): y.T @ st, set in _compute_Wout.
@@ -386,7 +383,7 @@ class RCModel(model.Model):
 
         r = self.generate(data_obj)['r'].data
         # u = data_obj.to_array().transpose(..., 'variable').data.reshape(data_obj.sizes['time'], -1)
-        u = data_obj.to_array().stack(system=['variable','i']).data
+        u = data_obj.to_array().stack(system=['variable','index']).data
         self.Wout = self._compute_Wout(r, u, update_Wout=update_Wout, u=u.T)
 
     def _compute_Wout(self, rt, y, update_Wout=True, u=None):
@@ -496,13 +493,13 @@ class RCModel(model.Model):
             r_full = jnp.zeros((n_steps, self.reservoir_dim))
             for i in range(n_steps):
                 r_full = r_full.at[i].set(r)
-                if i < n_steps-1:
+                if i < n_steps:
                     r = self.update(r, self.readout(r))
 
             new_vec = xr.Dataset(
                 {'r':(('time','reservoir'), r_full)}
             )
-        return new_vec.isel(time=-1), new_vec.drop_isel(time=-1)
+        return new_vec.isel(time=-1), new_vec
 
     def save_weights(self, pkl_path):
         """Save RC reservoir weights as pkl file.
