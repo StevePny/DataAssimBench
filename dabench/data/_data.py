@@ -5,8 +5,11 @@ import numpy as np
 import jax.numpy as jnp
 import jax
 import xarray as xr
+import xarray_jax as xj
 import warnings
 from importlib import resources
+
+from functools import partial
 
 from dabench.data._utils import integrate
 from dabench import _suppl_data
@@ -159,7 +162,8 @@ class Data():
         # Integrate and store values and times
         # If data object has its own integration method, use that
         if hasattr(self, 'integrate') and callable(getattr(self, 'integrate')):
-            y, t = self.integrate(f, x0, t_final, self.delta_t, stride=stride,
+            y, t = self.integrate(f, x0, n_steps=n_steps, t_final=t_final,
+                                  delta_t=self.delta_t, stride=stride,
                                   **kwargs)
         # Otherwise, use integrate from dabench.support.utils
         else:
@@ -167,25 +171,26 @@ class Data():
                              jax_comps=self.store_as_jax,
                              **kwargs)
 
-        # Convert to JAX if necessary
-        time_dim = t.shape[0]
-        out_dim = (time_dim,) + self.original_dim
-        if self.store_as_jax:
-            y_out = jnp.array(y[:,:self.system_dim].reshape(out_dim))
-        else:
-            y_out = np.array(y[:,:self.system_dim].reshape(out_dim))
         # Build Xarray object for output
         coord_dict = dict(zip(
             ['time'] + self.coord_names,
             [t] + [np.arange(dim) for dim in self.original_dim]
         ))
+        time_dim = t.shape[0]
+        out_dim = (time_dim,) + self.original_dim
+
+        # Convert to JAX if necessary
+        if self.store_as_jax or isinstance(y, jax.core.Tracer):
+            y_out = jnp.array(y[:, :self.system_dim].reshape(out_dim))
+        else:
+            y_out = np.array(y[:, :self.system_dim].reshape(out_dim))
         out_vec = xr.Dataset(
-            {self.var_names[0]: (coord_dict.keys(),y_out)},
+            {self.var_names[0]: (coord_dict.keys(), y_out)},
             coords=coord_dict,
-            attrs={'store_as_jax':self.store_as_jax,
+            attrs={'store_as_jax': self.store_as_jax,
                    'system_dim': self.system_dim,
                    'delta_t': self.delta_t
-            }
+                   }
         )
 
         # Return the data series and associated TLMs if requested
