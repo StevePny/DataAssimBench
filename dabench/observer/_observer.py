@@ -306,7 +306,6 @@ class Observer():
             else:
                 self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
 
-
             # Sample
             obs_vec = self.state_vec.sel(
                 time=self.times, method=self.sel_method
@@ -321,24 +320,41 @@ class Observer():
                 self._generate_nonstationary_locs(rng)
             else:
                 self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
+                self._location_counts = np.repeat(self.location_dim, self.times.shape[0])
 
-            # If there's an unequal number of obs, will pad
-            pad_widths = self.location_dim - np.array(self._location_counts)
-
-            # Sample
-            obs_vec = xr.concat([
-                # Select by time
-                self.state_vec.sel(
-                        time=t, method=self.sel_method
-                # Select locations
+            # Special case: user-specified and same number of obs per timestep
+            # In this case, self.locations is a dict.
+            if isinstance(self.locations, dict):
+                # Sample
+                obs_vec = self.state_vec.sel(
+                    time=self.times, method=self.sel_method
                     ).sel(
-                        self.locations[i], method=self.sel_method
-                # Pad observations to max number
-                    ).pad(
-                        observations=(0, pad_widths[i])
-                    )
-                for i, t in enumerate(self.times)], 
-                dim='time')
+                        self.locations, method=self.sel_method
+                        )
+
+            # Randomly generated observation locations
+            # self.locations is a list of dicts.
+            else:
+                # If there's an unequal number of obs, will pad
+                # NOTE: This may fail if user specifies nonstationary obs
+                # with varying number of obs per time step, since
+                # self._location_counts would never be set properly.
+                pad_widths = self.location_dim - np.array(self._location_counts)
+
+                # Sample
+                obs_vec = xr.concat([
+                    # Select by time
+                    self.state_vec.sel(
+                            time=t, method=self.sel_method
+                    # Select locations
+                        ).sel(
+                            self.locations[i], method=self.sel_method
+                    # Pad observations to max number
+                        ).pad(
+                            observations=(0, pad_widths[i])
+                        )
+                    for i, t in enumerate(self.times)], 
+                    dim='time')
 
         # Transpose system_index to ensure consistency with flattened data
         obs_vec['system_index'] = obs_vec['system_index'].transpose('variable','time','observations').fillna(
