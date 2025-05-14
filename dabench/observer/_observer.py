@@ -73,6 +73,9 @@ class Observer():
             Default is 99.
         store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        sel_method: Xarray selection indexing method (e.g. 'nearest', 'pad').
+            See https://docs.xarray.dev/en/latest/generated/xarray.Dataset.sel.html.
+            Default is 'nearest', which selects nearest neighbor.
 
     Attributes:
         locations (ArrayLike): Location indices for making
@@ -100,6 +103,7 @@ class Observer():
                  error_positive_only: bool = False,
                  random_seed: int = 99,
                  store_as_jax: bool = False,
+                 sel_method: str = 'nearest'
                  ):
 
         self.state_vec = state_vec
@@ -136,6 +140,7 @@ class Observer():
         self.random_location_density = random_location_density
         self.random_location_count = random_location_count
         self.stationary_observers = stationary_observers
+        self.sel_method = sel_method
 
         self.random_seed = random_seed
         if (store_as_jax and self.random_location_density != 1. and
@@ -217,19 +222,26 @@ class Observer():
                 rng.binomial(1,
                              p=self.random_location_density,
                              size=self.state_vec.system_dim))
-        if len(self._nontime_coord_names) > 1:
-            sample_w_replace=True
-        else:
-            sample_w_replace=False
+        # Sample from flattened dimension
+        sizes = tuple(
+            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
+            )
+        flat_locs = rng.choice(
+            np.prod(sizes),
+            size=location_count,
+            replace=False,
+            shuffle=False
+        )
+        full_locs = np.unravel_index(
+            flat_locs,
+            sizes
+        )
+        loc_dict = dict(zip(self._nontime_coord_names, full_locs))
         self.locations = {
-            coord_name: xr.DataArray(
-                rng.choice(
-                    self.state_vec[coord_name],
-                    size=location_count,
-                    replace=sample_w_replace,
-                    shuffle=False),
+            coord: xr.DataArray(
+                locs,
                 dims=['observations'])
-            for coord_name in self._nontime_coord_names
+            for coord, locs in loc_dict.items()
         }
         self.location_dim = location_count
 
@@ -297,13 +309,19 @@ class Observer():
 
 
             # Sample
-            obs_vec = self.state_vec.sel(time=self.times).sel(self.locations)
+            obs_vec = self.state_vec.sel(
+                time=self.times, method=self.sel_method
+                ).sel(
+                    self.locations, method=self.sel_method
+                    )
 
         # If NON-stationary observer
         else:
             # Generate location_indices if not specified
             if self.locations is None:
                 self._generate_nonstationary_locs(rng)
+            else:
+                self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
 
             # If there's an unequal number of obs, will pad
             pad_widths = self.location_dim - np.array(self._location_counts)
@@ -312,10 +330,10 @@ class Observer():
             obs_vec = xr.concat([
                 # Select by time
                 self.state_vec.sel(
-                        time=t
+                        time=t, method=self.sel_method
                 # Select locations
                     ).sel(
-                        self.locations[i]
+                        self.locations[i], method=self.sel_method
                 # Pad observations to max number
                     ).pad(
                         observations=(0, pad_widths[i])
