@@ -211,21 +211,13 @@ class Observer():
                                  ).astype('bool')
                     )[0]]
 
-    def _generate_stationary_locs(
+    def _sample_multi_dim(
             self,
+            sizes: tuple[int],
+            location_count: int,
             rng: np.random.Generator
             ):
-        if self.random_location_count is not None:
-            location_count = self.random_location_count
-        else:
-            location_count = np.sum(
-                rng.binomial(1,
-                             p=self.random_location_density,
-                             size=self.state_vec.system_dim))
-        # Sample from flattened dimension
-        sizes = tuple(
-            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
-            )
+        """Select locations randomly without replacement"""
         flat_locs = rng.choice(
             np.prod(sizes),
             size=location_count,
@@ -237,12 +229,29 @@ class Observer():
             sizes
         )
         loc_dict = dict(zip(self._nontime_coord_names, full_locs))
-        self.locations = {
+        loc_xr_dict = {
             coord: xr.DataArray(
-                locs,
-                dims=['observations'])
-            for coord, locs in loc_dict.items()
-        }
+            locs,
+            dims=['observations'])
+            for coord, locs in loc_dict.items()}
+        return loc_xr_dict
+
+    def _generate_stationary_locs(
+            self,
+            rng: np.random.Generator
+            ):
+        if self.random_location_count is not None:
+            location_count = self.random_location_count
+        else:
+            location_count = np.sum(
+                rng.binomial(1,
+                             p=self.random_location_density,
+                             size=self.state_vec.system_dim))
+       # Get sizes of state vector as tuple
+        sizes = tuple(
+            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
+            )
+        self.locations = self._sample_multi_dim(sizes, location_count, rng)
         self.location_dim = location_count
 
     def _generate_nonstationary_locs(
@@ -263,23 +272,13 @@ class Observer():
                              )
             for i in range(self.times.shape[0])]
 
-        if len(self._nontime_coord_names) > 1:
-            sample_w_replace=True
-        else:
-            sample_w_replace=False
+       # Get sizes of state vector as tuple
+        sizes = tuple(
+            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
+            )
 
-        self.locations = [{
-            coord_name: xr.DataArray(
-                rng.choice(
-                    self.state_vec[coord_name],
-                    size=lc,
-                    replace=sample_w_replace,
-                    shuffle=False),
-                    dims=['observations'])
-            for coord_name in self._nontime_coord_names
-            }
-        for lc in self._location_counts]
-
+        self.locations = [self._sample_multi_dim(sizes, lc, rng)
+                          for lc in self._location_counts]
         self.location_dim = np.max(self._location_counts)
 
     def observe(self) -> xr.Dataset:
