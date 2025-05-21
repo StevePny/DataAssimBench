@@ -107,7 +107,7 @@ class Observer():
                  ):
 
         self.state_vec = state_vec
-        self._coord_names = list(self.state_vec.coords.keys())
+        self._coord_names = list(self.state_vec.dims)
         self._nontime_coord_names = [coord for coord in self._coord_names
                                      if coord != 'time']
         self.state_vec = self.state_vec.assign_coords(
@@ -246,8 +246,11 @@ class Observer():
             location_count = np.sum(
                 rng.binomial(1,
                              p=self.random_location_density,
-                             size=self.state_vec.system_dim))
-       # Get sizes of state vector as tuple
+                             size=int(self.state_vec.system_dim
+                                      / self.state_vec.sizes['variable'])
+                             )
+                )
+        # Get sizes of state vector as tuple
         sizes = tuple(
             self.state_vec.sizes[cn] for cn in self._nontime_coord_names
             )
@@ -268,11 +271,13 @@ class Observer():
             self._location_counts = [np.sum(
                 rng.binomial(1,
                              p=self.random_location_density,
-                             size=self.state_vec.system_dim)
+                             size=int(self.state_vec.system_dim
+                                      / self.state_vec.sizes['variable'])
                              )
-            for i in range(self.times.shape[0])]
+                )
+                for i in range(self.times.shape[0])]
 
-       # Get sizes of state vector as tuple
+        # Get sizes of state vector as tuple
         sizes = tuple(
             self.state_vec.sizes[cn] for cn in self._nontime_coord_names
             )
