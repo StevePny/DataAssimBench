@@ -51,6 +51,27 @@ class Var3D(dacycler.DACycler):
                          model_obj=model_obj,
                          B=B, R=R, H=H, h=h)
 
+
+    def _compute_analysis(self,
+                          xb,
+                          y,
+                          B,
+                          H,
+                          Rinv
+                          ):
+        # 'preconditioning with B'
+        xdim = xb.size
+        I = jnp.identity(xdim)
+        BHt = jnp.dot(B, H.T)
+        BHtRinv = jnp.dot(BHt, Rinv)
+        A = I + jnp.dot(BHtRinv, H)
+        b1 = xb + jnp.dot(BHtRinv, y)
+
+        # Use minimization algorithm to minimize cost function:
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb.astype(float), tol=1e-05,
+                                           maxiter=1000)
+        return xa
+
     def _cycle_obsop(self,
                      xb_ds: XarrayDatasetLike,
                      obs_values: ArrayLike,
@@ -72,7 +93,12 @@ class Var3D(dacycler.DACycler):
                 H = self.H
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices.flatten()])
             else:
                 R = self.R
         if B is None:
@@ -85,22 +111,19 @@ class Var3D(dacycler.DACycler):
         y = obs_values.flatten()
 
         # Apply masks to H
-        H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
+        H = jnp.where(jnp.tile(obs_time_mask.flatten(), obs_loc_mask.shape[0]), H.T, 0).T
         H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Set parameters
-        xdim = xb.size  # Size or get one of the shape params?
         Rinv = jnp.linalg.inv(R)
 
-        # 'preconditioning with B'
-        I = jnp.identity(xdim)
-        BHt = jnp.dot(B, H.T)
-        BHtRinv = jnp.dot(BHt, Rinv)
-        A = I + jnp.dot(BHtRinv, H)
-        b1 = xb + jnp.dot(BHtRinv, y)
+        xa = self._compute_analysis(
+            xb,
+            y,
+            B,
+            H,
+            Rinv,
+        )
 
-        # Use minimization algorithm to minimize cost function:
-        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
-                                           maxiter=1000)
-
-        return xb_ds.assign(x=(xb_ds.dims, xa.T))
+        # Reshape
+        return self._rebuild_dataset(xb_ds, xa)

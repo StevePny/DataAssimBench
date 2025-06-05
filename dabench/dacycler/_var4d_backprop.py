@@ -111,7 +111,7 @@ class Var4DBackprop(dacycler.DACycler):
 
     def _calc_default_R(self,
                         obs_values: ArrayLike,
-                        obs_error_sd: float
+                        obs_error_sd: float | ArrayLike
                         ) -> jax.Array:
         return jnp.identity(obs_values[0].shape[0])*(obs_error_sd**2)
 
@@ -160,7 +160,7 @@ class Var4DBackprop(dacycler.DACycler):
             # Make new prediction
             # NOTE: [1] selects the full forecast instead of last timestep only
             X = self._step_forecast(
-                x0, n_steps)[1].to_stacked_array('system',['time']).data
+                x0, n_steps)[1].dab.flatten().data
 
             # Calculate observation term of J_0
             obs_term = 0
@@ -201,8 +201,8 @@ class Var4DBackprop(dacycler.DACycler):
             x0_ds, init_loss, opt_state = epoch_state_tuple
             x0_ds = x0_ds.to_xarray()
             loss_val, dx0 = loss_value_grad(x0_ds)
-            x0_ar = x0_ds.to_stacked_array('system', [])
-            dx0_hess = hessian_inv @ dx0.to_stacked_array('system',[]).data
+            x0_ar = x0_ds.dab.flatten()
+            dx0_hess = hessian_inv @ dx0.dab.flatten().data
             init_loss = jax.lax.cond(
                     i == 0,
                     lambda: loss_val,
@@ -216,9 +216,7 @@ class Var4DBackprop(dacycler.DACycler):
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
             x0_ar.data = optax.apply_updates(
                 x0_ar.data, updates)
-            xa0_ds = x0_ar.to_unstacked_dataset('system').assign_attrs(
-                x0_ds.attrs
-            )
+            xa0_ds = x0_ar.dab.unflatten().assign_attrs(x0_ds.attrs)
             return (xj.from_xarray(xa0_ds), init_loss, opt_state), loss_val
 
         return _backprop_epoch
@@ -259,7 +257,17 @@ class Var4DBackprop(dacycler.DACycler):
 
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    warnings.warn((
+                        'Using array-like obs_error_sd with 4D DA methods is'
+                        'not fully supported. If observations are not stationary,'
+                        'will likely produce incorrect results'
+                        ))
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices[0].flatten()])
             else:
                 R = self.R
 
@@ -291,7 +299,7 @@ class Var4DBackprop(dacycler.DACycler):
                 1,
                 self.lr_decay)
         optimizer = optax.sgd(lr)
-        opt_state = optimizer.init(xb0_ds.to_stacked_array('system',[]).data)
+        opt_state = optimizer.init(xb0_ds.dab.flatten().data)#to_stacked_array('system',[]).data)
 
         # Make initial forecast and calculate loss
         backprop_epoch_func = self._make_backprop_epoch(loss_func, optimizer,

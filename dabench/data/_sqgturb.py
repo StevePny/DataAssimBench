@@ -158,7 +158,7 @@ class SQGTurb(_data.Data):
         self.H = jnp.array(H, dtype)
         self.U = jnp.array(U, dtype)
         self.L = jnp.array(L, dtype)
-        self.delta_t = jnp.array(delta_t, dtype)
+        self.delta_t = delta_t
         self.dealias = dealias
         if r < 1.0e-10:
             self.ekman = False
@@ -166,9 +166,6 @@ class SQGTurb(_data.Data):
             self.ekman = True
         self.r = jnp.array(r, dtype)          # Ekman damping (at z=0)
         self.tdiab = jnp.array(tdiab, dtype)  # thermal relaxation damping.
-
-        # Initialize time counter
-        self.t = tstart
 
         # Setup basic state pv (for thermal relaxation)
         self.symmetric = symmetric
@@ -199,6 +196,7 @@ class SQGTurb(_data.Data):
         pvbar = pvbar * jnp.ones((2, N, N), dtype)
         self.pvbar = pvbar
         # state to relax to with timescale tdiab
+        # NOTE: Is this an error? It is never updated.
         self.pvspec_eq = rfft2(pvbar)
         # initial pv field (spectral)
         self.pvspec = rfft2(pv)
@@ -416,7 +414,8 @@ class SQGTurb(_data.Data):
                   x: jax.Array
                   ) -> jax.Array:
         """Maps 1D state vector to 2D PV"""
-        return jnp.reshape(x, (self.Nv, self.Nx, self.Ny))
+        # return jnp.reshape(x, (self.Nv, self.Nx, self.Ny))
+        return np.reshape(x, (self.Nv, self.Nx, self.Ny))
 
     @partial(jax.jit, static_argnums=(0,))
     def fft2_2dto1d(self,
@@ -452,64 +451,37 @@ class SQGTurb(_data.Data):
 
     # Integration methods
     def integrate(self,
-                  f: None,
+                  function: None,
                   x0: ArrayLike,
-                  t_final: float,
+                  t_final: float | None = None,
                   delta_t: float | None = None,
-                  include_x0: bool = True,
-                  t: float | None = None,
                   **kwargs
                   ) -> tuple[jax.Array, jax.Array]:
         """Advances pv forward number of timesteps given by self.n_steps.
 
-        Note:
-            If pv not specified, use pvspec instance variable.
-
         Args:
-            f (function): right hand side (rhs) of the ODE. Not used, but
+            function (function): right hand side (rhs) of the ODE. Not used, but
                 needed to function with generate() from _data.Data().
             x0 (ndarray): potential vorticity (pvspec) initial condition in
                 spectral space
         """
+        times = np.arange(0.0, t_final - delta_t/2, delta_t)
 
         # Convert input state vector to a 2D spectral array
         pvspec = self.map1dto2d(x0)
-
-        # Get number of time steps
-        n_steps = int(t_final/self.delta_t)
-
-        # Checks
-        # Make sure that there is no remainder
-        if not n_steps * delta_t == t_final:
-            raise ValueError('Cannot have remainder in nsteps = {}, '
-                             'delta_t = {}, t_final = {}, and n_steps * '
-                             'delta_t = {}'.format(n_steps, delta_t, t_final,
-                                                   n_steps*delta_t))
 
         # If delta_t not specified as arg for method, use delta_t from object
         if delta_t is None:
             delta_t = self.delta_t
 
-        # If t not specified as arg for method, use t from object
-        if t is None:
-            t = self.t
+        # Run integration
+        pvspec_updated, values = jax.lax.scan(self._rk4, pvspec, xs=times[:-1])
 
-        # If including initial state, add 1 to n_steps
-        if include_x0:
-            n_steps = n_steps + 1
-
-        times = t + jnp.arange(n_steps)*delta_t
-
-        # Integrate in spectral spacestep_n
-        pvspec, values = jax.lax.scan(self._rk4, pvspec, xs=None,
-                                      length=n_steps)
+        # Prepend input to values so x0 is include
+        values = jnp.insert(values, 0, pvspec, axis=0)
 
         # Apply reverse fft to 
         values = self.ifft2(values)
-
-        # Update internal states
-        self.pvspec = pvspec
-        self.t = times[-1]
 
         return values, times
 

@@ -75,6 +75,16 @@ class DACycler():
         """If B is not provided, identity matrix with shape (system_dim, system_dim."""
         return jnp.identity(self.system_dim)
 
+    def _rebuild_dataset(self,
+                         xb: XarrayDatasetLike,
+                         xa: ArrayLike,
+                         ) -> XarrayDatasetLike:
+        xb_as_array = xb.to_array()
+        xa = xa.reshape(tuple(xb_as_array.sizes[s] for s in xb_as_array.sizes))
+        xb_as_array.values = xa
+        xa_ds = xb_as_array.to_dataset(dim='variable')
+        return xa_ds
+
     def _step_forecast(self,
                        xa: XarrayDatasetLike,
                        n_steps: int = 1
@@ -188,8 +198,8 @@ class DACycler():
               start_time: float | np.datetime64,
               obs_vector: XarrayDatasetLike,
               n_cycles: int,
-              obs_error_sd: float | ArrayLike | None = None,
-              analysis_window: float = 0.2,
+              obs_error_sd: float | ArrayLike,
+              analysis_window: float,
               analysis_time_in_window: float | None = None,
               return_forecast: bool = False
               ) -> XarrayDatasetLike:
@@ -201,6 +211,10 @@ class DACycler():
             obs_vector: Observations vector.
             n_cycles: Number of analysis cycles to run, each of length
                 analysis_window.
+            obs_error_sd: Estimate observation error standard deviation,
+                used for calculating observation covariance matrix (R).
+                If float, all observations will have same estimated error.
+                If ArrayLike, must be of size system_dim.
             analysis_window: Time window from which to gather
                 observations for DA Cycle.
             analysis_time_in_window: Where within analysis_window
@@ -217,8 +231,21 @@ class DACycler():
         self._observed_vars = obs_vector['variable'].values
         self._data_vars = list(input_state.data_vars)
 
-        if obs_error_sd is None:
-            obs_error_sd = obs_vector.error_sd
+        # NOTE: Consider removing this. It may cause problems if the obs_vector
+        # error_sd is provided as a array of size obs_dim.
+        # if obs_error_sd is None:
+        #     obs_error_sd = obs_vector.error_sd
+        # Check if obs_error_sd is array
+        if jnp.isscalar(obs_error_sd):
+            self._scalar_obs_error = True
+        elif len(obs_error_sd) == self.system_dim:
+            obs_error_sd = jnp.array(obs_error_sd)
+            self._scalar_obs_error = False
+        else:
+            raise ValueError((
+                'obs_error_sd must be either scalar or array with length'
+                'system_dim. Currently is: {}'.format(obs_error_sd)
+            ))
 
         self.analysis_window = analysis_window
 
@@ -241,7 +268,6 @@ class DACycler():
             start_time,
             analysis_window,
             n_cycles)
-            
 
         if self.steps_per_window is None:
             self.steps_per_window = round(analysis_window/self.delta_t) + 1

@@ -154,13 +154,15 @@ class Var4D(dacycler.DACycler):
             SumMtHtRinvHM += Jb
             SumMtHtRinvD += Jo
         # Compute initial departure
-        db0 = (xb0_ds - x0_ds).to_stacked_array('system',[]).data
+        db0 = (xb0_ds - x0_ds).to_stacked_array('system', []).data
 
         # Solve Ax=b for the initial perturbation
         dx0 = self._solve(db0, SumMtHtRinvHM, SumMtHtRinvD, B)
 
         # New x0 guess is the last guess plus the analyzed delta
-        xa0_ds = x0_ds + dx0.ravel()
+        # NOTE: This works, but there may be better way to get
+        # multi-dim systems into same shape
+        xa0_ds = x0_ds + dx0.reshape(x0_ds.to_array().shape[1:])
 
         return xa0_ds
 
@@ -267,7 +269,17 @@ class Var4D(dacycler.DACycler):
 
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    warnings.warn((
+                        'Using array-like obs_error_sd with 4D DA methods is'
+                        'not fully supported. If observations are not stationary,'
+                        'will likely produce incorrect results'
+                        ))
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices[0].flatten()])
             else:
                 R = self.R
 

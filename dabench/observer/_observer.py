@@ -73,6 +73,9 @@ class Observer():
             Default is 99.
         store_as_jax: Store values as jax array instead of numpy array.
             Default is False (store as numpy).
+        sel_method: Xarray selection indexing method (e.g. 'nearest', 'pad').
+            See https://docs.xarray.dev/en/latest/generated/xarray.Dataset.sel.html.
+            Default is 'nearest', which selects nearest neighbor.
 
     Attributes:
         locations (ArrayLike): Location indices for making
@@ -100,10 +103,11 @@ class Observer():
                  error_positive_only: bool = False,
                  random_seed: int = 99,
                  store_as_jax: bool = False,
+                 sel_method: str = 'nearest'
                  ):
 
         self.state_vec = state_vec
-        self._coord_names = list(self.state_vec.coords.keys())
+        self._coord_names = list(self.state_vec.dims)
         self._nontime_coord_names = [coord for coord in self._coord_names
                                      if coord != 'time']
         self.state_vec = self.state_vec.assign_coords(
@@ -136,6 +140,7 @@ class Observer():
         self.random_location_density = random_location_density
         self.random_location_count = random_location_count
         self.stationary_observers = stationary_observers
+        self.sel_method = sel_method
 
         self.random_seed = random_seed
         if (store_as_jax and self.random_location_density != 1. and
@@ -206,6 +211,31 @@ class Observer():
                                  ).astype('bool')
                     )[0]]
 
+    def _sample_multi_dim(
+            self,
+            sizes: tuple[int],
+            location_count: int,
+            rng: np.random.Generator
+            ):
+        """Select locations randomly without replacement"""
+        flat_locs = rng.choice(
+            np.prod(sizes),
+            size=location_count,
+            replace=False,
+            shuffle=False
+        )
+        full_locs = np.unravel_index(
+            flat_locs,
+            sizes
+        )
+        loc_dict = dict(zip(self._nontime_coord_names, full_locs))
+        loc_xr_dict = {
+            coord: xr.DataArray(
+            locs,
+            dims=['observations'])
+            for coord, locs in loc_dict.items()}
+        return loc_xr_dict
+
     def _generate_stationary_locs(
             self,
             rng: np.random.Generator
@@ -216,21 +246,15 @@ class Observer():
             location_count = np.sum(
                 rng.binomial(1,
                              p=self.random_location_density,
-                             size=self.state_vec.system_dim))
-        if len(self._nontime_coord_names) > 1:
-            sample_w_replace=True
-        else:
-            sample_w_replace=False
-        self.locations = {
-            coord_name: xr.DataArray(
-                rng.choice(
-                    self.state_vec[coord_name],
-                    size=location_count,
-                    replace=sample_w_replace,
-                    shuffle=False),
-                dims=['observations'])
-            for coord_name in self._nontime_coord_names
-        }
+                             size=int(self.state_vec.system_dim
+                                      / self.state_vec.sizes['variable'])
+                             )
+                )
+        # Get sizes of state vector as tuple
+        sizes = tuple(
+            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
+            )
+        self.locations = self._sample_multi_dim(sizes, location_count, rng)
         self.location_dim = location_count
 
     def _generate_nonstationary_locs(
@@ -247,27 +271,19 @@ class Observer():
             self._location_counts = [np.sum(
                 rng.binomial(1,
                              p=self.random_location_density,
-                             size=self.state_vec.system_dim)
+                             size=int(self.state_vec.system_dim
+                                      / self.state_vec.sizes['variable'])
                              )
-            for i in range(self.times.shape[0])]
+                )
+                for i in range(self.times.shape[0])]
 
-        if len(self._nontime_coord_names) > 1:
-            sample_w_replace=True
-        else:
-            sample_w_replace=False
+        # Get sizes of state vector as tuple
+        sizes = tuple(
+            self.state_vec.sizes[cn] for cn in self._nontime_coord_names
+            )
 
-        self.locations = [{
-            coord_name: xr.DataArray(
-                rng.choice(
-                    self.state_vec[coord_name],
-                    size=lc,
-                    replace=sample_w_replace,
-                    shuffle=False),
-                    dims=['observations'])
-            for coord_name in self._nontime_coord_names
-            }
-        for lc in self._location_counts]
-
+        self.locations = [self._sample_multi_dim(sizes, lc, rng)
+                          for lc in self._location_counts]
         self.location_dim = np.max(self._location_counts)
 
     def observe(self) -> xr.Dataset:
@@ -295,33 +311,55 @@ class Observer():
             else:
                 self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
 
-
             # Sample
-            obs_vec = self.state_vec.sel(time=self.times).sel(self.locations)
+            obs_vec = self.state_vec.sel(
+                time=self.times, method=self.sel_method
+                ).sel(
+                    self.locations, method=self.sel_method
+                    )
 
         # If NON-stationary observer
         else:
             # Generate location_indices if not specified
             if self.locations is None:
                 self._generate_nonstationary_locs(rng)
+            else:
+                self.location_dim = next(iter(self.locations.items()))[1]['observations'].size
+                self._location_counts = np.repeat(self.location_dim, self.times.shape[0])
 
-            # If there's an unequal number of obs, will pad
-            pad_widths = self.location_dim - np.array(self._location_counts)
-
-            # Sample
-            obs_vec = xr.concat([
-                # Select by time
-                self.state_vec.sel(
-                        time=t
-                # Select locations
+            # Special case: user-specified and same number of obs per timestep
+            # In this case, self.locations is a dict.
+            if isinstance(self.locations, dict):
+                # Sample
+                obs_vec = self.state_vec.sel(
+                    time=self.times, method=self.sel_method
                     ).sel(
-                        self.locations[i]
-                # Pad observations to max number
-                    ).pad(
-                        observations=(0, pad_widths[i])
-                    )
-                for i, t in enumerate(self.times)], 
-                dim='time')
+                        self.locations, method=self.sel_method
+                        )
+
+            # Randomly generated observation locations
+            # self.locations is a list of dicts.
+            else:
+                # If there's an unequal number of obs, will pad
+                # NOTE: This may fail if user specifies nonstationary obs
+                # with varying number of obs per time step, since
+                # self._location_counts would never be set properly.
+                pad_widths = self.location_dim - np.array(self._location_counts)
+
+                # Sample
+                obs_vec = xr.concat([
+                    # Select by time
+                    self.state_vec.sel(
+                            time=t, method=self.sel_method
+                    # Select locations
+                        ).sel(
+                            self.locations[i], method=self.sel_method
+                    # Pad observations to max number
+                        ).pad(
+                            observations=(0, pad_widths[i])
+                        )
+                    for i, t in enumerate(self.times)], 
+                    dim='time')
 
         # Transpose system_index to ensure consistency with flattened data
         obs_vec['system_index'] = obs_vec['system_index'].transpose('variable','time','observations').fillna(

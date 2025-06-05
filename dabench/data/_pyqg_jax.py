@@ -113,6 +113,9 @@ class PyQGJax(_data.Data):
                          store_as_jax=store_as_jax, x0=x0,
                          **kwargs)
 
+        self.coord_names = ['level','x','y']
+        self.var_names=['q']
+
     @functools.partial(jax.jit, static_argnames=["self", "num_steps"])
     def _roll_out_state(self, state, num_steps):
         """Helper method taken from pyqg-jax docs:
@@ -122,7 +125,7 @@ class PyQGJax(_data.Data):
         def loop_fn(carry, _x):
             current_state = carry
             next_state = self.m.step_model(current_state)
-            return next_state, next_state
+            return next_state, current_state
 
         _final_carry, traj_steps = jax.lax.scan(
             loop_fn, state, None, length=num_steps
@@ -213,18 +216,38 @@ class PyQGJax(_data.Data):
                     )
                 )
 
-        self.x0 = x0.flatten()
-
         # Store step times
-        self.times = jnp.arange(0, t_final, self.delta_t)
+        times = np.arange(0, t_final, self.delta_t)
 
         # Run simulation
         traj = self._roll_out_state(init_state, num_steps=n_steps)
         qs = traj.state.q
 
+        # Build Xarray object for output
+        coord_dict = dict(zip(
+            ['time'] + self.coord_names,
+            [times] + [np.arange(dim) for dim in self.original_dim]
+        ))
+        time_dim = times.shape[0]
+        out_dim = (time_dim,) + self.original_dim
+
+        # Convert to JAX if necessary
+        y = qs
+        if self.store_as_jax or isinstance(y, jax.core.Tracer):
+            y_out = jnp.array(y[:, :self.system_dim].reshape(out_dim))
+        else:
+            y_out = np.array(y[:, :self.system_dim].reshape(out_dim))
+        out_vec = xr.Dataset(
+            {self.var_names[0]: (coord_dict.keys(), y_out)},
+            coords=coord_dict,
+            attrs={'store_as_jax': self.store_as_jax,
+                   'system_dim': self.system_dim,
+                   'delta_t': self.delta_t
+                   }
+        )
+
         # Save values
-        self.time_dim = qs.shape[0]
-        self.values = qs.reshape((self.time_dim, -1))
+        return out_vec
 
     # TODO: Remove? Believe this is deprecated
     def forecast(self, n_steps=None, t_final=None, x0=None):

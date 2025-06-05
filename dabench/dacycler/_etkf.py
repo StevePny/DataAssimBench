@@ -23,9 +23,6 @@ class ETKF(dacycler.DACycler):
         system_dim: System dimension.
         delta_t: The timestep of the model (assumed uniform)
         model_obj: Forecast model object.
-        B: Initial / static background error covariance. Shape:
-            (system_dim, system_dim). If not provided, will be calculated
-            automatically.
         R: Observation error covariance matrix. Shape
             (obs_dim, obs_dim). If not provided, will be calculated
             automatically.
@@ -45,7 +42,6 @@ class ETKF(dacycler.DACycler):
                  system_dim: int,
                  delta_t: float,
                  model_obj: Model,
-                 B: ArrayLike | None = None,
                  R: ArrayLike | None = None,
                  H: ArrayLike | None = None,
                  h: Callable | None = None,
@@ -59,7 +55,7 @@ class ETKF(dacycler.DACycler):
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
                          model_obj=model_obj,
-                         B=B, R=R, H=H, h=h)
+                         R=R, H=H, h=h)
 
     def _step_forecast(self,
                        Xa: XarrayDatasetLike,
@@ -170,8 +166,7 @@ class ETKF(dacycler.DACycler):
                      obs_loc_mask: ArrayLike,
                      H: ArrayLike | None = None,
                      h: Callable | None = None,
-                     R: ArrayLike | None = None,
-                     B: ArrayLike | None = None
+                     R: ArrayLike | None = None
                      ) -> XarrayDatasetLike:
         if H is None and h is None:
             if self.H is None:
@@ -183,14 +178,14 @@ class ETKF(dacycler.DACycler):
                 H = self.H
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices.flatten()])
             else:
                 R = self.R
-        if B is None:
-            if self.B is None:
-                B = self._calc_default_B()
-            else:
-                B = self.B
 
         Xb = Xb_ds.to_stacked_array('system',['ensemble']).data.T
         n_sys, n_ens = Xb.shape
@@ -210,4 +205,4 @@ class ETKF(dacycler.DACycler):
                                     R=R,
                                     rho=self.multiplicative_inflation)
 
-        return Xb_ds.assign(x=(['ensemble','i'], Xa.T))
+        return self._rebuild_dataset(Xb_ds, Xa.T)
