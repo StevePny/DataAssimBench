@@ -167,9 +167,6 @@ class SQGTurb(_data.Data):
         self.r = jnp.array(r, dtype)          # Ekman damping (at z=0)
         self.tdiab = jnp.array(tdiab, dtype)  # thermal relaxation damping.
 
-        # Initialize time counter
-        self.t = tstart
-
         # Setup basic state pv (for thermal relaxation)
         self.symmetric = symmetric
         y = jnp.arange(0, self.L, self.L / self.N, dtype=dtype)
@@ -199,6 +196,7 @@ class SQGTurb(_data.Data):
         pvbar = pvbar * jnp.ones((2, N, N), dtype)
         self.pvbar = pvbar
         # state to relax to with timescale tdiab
+        # NOTE: Is this an error? It is never updated.
         self.pvspec_eq = rfft2(pvbar)
         # initial pv field (spectral)
         self.pvspec = rfft2(pv)
@@ -461,9 +459,6 @@ class SQGTurb(_data.Data):
                   ) -> tuple[jax.Array, jax.Array]:
         """Advances pv forward number of timesteps given by self.n_steps.
 
-        Note:
-            If pv not specified, use pvspec instance variable.
-
         Args:
             function (function): right hand side (rhs) of the ODE. Not used, but
                 needed to function with generate() from _data.Data().
@@ -480,14 +475,13 @@ class SQGTurb(_data.Data):
             delta_t = self.delta_t
 
         # Run integration
-        pvspec, values = jax.lax.scan(self._rk4, pvspec, xs=times)
+        pvspec_updated, values = jax.lax.scan(self._rk4, pvspec, xs=times[:-1])
+
+        # Prepend input to values so x0 is include
+        values = jnp.insert(values, 0, pvspec, axis=0)
 
         # Apply reverse fft to 
         values = self.ifft2(values)
-
-        # Update internal states
-        self.pvspec = pvspec
-        self.t = times[-1]
 
         return values, times
 
