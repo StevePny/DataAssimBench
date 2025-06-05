@@ -68,7 +68,7 @@ class Var3D(dacycler.DACycler):
         b1 = xb + jnp.dot(BHtRinv, y)
 
         # Use minimization algorithm to minimize cost function:
-        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb, tol=1e-05,
+        xa, ierr = jscipy.sparse.linalg.cg(A, b1, x0=xb.astype(float), tol=1e-05,
                                            maxiter=1000)
         return xa
 
@@ -93,7 +93,12 @@ class Var3D(dacycler.DACycler):
                 H = self.H
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices.flatten()])
             else:
                 R = self.R
         if B is None:
@@ -106,17 +111,19 @@ class Var3D(dacycler.DACycler):
         y = obs_values.flatten()
 
         # Apply masks to H
-        H = jnp.where(obs_time_mask.flatten(), H.T, 0).T
+        H = jnp.where(jnp.tile(obs_time_mask.flatten(), obs_loc_mask.shape[0]), H.T, 0).T
         H = jnp.where(obs_loc_mask.flatten(), H.T, 0).T
 
         # Set parameters
         Rinv = jnp.linalg.inv(R)
 
-        xa, ierr = self._compute_analysis(
+        xa = self._compute_analysis(
             xb,
+            y,
             B,
             H,
             Rinv,
         )
 
-        return xb_ds.assign(x=(xb_ds.dims, xa.T))
+        # Reshape
+        return self._rebuild_dataset(xb_ds, xa)

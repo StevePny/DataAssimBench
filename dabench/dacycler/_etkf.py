@@ -178,7 +178,12 @@ class ETKF(dacycler.DACycler):
                 H = self.H
         if R is None:
             if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
+                if self._scalar_obs_error:
+                    R = self._calc_default_R(obs_values, self.obs_error_sd)
+                else:
+                    R = self._calc_default_R(
+                        obs_values,
+                        self.obs_error_sd[obs_loc_indices.flatten()])
             else:
                 R = self.R
 
@@ -200,4 +205,4 @@ class ETKF(dacycler.DACycler):
                                     R=R,
                                     rho=self.multiplicative_inflation)
 
-        return Xb_ds.assign(x=(['ensemble','i'], Xa.T))
+        return self._rebuild_dataset(Xb_ds, Xa.T)
