@@ -198,8 +198,8 @@ class DACycler():
               start_time: float | np.datetime64,
               obs_vector: XarrayDatasetLike,
               n_cycles: int,
-              obs_error_sd: float | ArrayLike | None = None,
-              analysis_window: float = 0.2,
+              obs_error_sd: float | ArrayLike,
+              analysis_window: float,
               analysis_time_in_window: float | None = None,
               return_forecast: bool = False
               ) -> XarrayDatasetLike:
