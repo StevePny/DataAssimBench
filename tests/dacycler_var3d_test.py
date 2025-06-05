@@ -67,6 +67,7 @@ def test_var3d_l96(l96_nature_run, obs_vec_l96, var3d_cycler):
         start_time = start_time,
         obs_vector = obs_vec_l96,
         n_cycles=10,
+        obs_error_sd=0.7,
         analysis_window=0.25,
         return_forecast=False)
 
