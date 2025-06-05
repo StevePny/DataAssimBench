@@ -226,12 +226,12 @@ def test_obs_gcp():
 
     assert obs_vec_flat.shape == (3, 50)
     assert obs_vec['time'].shape[0] == 3
-    assert obs_vec['system_index'].values[0, 0, 0] == 326
+    assert obs_vec['system_index'].values[0, 0, 0] == 516
     assert obs_vec_flat.values[0, 0] == pytest.approx(
             ds.sel(time=obs_vec_flat['time'][0]
-                   ).drop_vars('time').dab.flatten().values[326]
+                   ).drop_vars('time').dab.flatten().values[516]
             + 5)
-    assert obs_vec_flat[2, 42].values == pytest.approx(304.60122681)
+    assert obs_vec_flat[2, 42].values == pytest.approx(304.5305481)
     assert np.array_equal(obs_vec['errors'],
                           np.repeat(5, 3*50).reshape(1, 3, 50))
     assert obs_vec['time'][1] == np.datetime64('2010-01-01T18:00:00.000000000')
@@ -244,18 +244,18 @@ def test_obs_sqgturb():
 
     obs = observer.Observer(
         ds,
-        random_time_density=0.3,
+        random_time_density=0.4,
         random_location_density=0.01,
         error_sd=25.)
     obs_vec = obs.observe()
 
-    assert obs_vec['pv'].shape == (2, 204)
-    assert obs_vec['time'].shape[0] == 2
-    assert obs_vec['system_index'][0, 0, 0] == 10130
+    assert obs_vec['pv'].shape == (3, 204)
+    assert obs_vec['time'].shape[0] == 3
+    assert obs_vec['system_index'][0, 0, 0] == 16302
     assert obs_vec['pv'].values[1, 123] == pytest.approx(
             (ds.dab.flatten().sel(time=obs_vec['time'][1])[
                 obs_vec['system_index'][0, 1, 123]]
              + obs_vec['errors'][0, 1, 123]))
-    assert obs_vec['pv'].values[0, 44] == pytest.approx(2128.20749725)
-    assert obs_vec['errors'].values[0, 1, 187] == pytest.approx(25.714826330507496)
-    assert np.allclose(obs_vec['time'], np.array([2700., 9000.]))
+    assert obs_vec['pv'].values[0, 44] == pytest.approx(4166.347415908463)
+    assert obs_vec['errors'].values[0, 1, 187] == pytest.approx(-14.59475742413906)
+    assert np.allclose(obs_vec['time'], np.array([2700., 3600., 8100.]))
