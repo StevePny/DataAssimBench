@@ -28,11 +28,13 @@ class DABenchDatasetAccessor:
         self._obj = xarray_obj
 
     def flatten(self) -> xr.DataArray:
-        if 'time' in self._obj.coords:
+        if 'time' in self._obj.coords and 'time' in self._obj.sizes:
             remaining_dim = ['time']
         else:
             remaining_dim = []
-        return self._obj.to_stacked_array('system', remaining_dim)
+        return self._obj.to_stacked_array(
+            'system', remaining_dim
+            )
 
     def split_train_val_test(self,
                              split_lengths: list | np.ndarray
@@ -59,7 +61,10 @@ class DABenchDataArrayAccessor:
         self._obj = xarray_obj
 
     def unflatten(self) -> xr.Dataset:
-        return self._obj.to_unstacked_dataset('system')
+        ds = self._obj.to_unstacked_dataset('system')
+        if 'system' in ds.dims:
+            ds = ds.unstack('system')
+        return ds
 
     def split_train_val_test(self,
                              split_lengths: list | np.ndarray
