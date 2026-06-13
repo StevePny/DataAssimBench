@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 import xarray as xr
-import xarray_jax as xj
+from dabench import _xarray_jax as xj
 
 
 # For typing

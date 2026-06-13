@@ -12,7 +12,7 @@ import jax
 import optax
 from functools import partial
 import xarray as xr
-import xarray_jax as xj
+from dabench import _xarray_jax as xj
 from typing import Callable, Any
 
 from dabench import dacycler

@@ -4,7 +4,7 @@ import numpy as np
 import jax.numpy as jnp
 import jax
 import xarray as xr
-import xarray_jax as xj
+from dabench import _xarray_jax as xj
 from typing import Callable
 
 import dabench.dacycler._utils as dac_utils
@@ -136,7 +136,7 @@ class DACycler():
         next_state = next_state.assign(
             _cur_time = cur_time + self.analysis_window
             ).assign_coords(
-                cur_state.coords)
+                cur_state.coords).assign_attrs(cur_state.attrs)
 
         return xj.from_xarray(next_state), forecast_states
 
@@ -179,7 +179,7 @@ class DACycler():
         next_state = next_state.assign(
             _cur_time = cur_time + self.analysis_window
             ).assign_coords(
-                cur_state.coords)
+                cur_state.coords).assign_attrs(cur_state.attrs)
 
         return xj.from_xarray(next_state), forecast_states
 

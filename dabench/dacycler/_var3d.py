@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax
 import jax.scipy as jscipy
 import xarray as xr
-import xarray_jax as xj
+from dabench import _xarray_jax as xj
 from typing import Callable
 
 from dabench import dacycler
