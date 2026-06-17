@@ -37,6 +37,22 @@ class ETKF(dacycler.DACycler):
             4. Higher ensemble_dim increases accuracy but has performance cost.
         multiplicative_inflation: Scaling factor by which to multiply ensemble
             deviation. Default is 1.0 (no inflation).
+        rtps_relaxation: Relaxation-to-Prior-Spread coefficient ``alpha``
+            (Whitaker & Hamill 2012).  After the analysis the posterior
+            perturbations are relaxed back toward the prior ensemble spread
+            per coordinate:
+            ``Xa_pert <- Xa_pert * (1 + alpha * (sigma_b - sigma_a) /
+            sigma_a)``.  Default 0.0 (no relaxation); typical values 0.5-0.95.
+            Applied independently of (and after) ``multiplicative_inflation``.
+        additive_inflation: Absolute per-element RMS magnitude of structured
+            additive perturbations injected into the analysis ensemble each
+            cycle, setting an absolute spread floor (model-error
+            representation).  The perturbations live in the forecast-difference
+            subspace (random mean-zero recombination of the prior ensemble
+            deviations), not white noise.  Default 0.0 (no injection); wired
+            for the 4D path (:class:`ETKF4D`).  Applied after RTPS.
+        additive_seed: Base PRNG seed for the additive injection; a fresh key
+            is derived per cycle. Default 0.
     """
     _in_4d: bool = False
     _uses_ensemble: bool = True
@@ -50,11 +66,17 @@ class ETKF(dacycler.DACycler):
                  H: ArrayLike | None = None,
                  h: Callable | None = None,
                  ensemble_dim: int = 4,
-                 multiplicative_inflation: float = 1.0
+                 multiplicative_inflation: float = 1.0,
+                 rtps_relaxation: float = 0.0,
+                 additive_inflation: float = 0.0,
+                 additive_seed: int = 0
                  ):
 
         self.ensemble_dim = ensemble_dim
         self.multiplicative_inflation = multiplicative_inflation
+        self.rtps_relaxation = float(rtps_relaxation)
+        self.additive_inflation = float(additive_inflation)
+        self._additive_key = jax.random.PRNGKey(int(additive_seed))
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
@@ -90,6 +112,72 @@ class ETKF(dacycler.DACycler):
             Yb = h(Xb)
 
         return Yb
+
+    def _apply_rtps(self,
+                    Xb_pert: ArrayLike,
+                    Xa_pert: ArrayLike
+                    ) -> ArrayLike:
+        """Relaxation to Prior Spread (Whitaker & Hamill 2012).
+
+        Relaxes the analysis perturbations toward the prior ensemble
+        standard deviation per coordinate, countering the systematic
+        spread reduction of the analysis step:
+
+            ``Xa_pert <- Xa_pert * (1 + alpha * (sigma_b - sigma_a) / sigma_a)``
+
+        where ``sigma_b`` / ``sigma_a`` are the per-coordinate prior /
+        posterior ensemble standard deviations (the ``(K-1)`` factor
+        cancels in the ratio).  ``alpha = rtps_relaxation``; ``alpha = 0``
+        is an exact no-op, so this is always safe to call.
+
+        Args:
+            Xb_pert: Prior perturbations, shape ``(system_dim, ens)``.
+            Xa_pert: Posterior perturbations, shape ``(system_dim, ens)``.
+
+        Returns:
+            The relaxed analysis perturbations, same shape as ``Xa_pert``.
+        """
+        alpha = self.rtps_relaxation
+        sigma_b = jnp.std(Xb_pert, axis=1)
+        sigma_a = jnp.std(Xa_pert, axis=1)
+        scale = 1.0 + alpha * (sigma_b - sigma_a) / jnp.where(
+                sigma_a > 0, sigma_a, 1.0)
+        return Xa_pert * scale[:, None]
+
+    def _apply_additive(self,
+                        Xb_pert: ArrayLike,
+                        Xa_pert: ArrayLike,
+                        key: ArrayLike
+                        ) -> ArrayLike:
+        """Structured additive inflation of the analysis perturbations.
+
+        Injects mean-zero perturbations in the forecast-difference subspace (a
+        random recombination of the prior ensemble deviations ``Xb_pert``,
+        NOT white noise), rescaled to an absolute per-element RMS of
+        ``additive_inflation``, and adds them to the posterior perturbations.
+        This sets an absolute spread floor each cycle (model-error
+        representation), countering the systematic analysis contraction that
+        multiplicative levers (inflation / RTPS) cannot arrest when the prior
+        itself is collapsing.  ``additive_inflation = 0`` is an exact no-op.
+
+        Args:
+            Xb_pert: Prior perturbations, shape ``(system_dim, ens)``.
+            Xa_pert: Posterior perturbations, shape ``(system_dim, ens)``.
+            key: PRNG key for this cycle's injection.
+
+        Returns:
+            The inflated analysis perturbations, same shape as ``Xa_pert``.
+        """
+        sigma = self.additive_inflation
+        if sigma <= 0.0:
+            return Xa_pert
+        ensemble_dim = Xa_pert.shape[1]
+        Z = jax.random.normal(key, (ensemble_dim, ensemble_dim))
+        E = Xb_pert @ Z
+        E = E - jnp.mean(E, axis=1, keepdims=True)   # mean-zero across members
+        rms = jnp.sqrt(jnp.mean(E ** 2))
+        E = E * (sigma / jnp.where(rms > 0, rms, 1.0))
+        return Xa_pert + E
 
     def _compute_analysis(self,
                           Xb: ArrayLike,
@@ -154,6 +242,7 @@ class ETKF(dacycler.DACycler):
         wa = Pa_ens @ Yb_pert.T @ Rinv @ (Y.flatten()-yb_bar)
 
         Xa_pert = Xb_pert @ Wa
+        Xa_pert = self._apply_rtps(Xb_pert, Xa_pert)
 
         Xa_bar = Xb_bar + jnp.ravel(Xb_pert @ wa)
 

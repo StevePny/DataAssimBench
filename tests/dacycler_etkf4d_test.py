@@ -117,8 +117,9 @@ def test_etkf4d_reduces_rmse(l96_nature_run, obs_vec_l96, etkf4d_cycler):
         )
 
     def _rmse(out):
-        # Window-start analysis ensemble-mean vs nature (10 model steps/cycle,
-        # init at nature index 10).
+        # cycle_timestep=0 is each cycle's incoming IC -- the previous cycle's
+        # window-end analysis (default filter placement) -- ensemble-mean vs
+        # nature (10 model steps/cycle, init at nature index 10).
         ana = np.asarray(out.isel(cycle_timestep=0).mean('ensemble')['x'].data)
         nat = np.asarray(l96_nature_run['x'].data)
         idx = [10 + c * 10 for c in range(ana.shape[0])]
@@ -127,3 +128,58 @@ def test_etkf4d_reduces_rmse(l96_nature_run, obs_vec_l96, etkf4d_cycler):
     rmse_da = _rmse(_run(1.0))
     rmse_noop = _rmse(_run(1.0e6))  # huge R -> near no-op update
     assert rmse_da < rmse_noop
+
+
+def test_etkf4d_apply_additive_structured(etkf4d_cycler):
+    """Additive inflation is mean-zero, RMS-calibrated, and lives in the
+    forecast-difference subspace (col-span of the prior perturbations)."""
+    c = etkf4d_cycler
+    rng = np.random.default_rng(0)
+    Xb_pert = jnp.asarray(rng.standard_normal((12, 8)))
+    Xb_pert = Xb_pert - jnp.mean(Xb_pert, axis=1, keepdims=True)
+    Xa_pert = jnp.zeros_like(Xb_pert)
+
+    c.additive_inflation = 0.05
+    E = c._apply_additive(Xb_pert, Xa_pert, jrand.PRNGKey(0))
+    # Mean-zero across members (does not shift the analysis mean).
+    assert np.allclose(np.asarray(E).mean(axis=1), 0.0, atol=1e-6)
+    # Rescaled to the requested absolute per-element RMS.
+    assert abs(float(jnp.sqrt(jnp.mean(E ** 2))) - 0.05) < 1e-6
+    # In col-span(Xb_pert): the orthogonal-complement residual is ~0.
+    Q, _ = np.linalg.qr(np.asarray(Xb_pert))
+    resid = np.asarray(E) - Q @ (Q.T @ np.asarray(E))
+    assert np.linalg.norm(resid) < 1e-5
+
+    # additive_inflation = 0 is an exact no-op.
+    c.additive_inflation = 0.0
+    E0 = c._apply_additive(Xb_pert, Xa_pert, jrand.PRNGKey(0))
+    assert np.allclose(np.asarray(E0), np.asarray(Xa_pert))
+
+
+def test_etkf4d_additive_lifts_spread(l96_nature_run, obs_vec_l96, l96_fc_model):
+    """Structured additive inflation raises the analysis-ensemble spread (the
+    absolute floor multiplicative levers cannot set) and stays finite."""
+    init_state = _make_init(l96_nature_run)
+
+    def _run(additive):
+        cycler = ETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=8,
+                        model_obj=l96_fc_model,
+                        additive_inflation=additive, additive_seed=0)
+        return cycler.cycle(
+            input_state=init_state,
+            start_time=init_state['time'].data,
+            obs_vector=obs_vec_l96,
+            obs_error_sd=1.0,
+            analysis_window=0.1,
+            n_cycles=10,
+            return_forecast=True
+        )
+
+    def _spread(out):
+        var = out.isel(cycle_timestep=0).var('ensemble', ddof=1)['x'].data
+        return float(np.sqrt(np.asarray(var).mean()))
+
+    out0 = _run(0.0)
+    out1 = _run(0.5)
+    assert bool(np.all(np.isfinite(np.asarray(out1['x'].data))))
+    assert _spread(out1) > _spread(out0)
