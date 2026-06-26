@@ -76,6 +76,8 @@ def build_hybrid_network(
     random_seed: int = 99,
     store_as_jax: bool = False,
     fixed_pool: bool = False,
+    swath_thin_deg: float = 0.0,
+    swath_halfwidth_deg: float | None = None,
 ) -> xr.Dataset:
     """Build a combined jet-concentrated + moving-swath observation set.
 
@@ -164,7 +166,8 @@ def build_hybrid_network(
         satellite_error_sd=satellite_error_sd, error_bias=error_bias,
         error_positive_only=error_positive_only,
         location_coord=location_coord, time_coord=time_coord,
-        random_seed=random_seed, store_as_jax=store_as_jax)
+        random_seed=random_seed, store_as_jax=store_as_jax,
+        swath_thin_deg=swath_thin_deg, swath_halfwidth_deg=swath_halfwidth_deg)
 
 
 def _assemble(
@@ -173,6 +176,7 @@ def _assemble(
     instrument, n_sats, polar_cutoff_deg, step_hours, initial_lon0_deg,
     insitu_error_sd, satellite_error_sd, error_bias, error_positive_only,
     location_coord, time_coord, random_seed, store_as_jax,
+    swath_thin_deg=0.0, swath_halfwidth_deg=None,
 ) -> xr.Dataset:
     """Worker for :func:`build_hybrid_network` (kept short for clarity)."""
     # Stationary jet-concentrated in-situ stations.
@@ -184,7 +188,8 @@ def _assemble(
     masks = satellite_swath_masks(
         lon_1d, lat_1d, instrument=instrument, n_sats=int(n_sats),
         t_steps=t_steps, step_hours=step_hours,
-        polar_cutoff_deg=polar_cutoff_deg, initial_lon0_deg=initial_lon0_deg)
+        polar_cutoff_deg=polar_cutoff_deg, initial_lon0_deg=initial_lon0_deg,
+        swath_halfwidth_deg=swath_halfwidth_deg, thin_deg=swath_thin_deg)
     swath_sets = swath_location_sets(masks)
     cov = coverage_summary(masks)
 
@@ -277,6 +282,7 @@ def _assemble_fixed_pool(
     instrument, n_sats, polar_cutoff_deg, step_hours, initial_lon0_deg,
     insitu_error_sd, satellite_error_sd, error_bias, error_positive_only,
     location_coord, time_coord, random_seed, store_as_jax,
+    swath_thin_deg=0.0, swath_halfwidth_deg=None,
 ) -> xr.Dataset:
     """Worker for ``build_hybrid_network(fixed_pool=True)``.
 
@@ -293,7 +299,8 @@ def _assemble_fixed_pool(
     masks = satellite_swath_masks(
         lon_1d, lat_1d, instrument=instrument, n_sats=int(n_sats),
         t_steps=t_steps, step_hours=step_hours,
-        polar_cutoff_deg=polar_cutoff_deg, initial_lon0_deg=initial_lon0_deg)
+        polar_cutoff_deg=polar_cutoff_deg, initial_lon0_deg=initial_lon0_deg,
+        swath_halfwidth_deg=swath_halfwidth_deg, thin_deg=swath_thin_deg)
     swath_sets = swath_location_sets(masks)
     cov = coverage_summary(masks)
 

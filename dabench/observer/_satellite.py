@@ -140,6 +140,38 @@ def _great_circle_distance_deg(
     return 2.0 * np.arcsin(np.sqrt(a)) / _DEG2RAD
 
 
+def _thin_min_separation(
+    mask2d: np.ndarray, lon_1d: np.ndarray, lat_1d: np.ndarray,
+    thin_deg: float,
+) -> np.ndarray:
+    """Greedy min great-circle separation (superob) thinning of a swath mask.
+
+    Visits the in-mask grid points in deterministic longitude-major order
+    and keeps a point only when it lies at least ``thin_deg`` (great-circle
+    degrees) from every already-kept point.  Returns a new boolean mask of
+    the same shape; a no-op when ``thin_deg <= 0`` or the mask is empty.
+    """
+    if thin_deg <= 0.0:
+        return mask2d
+    ii, jj = np.nonzero(mask2d)
+    if ii.size == 0:
+        return mask2d
+    out = np.zeros_like(mask2d, dtype=bool)
+    keep_lon: List[float] = []
+    keep_lat: List[float] = []
+    for i, j in zip(ii.tolist(), jj.tolist()):
+        lo, la = float(lon_1d[i]), float(lat_1d[j])
+        if keep_lon:
+            d = _great_circle_distance_deg(
+                np.asarray(keep_lon), np.asarray(keep_lat), lo, la)
+            if d.min() < thin_deg:
+                continue
+        keep_lon.append(lo)
+        keep_lat.append(la)
+        out[i, j] = True
+    return out
+
+
 def satellite_swath_masks(
     lon_deg: ArrayLike,
     lat_deg: ArrayLike,
@@ -155,6 +187,7 @@ def satellite_swath_masks(
     period_min: float | None = None,
     swath_halfwidth_deg: float | None = None,
     earth_rotation_deg_per_h: float = _EARTH_ROTATION_DEG_PER_H,
+    thin_deg: float = 0.0,
 ) -> np.ndarray:
     """Build the swept-swath mask trajectory for a satellite constellation.
 
@@ -222,7 +255,10 @@ def satellite_swath_masks(
             lon_grid[..., None], lat_grid[..., None],
             nadir_lon[None, None, :], nadir_lat[None, None, :])
         in_swath = d.min(axis=-1) <= halfwidth
-        masks[t] = (in_swath & polar_keep).astype(np.float32)
+        keep = in_swath & polar_keep
+        if thin_deg > 0.0:
+            keep = _thin_min_separation(keep, lon_1d, lat_1d, float(thin_deg))
+        masks[t] = keep.astype(np.float32)
     return masks
 
 
