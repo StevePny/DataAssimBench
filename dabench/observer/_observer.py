@@ -304,6 +304,15 @@ class Observer():
             # Generate location_indices if not specified
             if self.locations is None:
                 self._generate_nonstationary_locs(rng)
+            else:
+                # User-supplied per-time locations: derive the per-time
+                # counts (and the padded max) from the provided list so the
+                # padding/concat below works for externally-built networks
+                # (e.g. a moving satellite swath).
+                self._location_counts = np.array([
+                    next(iter(loc.values())).sizes['observations']
+                    for loc in self.locations])
+                self.location_dim = int(self._location_counts.max())
 
             # If there's an unequal number of obs, will pad
             pad_widths = self.location_dim - np.array(self._location_counts)
