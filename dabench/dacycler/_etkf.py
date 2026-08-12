@@ -1,14 +1,16 @@
 """Class for Ensemble Transform Kalman Filter (ETKF) DA Class"""
 
+import warnings
+
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.scipy import linalg
 import xarray as xr
 from dabench import _xarray_jax as xj
 from typing import Callable
 
 from dabench import dacycler
+from dabench.dacycler._utils import _resolve_eigh_impl, _solve_pa_wa
 from dabench.model import Model
 
 
@@ -53,6 +55,22 @@ class ETKF(dacycler.DACycler):
             for the 4D path (:class:`ETKF4D`).  Applied after RTPS.
         additive_seed: Base PRNG seed for the additive injection; a fresh key
             is derived per cycle. Default 0.
+        eigh_impl: SPD-solver backend for the ``K x K`` ETKF transform, shared
+            with :class:`~dabench.dacycler.LETKF`.  ``None`` (default) uses
+            ``jnp.linalg.eigh`` -- exact current behaviour.  ``"newton_schulz"``
+            (alias ``"ns"``) selects the eigh-FREE, matmul-only Newton-Schulz
+            inverse-square-root (batched GEMM on the accelerator, differentiable
+            for ML-training integration); ``"qr"``/``"jacobi"`` select lax eigh
+            variants.  All match to round-off for the SPD transform.
+        ns_iters: Newton-Schulz coupled-iteration budget (only used when
+            ``eigh_impl="newton_schulz"``).  Default 20 -- at the fp64 round-off
+            floor for a well-conditioned (kappa<1e3) 64x64 SPD transform.
+        ns_resid_warn: Threshold on the Newton-Schulz relative convergence
+            residual ``||Z A Z - I||_F / sqrt(K)`` above which a warning is
+            emitted suggesting more ``ns_iters`` (fp64-calibrated; loosen under
+            fp32).  Default 1e-6.  Only checked when the analysis is evaluated
+            eagerly (e.g. the ``--da-forensics`` path); silently skipped inside
+            ``jax.lax.scan`` to avoid tracer leaks.
     """
     _in_4d: bool = False
     _uses_ensemble: bool = True
@@ -70,7 +88,10 @@ class ETKF(dacycler.DACycler):
                  rtps_relaxation: float = 0.0,
                  rtpp_relaxation: float = 0.0,
                  additive_inflation: float = 0.0,
-                 additive_seed: int = 0
+                 additive_seed: int = 0,
+                 eigh_impl: str | None = None,
+                 ns_iters: int = 20,
+                 ns_resid_warn: float = 1e-6
                  ):
 
         self.ensemble_dim = ensemble_dim
@@ -79,6 +100,15 @@ class ETKF(dacycler.DACycler):
         self.rtpp_relaxation = float(rtpp_relaxation)
         self.additive_inflation = float(additive_inflation)
         self._additive_key = jax.random.PRNGKey(int(additive_seed))
+        # SPD-solver backend for the K x K transform (shared with LETKF via
+        # ``_solve_pa_wa``).  ``None`` -> eigh (exact current behaviour);
+        # ``"newton_schulz"`` -> eigh-free matmul-only inverse-sqrt.
+        self.eigh_impl = _resolve_eigh_impl(eigh_impl)
+        self.ns_iters = int(ns_iters)
+        self.ns_resid_warn = float(ns_resid_warn)
+        # Per-cycle Newton-Schulz convergence residual (updated each analysis;
+        # concrete only when the analysis runs eagerly, else stays None).
+        self.ns_resid = None
 
         super().__init__(system_dim=system_dim,
                          delta_t=delta_t,
@@ -258,12 +288,15 @@ class ETKF(dacycler.DACycler):
         # Compute the analysis
         if len(R) > 0:
             Rinv = jnp.linalg.pinv(R, rtol=1e-15)
-
-            Pa_ens = jnp.linalg.pinv((ensemble_dim-1)/rho*I
-                                     + Yb_pert.T @ Rinv @ Yb_pert,
-                                     rtol=1e-15)
-            Wa = linalg.sqrtm((ensemble_dim-1) * Pa_ens)
-            Wa = Wa.real
+            # SPD transform ``A = (K-1)/rho I + Yb_pert^T R^{-1} Yb_pert``; the
+            # shared solver returns ``Pa = A^{-1}`` and ``Wa=((K-1)A^{-1})^½``
+            # via eigh (``None``/``qr``/``jacobi``) or the eigh-free Newton-
+            # Schulz path (``self.eigh_impl``).  Both avoid ``sqrtm``/``schur``
+            # (no CUDA lowering).
+            A = (ensemble_dim-1)/rho*I + Yb_pert.T @ Rinv @ Yb_pert
+            Pa_ens, Wa, ns_resid = _solve_pa_wa(
+                A, self.eigh_impl, self.ns_iters)
+            self._update_ns_diagnostics(ns_resid)
         else:
             Rinv = jnp.zeros_like(R, dtype=R.dtype)
             Pa_ens = jnp.zeros((ensemble_dim, ensemble_dim), dtype=R.dtype)
@@ -281,6 +314,33 @@ class ETKF(dacycler.DACycler):
         Xa = Xa_pert + Xa_bar[:, None] @ v
 
         return Xa
+
+    def _update_ns_diagnostics(self, ns_resid) -> None:
+        """Store the Newton-Schulz convergence residual + warn if too large.
+
+        ``ns_resid`` is ``||Z A Z - I||_F / sqrt(K)`` (finite on the NS path,
+        ``NaN`` on the eigh paths).  Follows :meth:`LETKF._update_diagnostics`:
+        only stores a CONCRETE value (silently skips under a JAX trace, e.g.
+        inside ``jax.lax.scan``, so no tracer leaks onto ``self`` and no warning
+        fires per-trace); callers wanting the diagnostic evaluate the analysis
+        eagerly.  When concrete and above ``self.ns_resid_warn``, emits a
+        warning suggesting a larger ``ns_iters``.
+        """
+        if self.eigh_impl != "newton_schulz":
+            return
+        try:
+            resid = float(ns_resid)
+        except (jax.errors.TracerArrayConversionError,
+                jax.errors.ConcretizationTypeError):
+            return
+        self.ns_resid = resid
+        if np.isfinite(resid) and resid > self.ns_resid_warn:
+            warnings.warn(
+                f"Newton-Schulz SPD solve residual {resid:.2e} exceeds "
+                f"ns_resid_warn={self.ns_resid_warn:.2e}; the ETKF transform "
+                f"may be under-converged -- increase ns_iters (currently "
+                f"{self.ns_iters}).",
+                stacklevel=2)
 
     def _cycle_obsop(self,
                      Xb_ds: XarrayDatasetLike,

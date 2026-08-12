@@ -3,12 +3,12 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.scipy import linalg
 import xarray as xr
 from dabench import _xarray_jax as xj
 from typing import Callable
 
 from dabench.dacycler import ETKF
+from dabench.dacycler._utils import _solve_pa_wa
 
 
 # For typing
@@ -196,10 +196,14 @@ class ETKF4D(ETKF):
         # Diagonal R^{-1} (masks fold in as zeroed entries), so the obs term
         # is (Yb_pert^T R^{-1}) acting on Yb_pert / the innovation.
         YtRinv = Yb_pert.T * rinv_diag[None, :]
-        Pa_ens = jnp.linalg.pinv((ensemble_dim - 1) / rho * I
-                                 + YtRinv @ Yb_pert,
-                                 rtol=1e-15)
-        Wa = linalg.sqrtm((ensemble_dim - 1) * Pa_ens).real
+        # SPD transform ``A = (K-1)/rho I + Yb_pert^T R^{-1} Yb_pert``; the
+        # shared solver returns ``Pa = A^{-1}`` and ``Wa = ((K-1)A^{-1})^½``
+        # via eigh (``None``/``qr``/``jacobi``) or the eigh-free Newton-Schulz
+        # path (``self.eigh_impl``).  Both avoid ``sqrtm``/``schur`` (no CUDA
+        # lowering).
+        A = (ensemble_dim - 1) / rho * I + YtRinv @ Yb_pert
+        Pa_ens, Wa, ns_resid = _solve_pa_wa(A, self.eigh_impl, self.ns_iters)
+        self._update_ns_diagnostics(ns_resid)
         wa = Pa_ens @ (YtRinv @ (Y - yb_bar))
         return Wa, wa
 

@@ -8,6 +8,8 @@ from dabench import _xarray_jax as xj
 from typing import Callable
 
 from dabench.dacycler import ETKF
+from dabench.dacycler._utils import (  # noqa: F401  (re-exported for callers)
+    _resolve_eigh_impl, _solve_pa_wa, _spd_inv_sqrt_ns)
 
 
 # For typing
@@ -43,54 +45,6 @@ def _gaspari_cohn(dist: ArrayLike, c: float) -> jax.Array:
            - 5.0 * r + 4.0 - (2.0 / 3.0) / jnp.where(r > 0, r, 1.0))
     w = jnp.where(r <= 1.0, near, jnp.where(r <= 2.0, far, 0.0))
     return jnp.clip(w, 0.0, 1.0).astype(dtype)
-
-
-def _spd_inv_sqrt_ns(A: ArrayLike, n_iter: int = 20) -> jax.Array:
-    """Inverse square root ``A^{-1/2}`` of an SPD matrix via Newton-Schulz.
-
-    Coupled (product-form Denman-Beavers) iteration -- **matmul-only**, so XLA
-    lowers it to batched GEMM on the accelerator, sidestepping the eigh/SVD
-    kernels that XLA runs UNBATCHED (sequentially, on the host) for matrices
-    wider than 32.  For the SPD ETKF transform this matches the eigh-based
-    ``A^{-1/2}`` to round-off and is what makes the T42 LETKF solve GPU-bound.
-
-    Scale ``B = A / s`` with ``s`` an UPPER BOUND on the spectral radius (row-
-    sum / Gershgorin bound) so every eigenvalue of ``B`` lies in ``(0, 1]`` --
-    the convergence region.  Iterate::
-
-        Y_0 = B, Z_0 = I
-        T   = 1.5 I - 0.5 Z_k Y_k
-        Y_{k+1} = Y_k T,  Z_{k+1} = T Z_k
-
-    ``Y_k -> B^{1/2}``, ``Z_k -> B^{-1/2}`` quadratically; undo the scale:
-    ``A^{-1/2} = Z_inf / sqrt(s)``.  Operates on the last two axes, so it
-    ``vmap``/batches cleanly.
-
-    Args:
-        A: SPD matrix (or batch), ``(..., K, K)``.
-        n_iter: Coupled iterations (fp64 64x64, kappa<1e3: ~15 -> ~1e-12).
-
-    Returns:
-        ``A^{-1/2}``, same shape/dtype as ``A``.
-    """
-    A = jnp.asarray(A)
-    dtype = A.dtype
-    K = A.shape[-1]
-    I = jnp.eye(K, dtype=dtype)
-    # Gershgorin upper bound on the spectral radius: max absolute row sum.
-    # (>= rho(A) for any A; tight enough that B=A/s has eigenvalues in (0,1].)
-    s = jnp.max(jnp.sum(jnp.abs(A), axis=-1), axis=-1)         # (...,)
-    s = jnp.maximum(s, jnp.asarray(jnp.finfo(dtype).tiny, dtype))
-    s = s[..., None, None]
-    Y = A / s
-    Z = jnp.broadcast_to(I, A.shape).astype(dtype)
-    half = jnp.asarray(0.5, dtype)
-    three_half = jnp.asarray(1.5, dtype)
-    for _ in range(int(n_iter)):
-        T = three_half * I - half * (Z @ Y)
-        Y = Y @ T
-        Z = T @ Z
-    return Z / jnp.sqrt(s)
 
 
 def _great_circle_km(lat1: ArrayLike, lon1: ArrayLike,
@@ -152,6 +106,8 @@ class LETKF(ETKF):
                  grid_chunk: int | None = 512,
                  eigh_impl: str | None = None,
                  ns_iters: int = 20,
+                 ns_resid_warn: float = 1e-6,
+                 increment_taper: ArrayLike | None = None,
                  **kwargs):
         self.to_grid = (lambda x: x) if to_grid is None else to_grid
         self.from_grid = (lambda x: x) if from_grid is None else from_grid
@@ -192,17 +148,22 @@ class LETKF(ETKF):
         #               eigh runs UNBATCHED for K>32 (iterating the
         #               grid x cycles batch sequentially on the host --
         #               pathologically slow at K=64), and Jacobi is 32-capped;
-        #               NS sidesteps eigh entirely.  See ``_spd_pa_wa_ns``.
-        _valid = ("qr", "jacobi", "newton_schulz", "ns")
-        if eigh_impl is not None and str(eigh_impl).lower() not in _valid:
-            raise ValueError(
-                "eigh_impl must be None, 'qr', 'jacobi', or 'newton_schulz', "
-                f"got {eigh_impl!r}")
-        _ei = None if eigh_impl is None else str(eigh_impl).lower()
-        self.eigh_impl = "newton_schulz" if _ei == "ns" else _ei
-        # Newton-Schulz iteration budget (fp64 well-conditioned SPD 64x64
-        # reaches ~1e-12 in ~15 coupled steps; only used when NS is selected).
-        self.ns_iters = int(ns_iters)
+        #               NS sidesteps eigh entirely.  See ``_solve_pa_wa``.
+        # ``eigh_impl`` / ``ns_iters`` / ``ns_resid_warn`` are owned by the base
+        # ETKF (single source of truth for the shared solver); forward them
+        # through ``super().__init__`` rather than setting them here.
+        kwargs["eigh_impl"] = eigh_impl
+        kwargs["ns_iters"] = ns_iters
+        kwargs["ns_resid_warn"] = ns_resid_warn
+        # Optional spectral taper applied to the ANALYSIS INCREMENT (analysis
+        # minus background) in spectral/state space, ``(system_dim,)`` with
+        # values in ``[floor, 1]``.  The background is preserved; only the
+        # newly-added increment is attenuated per mode, so the increment injects
+        # no small-scale energy above the taper's passband -- suppressing the
+        # spectral-detonation-at-the-truncation-edge failure mode.  ``None``
+        # disables it (byte-identical to prior callers).
+        self.increment_taper = (None if increment_taper is None
+                                else jnp.asarray(increment_taper))
         self._taper_cache = None
         # Per-cycle SHT-truncation / energy diagnostics (updated each analysis).
         self.trunc_power = None
@@ -321,46 +282,20 @@ class LETKF(ETKF):
         Yb_pert = Yb @ (I - U)
         innov = (Y - yb_bar).astype(dtype)
         rinv = rinv_diag.astype(dtype)
-        # SPD solver for the K x K transform ``A``.  Two families, both giving
-        # ``Pa = A^{-1}`` and ``Wa = ((K-1) A^{-1})^{1/2}`` for the SPD ``A``:
-        #   * eigh-based (``None``/``qr``/``jacobi``): symmetric eigendecomp,
-        #     ``Pa=(V/w)V^T``, ``Wa=(V sqrt((K-1)/w))V^T``.  ``None`` uses
-        #     ``jnp.linalg.eigh`` (byte-identical to every prior caller); the
-        #     lax path swaps its (v, w) return to jnp's (w, v).
-        #   * ``newton_schulz``: eigh-FREE.  ``_spd_inv_sqrt_ns`` computes
-        #     ``Z = A^{-1/2}`` via a matmul-only coupled iteration (batched GEMM
-        #     on the accelerator), then ``Pa = Z Z``, ``Wa = sqrt(K-1) Z``.
+        # SPD solver for the K x K transform ``A``: the shared ``_solve_pa_wa``
+        # helper (also used by ETKF/ETKF4D) gives ``Pa = A^{-1}`` and
+        # ``Wa = ((K-1) A^{-1})^{1/2}`` via eigh (``None``/``qr``/``jacobi``) or
+        # the eigh-FREE Newton-Schulz path.  Its per-lane NS residual is not
+        # surfaced here (the vmap returns only the analysis columns); NS
+        # convergence is reported by the single-solve ETKF/ETKF4D path.
         eigh_impl = self.eigh_impl
-        if eigh_impl == "newton_schulz":
-            _ns_iters = self.ns_iters
-            def _pa_wa(A):
-                Z = _spd_inv_sqrt_ns(A, n_iter=_ns_iters)      # A^{-1/2}
-                Pa = Z @ Z                                     # A^{-1}
-                Wa = jnp.sqrt(jnp.asarray(K - 1, dtype)) * Z   # ((K-1)A^{-1})^½
-                return Pa, Wa
-        else:
-            if eigh_impl is None:
-                _eigh = lambda A: jnp.linalg.eigh(A)
-            else:
-                # EighImplementation values are lowercase ("qr"/"jacobi");
-                # the lax API returns (v, w) -- swap to jnp's (w, v).
-                impl = jax.lax.linalg.EighImplementation(eigh_impl)
-                _eigh = lambda A: (lambda v, w: (w, v))(
-                    *jax.lax.linalg.eigh(A, implementation=impl))
-
-            def _pa_wa(A):
-                w_eig, V = _eigh(A)
-                inv_eig = jnp.where(w_eig > 0, 1.0 / w_eig, 0.0)
-                Pa = (V * inv_eig) @ V.T                       # pinv(A), SPD
-                sqrt_eig = jnp.sqrt(jnp.clip((K - 1) * inv_eig, 0.0))
-                Wa = (V * sqrt_eig) @ V.T                      # sqrtm((K-1)Pa)
-                return Pa, Wa
+        ns_iters = self.ns_iters
 
         def _lane(xb_col, taper_row):
             rinv_local = rinv * taper_row.astype(dtype)        # (n_obs,)
             YtRinv = Yb_pert.T * rinv_local[None, :]           # (K, n_obs)
             A = (K - 1) / rho * I + YtRinv @ Yb_pert
-            Pa, Wa = _pa_wa(A)
+            Pa, Wa, _ = _solve_pa_wa(A, eigh_impl, ns_iters)
             wa = Pa @ (YtRinv @ innov)                         # (K,)
             xb_bar = jnp.mean(xb_col)
             xb_pert = xb_col - xb_bar                          # (K,)
@@ -431,6 +366,16 @@ class LETKF(ETKF):
         #    relaxation/inflation acts on the SPECTRAL perturbations (RTPS is a
         #    nonlinear per-coord rescale that does NOT commute with the SHT).
         Xa_spec = jax.vmap(self.from_grid, in_axes=1, out_axes=1)(Xa_grid)
+
+        # Spectral taper on the ANALYSIS INCREMENT (analysis - background),
+        # per mode: ``Xa = Xb + T(ell) * (Xa - Xb)``.  Preserves the background
+        # exactly; attenuates only the increment's high-wavenumber content so it
+        # injects no small-scale energy above the taper passband.  Applied here
+        # (before the mean/pert split) so relaxation acts on the tapered
+        # analysis.  ``None`` -> no-op (byte-identical to prior callers).
+        if self.increment_taper is not None:
+            t = self.increment_taper.astype(dtype)[:, None]    # (system_dim,1)
+            Xa_spec = Xb + t * (Xa_spec - Xb)
         Xb_bar = jnp.mean(Xb, axis=1)
         Xb_pert = Xb @ (I - U)
         Xa_bar = jnp.mean(Xa_spec, axis=1)
