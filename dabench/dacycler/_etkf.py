@@ -68,6 +68,7 @@ class ETKF(dacycler.DACycler):
                  ensemble_dim: int = 4,
                  multiplicative_inflation: float = 1.0,
                  rtps_relaxation: float = 0.0,
+                 rtpp_relaxation: float = 0.0,
                  additive_inflation: float = 0.0,
                  additive_seed: int = 0
                  ):
@@ -75,6 +76,7 @@ class ETKF(dacycler.DACycler):
         self.ensemble_dim = ensemble_dim
         self.multiplicative_inflation = multiplicative_inflation
         self.rtps_relaxation = float(rtps_relaxation)
+        self.rtpp_relaxation = float(rtpp_relaxation)
         self.additive_inflation = float(additive_inflation)
         self._additive_key = jax.random.PRNGKey(int(additive_seed))
 
@@ -143,6 +145,34 @@ class ETKF(dacycler.DACycler):
         scale = 1.0 + alpha * (sigma_b - sigma_a) / jnp.where(
                 sigma_a > 0, sigma_a, 1.0)
         return Xa_pert * scale[:, None]
+
+    def _apply_rtpp(self,
+                    Xb_pert: ArrayLike,
+                    Xa_pert: ArrayLike
+                    ) -> ArrayLike:
+        """Relaxation to Prior Perturbations (Zhang et al. 2004).
+
+        Relaxes the analysis perturbations toward the PRIOR perturbations
+        themselves (not just their spread), a linear blend per member:
+
+            ``Xa_pert <- (1 - alpha) * Xa_pert + alpha * Xb_pert``
+
+        where ``alpha = rtpp_relaxation``.  Unlike RTPS (which rescales the
+        posterior spread per coordinate), RTPP re-injects the prior
+        perturbation STRUCTURE, so when the prior ensemble is expanding
+        along the flow's growing modes it carries that structure into the
+        analysis and resists collapse over cycles.  ``alpha = 0`` is an
+        exact no-op, so this is always safe to call.
+
+        Args:
+            Xb_pert: Prior perturbations, shape ``(system_dim, ens)``.
+            Xa_pert: Posterior perturbations, shape ``(system_dim, ens)``.
+
+        Returns:
+            The relaxed analysis perturbations, same shape as ``Xa_pert``.
+        """
+        alpha = self.rtpp_relaxation
+        return (1.0 - alpha) * Xa_pert + alpha * Xb_pert
 
     def _apply_additive(self,
                         Xb_pert: ArrayLike,
@@ -243,6 +273,7 @@ class ETKF(dacycler.DACycler):
 
         Xa_pert = Xb_pert @ Wa
         Xa_pert = self._apply_rtps(Xb_pert, Xa_pert)
+        Xa_pert = self._apply_rtpp(Xb_pert, Xa_pert)
 
         Xa_bar = Xb_bar + jnp.ravel(Xb_pert @ wa)
 

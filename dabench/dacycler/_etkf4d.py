@@ -145,11 +145,15 @@ class ETKF4D(ETKF):
         n_times, obs_dim = Hs.shape[0], Hs.shape[1]
 
         # Masked diagonal R^{-1} (obs-time mask x obs-location mask).
-        sigma2 = jnp.asarray(self.obs_error_sd, dtype=Hs.dtype) ** 2
+        sigma2 = jnp.atleast_1d(
+            jnp.asarray(self.obs_error_sd, dtype=Hs.dtype) ** 2)
+        # Broadcast per-obs (obs_dim,) OR scalar (1,) sigma2 across the n_times
+        # slots so it matches the flattened (n_times*obs_dim,) mask vectors.
+        sigma2_full = jnp.broadcast_to(sigma2, (n_times, obs_dim)).reshape(-1)
         time_mask = jnp.repeat(jnp.asarray(obs_time_mask, dtype=Hs.dtype),
                                obs_dim)
         loc_mask = jnp.asarray(obs_loc_mask, dtype=Hs.dtype).reshape(-1)
-        rinv_diag = (time_mask * loc_mask) / sigma2
+        rinv_diag = (time_mask * loc_mask) / sigma2_full
 
         # Gather obs-space predictions at the model step nearest each obs time.
         Xtraj = jnp.asarray(
@@ -227,6 +231,7 @@ class ETKF4D(ETKF):
 
         Xa_pert = Xb_pert @ Wa
         Xa_pert = self._apply_rtps(Xb_pert, Xa_pert)
+        Xa_pert = self._apply_rtpp(Xb_pert, Xa_pert)
         if key is not None:
             Xa_pert = self._apply_additive(Xb_pert, Xa_pert, key)
         Xa_bar = Xb_bar + jnp.ravel(Xb_pert @ wa)

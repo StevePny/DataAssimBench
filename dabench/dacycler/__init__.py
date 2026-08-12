@@ -4,6 +4,8 @@ from ._dacycler import DACycler
 from ._var3d import Var3D
 from ._etkf import ETKF
 from ._etkf4d import ETKF4D
+from ._letkf import LETKF
+from ._letkf4d import LETKF4D
 from ._var4d_backprop import Var4DBackprop
 from ._var4d import Var4D
 from ._var4d_operator import Var4DOperator
@@ -26,6 +28,8 @@ __all__ = [
     'Var3D',
     'ETKF',
     'ETKF4D',
+    'LETKF',
+    'LETKF4D',
     'Var4DBackprop',
     'Var4D',
     'Var4DOperator',

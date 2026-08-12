@@ -78,6 +78,7 @@ def build_hybrid_network(
     fixed_pool: bool = False,
     swath_thin_deg: float = 0.0,
     swath_halfwidth_deg: float | None = None,
+    error_sd_sys=None,
 ) -> xr.Dataset:
     """Build a combined jet-concentrated + moving-swath observation set.
 
@@ -120,6 +121,11 @@ def build_hybrid_network(
             steps when it is under the footprint) and inactive values
             NaN-masked.  Use ``True`` for cyclers that need a single
             fixed observation operator ``H`` plus a per-step mask.
+        error_sd_sys: Optional per-system-index (length ``system_dim``)
+            observation-error std array.  When given it OVERRIDES the
+            scalar in-situ/satellite scatter, so the injected noise is
+            per-grid-point; when ``None`` (default) the byte-identical
+            scalar per-type behaviour is used.
 
     Returns:
         An observation ``xr.Dataset`` (DABench schema) with added
@@ -167,7 +173,8 @@ def build_hybrid_network(
         error_positive_only=error_positive_only,
         location_coord=location_coord, time_coord=time_coord,
         random_seed=random_seed, store_as_jax=store_as_jax,
-        swath_thin_deg=swath_thin_deg, swath_halfwidth_deg=swath_halfwidth_deg)
+        swath_thin_deg=swath_thin_deg, swath_halfwidth_deg=swath_halfwidth_deg,
+        error_sd_sys=error_sd_sys)
 
 
 def _assemble(
@@ -176,7 +183,7 @@ def _assemble(
     instrument, n_sats, polar_cutoff_deg, step_hours, initial_lon0_deg,
     insitu_error_sd, satellite_error_sd, error_bias, error_positive_only,
     location_coord, time_coord, random_seed, store_as_jax,
-    swath_thin_deg=0.0, swath_halfwidth_deg=None,
+    swath_thin_deg=0.0, swath_halfwidth_deg=None, error_sd_sys=None,
 ) -> xr.Dataset:
     """Worker for :func:`build_hybrid_network` (kept short for clarity)."""
     # Stationary jet-concentrated in-situ stations.
@@ -209,8 +216,14 @@ def _assemble(
             coord_vals[combined], dims=["observations"])})
 
     # Per-system-index error std: in-situ stations vs everything else.
-    err_sd = np.full(system_dim, float(satellite_error_sd), dtype=np.float64)
-    err_sd[jet_idx] = float(insitu_error_sd)
+    if error_sd_sys is not None:
+        err_sd = np.asarray(error_sd_sys, dtype=np.float64)
+        if err_sd.shape != (system_dim,):
+            raise ValueError(f"error_sd_sys shape {err_sd.shape} != "
+                             f"(system_dim={system_dim},)")
+    else:                                    # byte-identical scalar per-type path
+        err_sd = np.full(system_dim, float(satellite_error_sd), dtype=np.float64)
+        err_sd[jet_idx] = float(insitu_error_sd)
 
     observer = Observer(
         state_vec, times=times, locations=locations,
@@ -282,7 +295,7 @@ def _assemble_fixed_pool(
     instrument, n_sats, polar_cutoff_deg, step_hours, initial_lon0_deg,
     insitu_error_sd, satellite_error_sd, error_bias, error_positive_only,
     location_coord, time_coord, random_seed, store_as_jax,
-    swath_thin_deg=0.0, swath_halfwidth_deg=None,
+    swath_thin_deg=0.0, swath_halfwidth_deg=None, error_sd_sys=None,
 ) -> xr.Dataset:
     """Worker for ``build_hybrid_network(fixed_pool=True)``.
 
@@ -312,8 +325,15 @@ def _assemble_fixed_pool(
     n_jet = int(jet_idx.size)
 
     # Per-system error std (in-situ on the jet sites, satellite elsewhere).
-    err_sd_sys = np.full(system_dim, float(satellite_error_sd), dtype=np.float64)
-    err_sd_sys[jet_idx] = float(insitu_error_sd)
+    if error_sd_sys is not None:
+        err_sd_sys = np.asarray(error_sd_sys, dtype=np.float64)
+        if err_sd_sys.shape != (system_dim,):
+            raise ValueError(f"error_sd_sys shape {err_sd_sys.shape} != "
+                             f"(system_dim={system_dim},)")
+    else:                                    # byte-identical scalar per-type path
+        err_sd_sys = np.full(system_dim, float(satellite_error_sd),
+                             dtype=np.float64)
+        err_sd_sys[jet_idx] = float(insitu_error_sd)
 
     coord_vals = np.asarray(state_vec[location_coord].data)
     locations = {location_coord: xr.DataArray(

@@ -183,3 +183,51 @@ def test_etkf4d_additive_lifts_spread(l96_nature_run, obs_vec_l96, l96_fc_model)
     out1 = _run(0.5)
     assert bool(np.all(np.isfinite(np.asarray(out1['x'].data))))
     assert _spread(out1) > _spread(out0)
+
+
+def test_etkf4d_apply_rtpp(etkf4d_cycler):
+    """RTPP linearly blends analysis toward the prior perturbations:
+    alpha=0 is an exact no-op, alpha=1 returns the prior perturbations, and
+    intermediate alpha is the exact convex combination."""
+    c = etkf4d_cycler
+    rng = np.random.default_rng(0)
+    Xb_pert = jnp.asarray(rng.standard_normal((5, 8)))
+    Xa_pert = jnp.asarray(rng.standard_normal((5, 8)))
+
+    c.rtpp_relaxation = 0.0
+    assert np.allclose(np.asarray(c._apply_rtpp(Xb_pert, Xa_pert)),
+                       np.asarray(Xa_pert))
+    c.rtpp_relaxation = 1.0
+    assert np.allclose(np.asarray(c._apply_rtpp(Xb_pert, Xa_pert)),
+                       np.asarray(Xb_pert))
+    c.rtpp_relaxation = 0.3
+    exp = 0.7 * np.asarray(Xa_pert) + 0.3 * np.asarray(Xb_pert)
+    assert np.allclose(np.asarray(c._apply_rtpp(Xb_pert, Xa_pert)), exp)
+
+
+def test_etkf4d_rtpp_lifts_spread(l96_nature_run, obs_vec_l96, l96_fc_model):
+    """RTPP raises the analysis-ensemble spread relative to no relaxation and
+    stays finite (re-injects the prior perturbation structure)."""
+    init_state = _make_init(l96_nature_run)
+
+    def _run(rtpp):
+        cycler = ETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=8,
+                        model_obj=l96_fc_model, rtpp_relaxation=rtpp)
+        return cycler.cycle(
+            input_state=init_state,
+            start_time=init_state['time'].data,
+            obs_vector=obs_vec_l96,
+            obs_error_sd=1.0,
+            analysis_window=0.1,
+            n_cycles=10,
+            return_forecast=True
+        )
+
+    def _spread(out):
+        var = out.isel(cycle_timestep=0).var('ensemble', ddof=1)['x'].data
+        return float(np.sqrt(np.asarray(var).mean()))
+
+    out0 = _run(0.0)
+    out1 = _run(0.8)
+    assert bool(np.all(np.isfinite(np.asarray(out1['x'].data))))
+    assert _spread(out1) > _spread(out0)
