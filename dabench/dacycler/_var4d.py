@@ -288,4 +288,68 @@ class Var4D(dacycler.DACycler):
                                           init=xj.from_xarray(xb0_ds),
                 xs=None, length=self.n_outer_loops)
 
-        return xa0_ds.to_xarray()
+        ana_ds = xa0_ds.to_xarray()
+        if not self._return_metrics:
+            return ana_ds
+        dtype = jnp.asarray(obs_values).dtype
+        _, Xb_ds = self.model_obj.forecast(
+                xb0_ds, n_steps=self.steps_per_window)
+        _, Xa_ds = self.model_obj.forecast(
+                ana_ds, n_steps=self.steps_per_window)
+        Xb_ar = jnp.asarray(Xb_ds.to_stacked_array('system', ['time']).data)
+        Xa_ar = jnp.asarray(Xa_ds.to_stacked_array('system', ['time']).data)
+        owi = jnp.asarray(obs_window_indices)
+        Hs_m = jnp.asarray(Hs, dtype)
+        Hxb = jax.vmap(lambda i: Hs_m[i] @ Xb_ar[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        Hxa = jax.vmap(lambda i: Hs_m[i] @ Xa_ar[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        y = jnp.asarray(obs_values, dtype).reshape(-1)
+        obs_dim = Hs_m.shape[1]
+        active = (jnp.repeat(jnp.asarray(obs_time_mask, bool), obs_dim)
+                  & jnp.asarray(obs_loc_mask, bool).reshape(-1))
+        sigma2_diag = jnp.broadcast_to(
+                jnp.diag(jnp.asarray(R, dtype)),
+                (Hs_m.shape[0], obs_dim)).reshape(-1)
+
+        # End-of-window O-A (next-cycle IC quality): the analysis re-forecast to
+        # the window END, scored against obs valid at the end (owi == last idx).
+        end_idx = self.steps_per_window - 1
+        Hxa_end = jax.vmap(lambda i: Hs_m[i] @ Xa_ar[end_idx])(
+                jnp.arange(Hs_m.shape[0]))
+        end_active = (active & jnp.repeat(owi == end_idx, obs_dim))
+
+        # B-derived spreads (deterministic analogue of the ensemble spread).
+        # Background: obs-space std of the static B over the window-stacked obs
+        # (prior).  Analysis-end: the 4D-Var posterior at the window START,
+        # A0 = (B^-1 + sum_i (H_i M_i)^T R^-1 (H_i M_i))^-1, TLM-PROPAGATED to
+        # the window END (A_end = M_end A0 M_end^T) and projected onto the
+        # end-obs -- the true next-cycle IC covariance for a 4D method.
+        B = jnp.asarray(B, dtype)
+        Rinv_d = jnp.asarray(Rinv, dtype)
+        _, M_ds = self.model_obj.compute_tlm(
+                n_steps=self.steps_per_window, state_vec=ana_ds)
+        M_ar = jnp.asarray(M_ds.data, dtype)
+        tmask = jnp.asarray(obs_time_mask, dtype)
+        info = jnp.zeros_like(B)
+        for i in range(Hs_m.shape[0]):
+            HM = Hs_m[i] @ M_ar[owi[i]]
+            info = info + tmask[i] * (HM.T @ Rinv_d @ HM)
+        A0 = jnp.linalg.inv(jnp.linalg.inv(B) + info)
+        M_end = M_ar[end_idx]
+        A_end = M_end @ A0 @ M_end.T
+        H_flat = Hs_m.reshape(Hs_m.shape[0] * obs_dim, self.system_dim)
+        spread_bg = dac_utils._b_derived_obs_spread(
+                H_flat, B, active, dtype=dtype)
+        spread_ana = dac_utils._b_derived_obs_spread(
+                H_flat, A_end, end_active, dtype=dtype)
+
+        metrics = dac_utils._obs_space_metrics(
+                y, Hxb.reshape(-1).astype(dtype), Hxa.reshape(-1).astype(dtype),
+                active, sigma2_diag, ens_obs=None,
+                return_per_obs=(self._metrics_mode == "debug"), dtype=dtype,
+                Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
+                end_active_mask=end_active,
+                spread_background_override=spread_bg,
+                spread_analysis_end_override=spread_ana)
+        return ana_ds, metrics

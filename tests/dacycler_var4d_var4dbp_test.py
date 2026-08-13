@@ -113,6 +113,51 @@ def test_var4d_l96(l96_nature_run, obs_vec_l96, var4d_cycler):
                    -4.47113857])
     )
 
+def test_var4d_obs_metrics(l96_nature_run, obs_vec_l96, var4d_cycler):
+    """Var4D obs-space metrics: byte-identical analysis, 7 per-cycle scalars,
+    spread all-NaN (deterministic, no ensemble), and debug per-obs arrays."""
+    import numpy as np
+    init_noise = jrand.normal(key, shape=(6,))
+    init_state = l96_nature_run.isel(time=0) + init_noise
+    kw = dict(input_state=init_state,
+              start_time=l96_nature_run['time'].data[0],
+              obs_vector=obs_vec_l96, obs_error_sd=obs_vec_l96.error_sd * 1.5,
+              n_cycles=10, analysis_window=0.1, return_forecast=True)
+
+    ana_default = var4d_cycler.cycle(**kw)
+    ana, metrics = var4d_cycler.cycle(return_metrics=True, **kw)
+    assert np.array_equal(np.asarray(ana_default['x'].data),
+                          np.asarray(ana['x'].data))
+
+    for var in ("o_minus_f_rms", "o_minus_a_rms", "bias_f", "bias_a",
+                "obs_space_spread_background", "obs_space_spread_analysis_end",
+                "sigma_obs_max", "n_active_obs"):
+        assert metrics[var].shape == (10,)
+    n_active = np.asarray(metrics["n_active_obs"].data)
+    act = n_active > 0
+    assert bool(np.any(act))
+    # (5) B-derived spreads: background = obs-space std of the static B (=1 for
+    # B=identity); analysis-end = TLM-propagated posterior projected to the end.
+    # Both finite/positive on active cycles, and the analysis contracts the
+    # covariance (posterior < prior).
+    spread_bg = np.asarray(metrics["obs_space_spread_background"].data)[act]
+    spread_ana = np.asarray(
+            metrics["obs_space_spread_analysis_end"].data)[act]
+    assert bool(np.all(np.isfinite(spread_bg))) and bool(np.all(spread_bg > 0))
+    assert bool(np.all(np.isfinite(spread_ana))) and bool(
+            np.all(spread_ana > 0))
+    assert bool(np.all(spread_ana < spread_bg))
+    of = np.asarray(metrics["o_minus_f_rms"].data)[act]
+    oa = np.asarray(metrics["o_minus_a_rms"].data)[act]
+    assert bool(np.all(np.isfinite(of)))
+    assert bool(np.all(oa <= of + 1e-6))
+
+    _, metrics_dbg = var4d_cycler.cycle(
+        return_metrics=True, metrics_mode="debug", **kw)
+    for var in ("o_minus_f", "o_minus_a", "obs_active"):
+        assert metrics_dbg[var].dims == ("cycle", "obs")
+
+
 def test_var4d_backprop_l96(l96_nature_run, obs_vec_l96, var4d_backprop_cycler):
     """Test 4DVar-Backprop cycler"""
     init_noise = jrand.normal(key, shape=(6,))

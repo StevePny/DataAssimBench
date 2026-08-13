@@ -11,6 +11,7 @@ import xarray as xr
 from dabench import _xarray_jax as xj
 
 from dabench import dacycler
+import dabench.dacycler._utils as dac_utils
 from dabench.model import Model
 from dabench.dacycler._var4d_operator_utils import (
     BFactors,
@@ -412,6 +413,7 @@ class Var4DOperator(dacycler.DACycler):
         v_total = jnp.zeros_like(x_b0)
         apply_B_half = None
         last_info: dict | None = None
+        xb_traj0 = None                       # outer-0 background trajectory
 
         for outer in range(self.n_outer_loops):
             # Linearisation state for this outer:
@@ -422,6 +424,8 @@ class Var4DOperator(dacycler.DACycler):
             x_l_ds = self._array_to_dataset_like(x_l, xb0_xr)
             x_b_traj = self._rollout_background(
                     x_l_ds, n_steps=self.steps_per_window)
+            if outer == 0:
+                xb_traj0 = x_b_traj
 
             tlm_op = self.tlm_op_factory(self.model_obj, x_b_traj[0])
             apply_B_half = self._ensure_B_half(x_b_traj[0], tlm_op, outer)
@@ -458,7 +462,43 @@ class Var4DOperator(dacycler.DACycler):
 
         x_a = x_b0 + apply_B_half(v_total)
         xa_ds = self._array_to_dataset_like(x_a, xb0_xr)
-        return xa_ds
+        if not self._return_metrics:
+            return xa_ds
+        dtype = x_a.dtype
+        xa_traj = self._rollout_background(xa_ds, n_steps=self.steps_per_window)
+        Hs_m = jnp.asarray(Hs, dtype)
+        owi = jnp.asarray(obs_window_indices)
+        Hxb = jax.vmap(lambda i: Hs_m[i] @ xb_traj0[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        Hxa = jax.vmap(lambda i: Hs_m[i] @ xa_traj[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        y = jnp.asarray(obs_values, dtype).reshape(-1)
+        obs_dim = Hs_m.shape[1]
+        active = (jnp.repeat(jnp.asarray(obs_time_mask, bool), obs_dim)
+                  & jnp.asarray(obs_loc_mask, bool).reshape(-1))
+        # R_inv_diag is per-obs-location (obs_dim,); sigma2 = 1/R_inv on active
+        # entries, broadcast across the n_times obs slots to the flat obs axis.
+        sigma2_loc = jnp.where(R_inv_diag > 0,
+                               1.0 / jnp.where(R_inv_diag > 0, R_inv_diag,
+                                               jnp.ones_like(R_inv_diag)),
+                               jnp.zeros_like(R_inv_diag))
+        sigma2_diag = jnp.broadcast_to(
+                sigma2_loc.astype(dtype),
+                (Hs_m.shape[0], obs_dim)).reshape(-1)
+
+        # End-of-window O-A (next-cycle IC quality): analysis re-forecast to the
+        # window END, scored against obs valid at the end (owi == last idx).
+        end_idx = self.steps_per_window - 1
+        Hxa_end = jax.vmap(lambda i: Hs_m[i] @ xa_traj[end_idx])(
+                jnp.arange(Hs_m.shape[0]))
+        end_active = (active & jnp.repeat(owi == end_idx, obs_dim))
+        metrics = dac_utils._obs_space_metrics(
+                y, Hxb.reshape(-1).astype(dtype), Hxa.reshape(-1).astype(dtype),
+                active, sigma2_diag, ens_obs=None,
+                return_per_obs=(self._metrics_mode == "debug"), dtype=dtype,
+                Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
+                end_active_mask=end_active)
+        return xa_ds, metrics
 
     @staticmethod
     def _array_to_dataset_like(arr: ArrayLike,

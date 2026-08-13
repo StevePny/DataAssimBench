@@ -39,6 +39,29 @@ def obs_vec_l96(l96_nature_run):
 
 
 @pytest.fixture
+def obs_vec_l96_observable(l96_nature_run):
+    """Fully-observable obs network for the cycle-skill tests.
+
+    The default ``obs_vec_l96`` (3-of-5 locations, ens=4) sits in a marginal
+    observability regime (``k-1`` and the observed DOF barely span the L96(5)
+    unstable subspace), so DA-vs-no-op skill there tests the boundary, not the
+    filter.  This fixture observes ALL 5 variables at a modest error so the
+    cycle tests validate the DA itself (paired with a larger ensemble).
+    """
+    obs_l96 = dab.observer.Observer(
+        l96_nature_run,
+        times=l96_nature_run['time'].data[np.arange(0, 120, 5)],
+        random_location_count=5,
+        error_bias=0.0,
+        error_sd=0.5,
+        random_seed=91,
+        stationary_observers=True,
+        store_as_jax=True,
+    )
+    return obs_l96.observe()
+
+
+@pytest.fixture
 def l96_fc_model():
     model_l96 = dab.data.Lorenz96(system_dim=5, store_as_jax=True, delta_t=0.01)
 
@@ -142,48 +165,94 @@ def _analysis_rmse(out, l96_nature_run, cur_tstep=10, steps_per_cycle=10):
     return float(np.sqrt(np.mean((ana - nat[idx]) ** 2)))
 
 
-# ── (b) 3D LETKF L96 cycle: shapes, finite, distinct members, DA < no-op ────
-def test_letkf_l96_cycle(l96_nature_run, obs_vec_l96, l96_fc_model):
-    init_state = _l96_init(l96_nature_run)
-    letkf = LETKF(system_dim=5, delta_t=0.01, ensemble_dim=4,
-                  model_obj=l96_fc_model, localize_radius=1.5)
-    out = _run_cycle(letkf, init_state, obs_vec_l96)
+# ── (b) 3D-FGAT LETKF L96 cycle: shapes, finite, distinct members, DA < no-op ─
+def test_letkf_l96_cycle(l96_nature_run, obs_vec_l96_observable, l96_fc_model):
+    # The analysis window (0.1) spans MULTIPLE obs times (obs every 0.05), so a
+    # plain 3D LETKF collapses all in-window obs onto one static state and
+    # cannot fit them (structurally broken for multi-time windows).  3D-FGAT
+    # forms innovations at each obs's true time while building the increment at
+    # the single analysis time -- the correct 3D treatment.  Paired with an
+    # observable network (5/5 obs) + a sufficient ensemble so this validates the
+    # DA, not the observability boundary.
+    ens = 10
+    init_state = _l96_init(l96_nature_run, ens=ens)
+    letkf = LETKF(system_dim=5, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=l96_fc_model, localize_radius=1.5, fgat=True)
+    out = _run_cycle(letkf, init_state, obs_vec_l96_observable)
 
-    assert out['x'].shape == (10, 4, 10, 5)
+    assert out['x'].shape == (10, ens, 10, 5)
     stacked = out.stack(time=['cycle', 'cycle_timestep']).transpose('time', ...)
-    assert stacked['x'].shape == (100, 4, 5)
+    assert stacked['x'].shape == (100, ens, 5)
     assert bool(np.all(np.isfinite(np.asarray(out['x'].data))))
     # Transform keeps ensemble members distinct.
     assert not jnp.allclose(out['x'].values[-1, 1, 0, :],
                             out['x'].values[-1, 0, 0, :])
-    # Domain-localized DA pulls the analysis toward truth vs a near no-op R.
+    # Domain-localized FGAT DA pulls the analysis toward truth vs a near no-op R.
     rmse_da = _analysis_rmse(out, l96_nature_run)
-    letkf_noop = LETKF(system_dim=5, delta_t=0.01, ensemble_dim=4,
-                       model_obj=l96_fc_model, localize_radius=1.5)
+    letkf_noop = LETKF(system_dim=5, delta_t=0.01, ensemble_dim=ens,
+                       model_obj=l96_fc_model, localize_radius=1.5, fgat=True)
     rmse_noop = _analysis_rmse(
-        _run_cycle(letkf_noop, init_state, obs_vec_l96, obs_error_sd=1.0e6),
+        _run_cycle(letkf_noop, init_state, obs_vec_l96_observable,
+                   obs_error_sd=1.0e6),
         l96_nature_run)
     assert rmse_da < rmse_noop
 
 
 # ── (b) 4D LETKF L96 cycle: shapes, finite, distinct members, DA < no-op ────
-def test_letkf4d_l96_cycle(l96_nature_run, obs_vec_l96, l96_fc_model):
-    init_state = _l96_init(l96_nature_run)
-    letkf = LETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=4,
+def test_letkf4d_l96_cycle(l96_nature_run, obs_vec_l96_observable,
+                           l96_fc_model):
+    ens = 10
+    init_state = _l96_init(l96_nature_run, ens=ens)
+    letkf = LETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=ens,
                     model_obj=l96_fc_model, localize_radius=1.5)
-    out = _run_cycle(letkf, init_state, obs_vec_l96)
+    out = _run_cycle(letkf, init_state, obs_vec_l96_observable)
 
-    assert out['x'].shape == (10, 4, 10, 5)
+    assert out['x'].shape == (10, ens, 10, 5)
     assert bool(np.all(np.isfinite(np.asarray(out['x'].data))))
     assert not jnp.allclose(out['x'].values[-1, 1, 0, :],
                             out['x'].values[-1, 0, 0, :])
     rmse_da = _analysis_rmse(out, l96_nature_run)
-    letkf_noop = LETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=4,
+    letkf_noop = LETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=ens,
                          model_obj=l96_fc_model, localize_radius=1.5)
     rmse_noop = _analysis_rmse(
-        _run_cycle(letkf_noop, init_state, obs_vec_l96, obs_error_sd=1.0e6),
+        _run_cycle(letkf_noop, init_state, obs_vec_l96_observable,
+                   obs_error_sd=1.0e6),
         l96_nature_run)
     assert rmse_da < rmse_noop
+
+
+# ── obs-space metrics: LETKF (inherits ETKF._cycle_obsop) + LETKF4D ─────────
+@pytest.mark.parametrize("cls", [LETKF, LETKF4D])
+def test_letkf_obs_metrics(l96_nature_run, obs_vec_l96, l96_fc_model, cls):
+    init_state = _l96_init(l96_nature_run)
+    cycler = cls(system_dim=5, delta_t=0.01, ensemble_dim=4,
+                 model_obj=l96_fc_model, localize_radius=1.5)
+    kw = dict(input_state=init_state, start_time=init_state['time'].data,
+              obs_vector=obs_vec_l96, obs_error_sd=1.0, analysis_window=0.1,
+              n_cycles=10, return_forecast=True)
+
+    ana_default = cls(system_dim=5, delta_t=0.01, ensemble_dim=4,
+                      model_obj=l96_fc_model, localize_radius=1.5).cycle(**kw)
+    ana, metrics = cycler.cycle(return_metrics=True, **kw)
+    # Byte-identical analysis regardless of return_metrics.
+    assert np.array_equal(np.asarray(ana_default['x'].data),
+                          np.asarray(ana['x'].data))
+    for var in ("o_minus_f_rms", "o_minus_a_rms", "bias_f", "bias_a",
+                "obs_space_spread_background", "sigma_obs_max",
+                "n_active_obs"):
+        assert metrics[var].shape == (10,)
+        assert np.asarray(metrics[var].data).dtype == np.float64
+    n_active = np.asarray(metrics["n_active_obs"].data)
+    act = n_active > 0
+    assert bool(np.any(act))
+    spread = np.asarray(metrics["obs_space_spread_background"].data)
+    assert bool(np.all(np.isfinite(spread[act])))
+    assert bool(np.all(spread[act] > 0))
+
+    _, metrics_dbg = cycler.cycle(
+        return_metrics=True, metrics_mode="debug", **kw)
+    for var in ("o_minus_f", "o_minus_a", "obs_active"):
+        assert metrics_dbg[var].dims == ("cycle", "obs")
 
 
 # ── (f) window-stacked taper alignment with an injected obs_latlon ──────────

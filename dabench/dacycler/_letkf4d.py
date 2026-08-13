@@ -9,6 +9,7 @@ from typing import Callable
 
 from dabench.dacycler import ETKF4D
 from dabench.dacycler._letkf import LETKF
+import dabench.dacycler._utils as dac_utils
 
 
 # For typing
@@ -42,6 +43,15 @@ class LETKF4D(LETKF, ETKF4D):
     """
     _in_4d: bool = True
     _uses_ensemble: bool = True
+
+    def __init__(self, *args, analysis_time_index: int | str = "end",
+                 **kwargs):
+        # 4D default placement is the window END (filter placement), matching
+        # :class:`ETKF4D`.  Pinned explicitly here rather than relying on the
+        # MRO reaching ``ETKF4D.__init__`` before ``ETKF.__init__`` (whose 3D
+        # default is "mid"), so the 4D default cannot silently regress.
+        super().__init__(*args, analysis_time_index=analysis_time_index,
+                         **kwargs)
 
     def _cycle_and_forecast_4d(self,
                                cur_state: xj.XjDataset,
@@ -114,4 +124,58 @@ class LETKF4D(LETKF, ETKF4D):
             ).assign_coords(
                 cur_state.coords).assign_attrs(cur_state.attrs)
 
+        metrics = None
+        if self._return_metrics:
+            dtype = Xtraj.dtype
+            yb_bar = jnp.mean(Yb, axis=1)
+            if self.H is None:
+                Hs = self._calc_default_H(cur_obs_loc_indices)
+            else:
+                Hs = jnp.repeat(jnp.asarray(self.H)[jnp.newaxis],
+                                cur_obs_vals.shape[0], axis=0)
+
+            # Localized analysis-at-time closure; the shared scorer selects the
+            # causal (tau) vs time-matched (window-start) placement per
+            # oa_score_mode.
+            def _analysis_at(t):
+                return self._localized_analysis(
+                        Xtraj[:, t, :].T, Yb, Y, rinv_diag, obs_loc_flat,
+                        rho=self.multiplicative_inflation, key=None)
+
+            ya_bar = self._score_oa_ya(
+                    cur_state, _analysis_at, tau, Hs, obs_window_indices, dtype)
+            active = rinv_diag > 0
+            sigma2_diag = jnp.where(
+                    active,
+                    1.0 / jnp.where(active, rinv_diag,
+                                    jnp.ones_like(rinv_diag)),
+                    jnp.zeros_like(rinv_diag))
+            ens_obs = Yb - yb_bar[:, None]
+
+            # End-of-window O-A (next-cycle IC quality): localized analysis at
+            # tau, propagated to the window END, scored against end-valid obs.
+            # The full end ENSEMBLE also gives the next-cycle IC spread.
+            end_idx = self.steps_per_window - 1
+            Xa_end_ens = self._xa_end_ensemble(
+                    cur_state, _analysis_at(tau), tau)      # (system, ens)
+            Xa_end = jnp.mean(Xa_end_ens, axis=1)
+            ya_end = jax.vmap(lambda i: Hs[i] @ Xa_end)(
+                    jnp.arange(Hs.shape[0])).reshape(-1).astype(dtype)
+            # End-of-window analysis obs-space perturbations (obs x ens): drives
+            # ``obs_space_spread_analysis_end`` (spread of the ensemble handed
+            # to the next cycle -- NOT ``obs_space_spread_background`` in-window).
+            Ya_end = jax.vmap(lambda i: Hs[i] @ Xa_end_ens)(
+                    jnp.arange(Hs.shape[0])).reshape(-1, self.ensemble_dim)
+            ens_obs_end = (Ya_end
+                           - jnp.mean(Ya_end, axis=1)[:, None]).astype(dtype)
+            owi = jnp.asarray(obs_window_indices)
+            end_active = active & (jnp.repeat(owi, Hs.shape[1]) == end_idx)
+            metrics = dac_utils._obs_space_metrics(
+                    jnp.asarray(Y, dtype), yb_bar.astype(dtype),
+                    ya_bar, active, sigma2_diag, ens_obs=ens_obs,
+                    return_per_obs=(self._metrics_mode == "debug"),
+                    dtype=dtype,
+                    Hxa_end_mean=ya_end, end_active_mask=end_active,
+                    ens_obs_end=ens_obs_end)
+            return xj.from_xarray(next_state), (forecast_states, metrics)
         return xj.from_xarray(next_state), forecast_states

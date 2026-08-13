@@ -277,3 +277,264 @@ def _solve_pa_wa(A: ArrayLike, eigh_impl: str | None, ns_iters: int
     sqrt_eig = jnp.sqrt(jnp.clip((K - 1) * inv_eig, 0.0))
     Wa = (V * sqrt_eig) @ V.T                                  # ((K-1)A^{-1})^½
     return Pa, Wa, jnp.asarray(jnp.nan, dtype)
+
+
+# ── Shared observation-space DA metrics reduction ─────────────────────────
+# Single source of truth for the native obs-space diagnostics emitted (opt-in)
+# by every cycler's cycle(..., return_metrics=True) path.  All cyclers call
+# THIS implementation so the reduction (masking, RMS, bias, spread) is
+# identical across ETKF / ETKF4D / LETKF / LETKF4D / Var4D / Var4DOperator.
+
+def _b_derived_obs_spread(H, C, active_mask, dtype=None):
+    """RMS per-obs obs-space std implied by a state-space covariance ``C``.
+
+    Deterministic (variational) analogue of the ensemble ``obs_space_spread``:
+    projects ``C`` into obs space (``diag(H C H^T)``, the per-obs prior/posterior
+    variance) and returns ``sqrt(mean_over_active(diag))``.  ``H`` is the
+    observation operator (obs x state), ``C`` a state-space covariance (e.g. the
+    static background ``B`` or the analysis posterior ``A``).  NaN when no active
+    obs.  Used by Var3D/Var4D to emit the B-derived spread metrics in place of
+    the ensemble estimate (which they do not have).
+    """
+    dtype = H.dtype if dtype is None else dtype
+    H = jnp.asarray(H, dtype)
+    C = jnp.asarray(C, dtype)
+    active = jnp.asarray(active_mask, bool)
+    m = active.astype(dtype)
+    n = jnp.sum(m)
+    per_obs_var = jnp.sum((H @ C) * H, axis=1)            # diag(H C H^T)
+    safe = jnp.where(n > 0, n, jnp.asarray(1, dtype))
+    return jnp.where(n > 0, jnp.sqrt(jnp.sum(per_obs_var * m) / safe),
+                     jnp.asarray(jnp.nan, dtype))
+
+
+def _obs_space_metrics(y, Hxb_mean, Hxa_mean, active_mask, sigma2_diag,
+                       ens_obs=None, return_per_obs=False, dtype=None,
+                       Hxa_end_mean=None, end_active_mask=None,
+                       ens_obs_end=None, spread_background_override=None,
+                       spread_analysis_end_override=None):
+    """Aggregate (+ optional per-obs) observation-space DA metrics.
+
+    All reductions are restricted to ACTIVE observations (``active_mask``);
+    a cycle with zero active obs yields NaN scalars and ``n_active_obs=0``.
+    Innovations are vs the actual observations ``y`` (O-F = y - Hxb_mean,
+    O-A = y - Hxa_mean).  ``obs_space_spread_background`` (the PRIOR/background
+    spread at the analysis time) is the RMS per-obs ensemble std when
+    ``ens_obs`` is supplied; deterministic (variational) cyclers instead pass a
+    precomputed B-derived scalar via ``spread_background_override`` (see
+    :func:`_b_derived_obs_spread`).  It is NaN only when neither is supplied.
+    ``dtype`` follows the analysis dtype (fp64 x64).
+
+    End-of-window O-A (the quality of the ICs handed to the NEXT cycle):
+    ``Hxa_end_mean`` is the analysis mean PROPAGATED TO THE WINDOW END, and
+    ``end_active_mask`` selects the observations valid at the window end (obs
+    whose true time == the window end).  When supplied, ``o_minus_a_rms_end``
+    /``bias_a_end`` score ``y - Hxa_end_mean`` over the END-obs only; when
+    omitted they are NaN.  These two scalars are ALWAYS present in the returned
+    dict (NaN when not supplied) so the emitted metric schema is uniform across
+    every cycler (a ``jax.lax.scan`` pytree-consistency requirement).
+
+    End-of-window ANALYSIS spread (the spread of the ensemble handed to the
+    NEXT cycle -- distinct from ``obs_space_spread_background``, which is the
+    PRIOR spread at the analysis time ``tau``): ``ens_obs_end`` is the
+    analysis-ensemble obs-space PERTURBATIONS (obs x ens) at the window end.
+    When supplied, ``obs_space_spread_analysis_end`` is the RMS per-obs ensemble
+    std over the END-obs (``end_active_mask``).  Deterministic (variational)
+    cyclers instead pass a precomputed posterior scalar via
+    ``spread_analysis_end_override`` (Var4D: the TLM-propagated posterior at the
+    window end; Var3D-FGAT: the static posterior at ``tau``).  NaN only when
+    neither is supplied.  Always present in the returned dict for schema
+    uniformity.
+    """
+    dtype = y.dtype if dtype is None else dtype
+    y = jnp.asarray(y, dtype)
+    active = jnp.asarray(active_mask, bool)
+    m = active.astype(dtype)
+    n_active = jnp.sum(m)
+    of = y - jnp.asarray(Hxb_mean, dtype)
+    oa = y - jnp.asarray(Hxa_mean, dtype)
+    of_m, oa_m = of * m, oa * m
+    safe = jnp.where(n_active > 0, n_active, jnp.asarray(1, dtype))
+    of_rms = jnp.sqrt(jnp.sum(of_m ** 2) / safe)
+    oa_rms = jnp.sqrt(jnp.sum(oa_m ** 2) / safe)
+    bias_f = jnp.sum(of_m) / safe
+    bias_a = jnp.sum(oa_m) / safe
+    if spread_background_override is not None:
+        # Deterministic (variational) B-derived background spread; already a
+        # reduced scalar (no per-obs / active masking to reapply here).
+        spread = jnp.asarray(spread_background_override, dtype)
+    elif ens_obs is None:
+        spread = jnp.asarray(jnp.nan, dtype)
+    else:
+        per_obs_var = jnp.mean(jnp.asarray(ens_obs, dtype) ** 2, axis=1)
+        spread = jnp.sqrt(jnp.sum(per_obs_var * m) / safe)
+    s2a = jnp.where(active, jnp.asarray(sigma2_diag, dtype),
+                    jnp.asarray(-jnp.inf, dtype))
+    sigma_obs_max = jnp.sqrt(jnp.max(s2a))
+    nan = jnp.asarray(jnp.nan, dtype)
+    valid = n_active > 0
+
+    # End-of-window O-A (next-cycle IC quality), scored over END-obs only.
+    if Hxa_end_mean is None:
+        oa_end_rms = nan
+        bias_a_end = nan
+        n_end = jnp.asarray(0, dtype)
+    else:
+        end_active = (active if end_active_mask is None
+                      else jnp.asarray(end_active_mask, bool))
+        me = end_active.astype(dtype)
+        n_end = jnp.sum(me)
+        safe_e = jnp.where(n_end > 0, n_end, jnp.asarray(1, dtype))
+        oa_e = (y - jnp.asarray(Hxa_end_mean, dtype)) * me
+        oa_end_rms = jnp.where(n_end > 0,
+                               jnp.sqrt(jnp.sum(oa_e ** 2) / safe_e), nan)
+        bias_a_end = jnp.where(n_end > 0, jnp.sum(oa_e) / safe_e, nan)
+
+    # End-of-window ANALYSIS spread (next-cycle IC spread), over END-obs only;
+    # emitted as ``obs_space_spread_analysis_end`` (cf. the PRIOR/background
+    # spread at tau emitted as ``obs_space_spread_background``).
+    if spread_analysis_end_override is not None:
+        # Deterministic (variational) posterior spread scalar (Var4D:
+        # TLM-propagated to the window end; Var3D-FGAT: static posterior at tau).
+        spread_end = jnp.asarray(spread_analysis_end_override, dtype)
+    elif ens_obs_end is None:
+        spread_end = nan
+    else:
+        end_active_s = (active if end_active_mask is None
+                        else jnp.asarray(end_active_mask, bool))
+        me_s = end_active_s.astype(dtype)
+        n_end_s = jnp.sum(me_s)
+        safe_es = jnp.where(n_end_s > 0, n_end_s, jnp.asarray(1, dtype))
+        per_obs_var_e = jnp.mean(jnp.asarray(ens_obs_end, dtype) ** 2, axis=1)
+        spread_end = jnp.where(
+                n_end_s > 0,
+                jnp.sqrt(jnp.sum(per_obs_var_e * me_s) / safe_es), nan)
+
+    out = {
+        "o_minus_f_rms": jnp.where(valid, of_rms, nan),
+        "o_minus_a_rms": jnp.where(valid, oa_rms, nan),
+        "bias_f": jnp.where(valid, bias_f, nan),
+        "bias_a": jnp.where(valid, bias_a, nan),
+        "obs_space_spread_background": (
+                spread if (ens_obs is None
+                           or spread_background_override is not None)
+                else jnp.where(valid, spread, nan)),
+        "sigma_obs_max": jnp.where(valid, sigma_obs_max, nan),
+        "n_active_obs": n_active.astype(dtype),
+        "o_minus_a_rms_end": oa_end_rms,
+        "bias_a_end": bias_a_end,
+        "n_active_obs_end": n_end,
+        "obs_space_spread_analysis_end": spread_end,
+    }
+    if return_per_obs:
+        out["o_minus_f"] = jnp.where(active, of, nan)
+        out["o_minus_a"] = jnp.where(active, oa, nan)
+        out["obs_active"] = m
+    return out
+
+
+# ── Reshapeable, after-run-accessible metrics container ───────────────────
+class CyclerMetrics:
+    """Reshapeable container for a cycler's per-cycle obs-space DA metrics.
+
+    Wraps the assembled per-cycle metrics (one row per analysis cycle) and is
+    stored on the cycler instance after ``cycle(..., return_metrics=True)`` (as
+    ``cycler.metrics``), so the diagnostics are accessible AFTER the run without
+    having to thread the return tuple through every caller.  It is also still
+    returned from ``cycle`` for backward compatibility.
+
+    Backed by an internal :class:`xarray.Dataset` so it duck-types the previous
+    ``metrics_ds[name].data`` / ``name in metrics_ds`` usage exactly (existing
+    consumers need no change), while adding reshape / conversion / memory
+    helpers:
+
+    * ``to_dataset()``      -> the underlying :class:`xarray.Dataset`.
+    * ``to_numpy()``        -> ``{name: np.ndarray}`` flat dict.
+    * ``as_dict()``         -> alias of ``to_numpy()``.
+    * ``keys()``            -> metric names.
+    * ``reshape(**shape)``  -> a NEW CyclerMetrics with the leading ``cycle``
+      axis reshaped (e.g. ``reshape(outer=n_outer, inner=n_inner)`` to split a
+      flat cycle axis into a 2-D layout).
+    * ``sel_cycles(sl)``    -> a NEW CyclerMetrics restricted to a cycle slice.
+    * ``nbytes``            -> total array bytes held (memory stat).
+    * ``memory_report()``   -> human-readable one-line memory/shape summary.
+
+    Memory: in the default metrics mode only per-cycle SCALARS are held (tiny),
+    so this is negligible even at high resolution; per-obs debug arrays
+    (``metrics_mode='debug'``) are the only growth term and are surfaced via
+    :attr:`nbytes` / :meth:`memory_report` so callers can watch usage at T42+.
+    """
+
+    def __init__(self, dataset: xr.Dataset):
+        self._ds = dataset
+
+    # -- duck-typing the previous xr.Dataset usage --------------------------
+    def __getitem__(self, key):
+        return self._ds[key]
+
+    def __contains__(self, key):
+        return key in self._ds
+
+    def __iter__(self):
+        return iter(self._ds)
+
+    def keys(self):
+        return list(self._ds.data_vars)
+
+    @property
+    def sizes(self):
+        return self._ds.sizes
+
+    # -- conversions --------------------------------------------------------
+    def to_dataset(self) -> xr.Dataset:
+        return self._ds
+
+    def to_numpy(self) -> dict:
+        return {k: np.asarray(self._ds[k].data) for k in self._ds.data_vars}
+
+    def as_dict(self) -> dict:
+        return self.to_numpy()
+
+    # -- reshaping ----------------------------------------------------------
+    def reshape(self, **shape) -> "CyclerMetrics":
+        """Split the leading ``cycle`` axis into named dims (product must match).
+
+        Example: ``m.reshape(experiment=3, cycle=10)`` turns a length-30 cycle
+        axis into a ``(experiment, cycle)`` layout on every metric variable.
+        """
+        n = int(self._ds.sizes.get("cycle", 0))
+        prod = int(np.prod(list(shape.values()))) if shape else 0
+        if prod != n:
+            raise ValueError(
+                f"reshape product {prod} does not match cycle length {n}")
+        new_dims = tuple(shape.keys())
+        data_vars = {}
+        for k in self._ds.data_vars:
+            da = self._ds[k]
+            trailing = tuple(d for d in da.dims if d != "cycle")
+            arr = np.asarray(da.data).reshape(
+                    tuple(shape.values()) + tuple(
+                        da.sizes[d] for d in trailing))
+            data_vars[k] = (new_dims + trailing, arr)
+        return CyclerMetrics(xr.Dataset(data_vars))
+
+    def sel_cycles(self, cycle_slice) -> "CyclerMetrics":
+        return CyclerMetrics(self._ds.isel(cycle=cycle_slice))
+
+    # -- memory -------------------------------------------------------------
+    @property
+    def nbytes(self) -> int:
+        return int(sum(np.asarray(self._ds[k].data).nbytes
+                       for k in self._ds.data_vars))
+
+    def memory_report(self) -> str:
+        mb = self.nbytes / (1024.0 ** 2)
+        n_cycles = int(self._ds.sizes.get("cycle", 0))
+        n_vars = len(self._ds.data_vars)
+        has_obs = "obs" in self._ds.sizes
+        obs = f", obs={int(self._ds.sizes.get('obs', 0))}" if has_obs else ""
+        return (f"CyclerMetrics: {n_vars} vars, cycles={n_cycles}{obs}, "
+                f"{mb:.3f} MiB")
+
+    def __repr__(self) -> str:
+        return f"<{self.memory_report()}>"

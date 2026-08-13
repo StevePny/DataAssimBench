@@ -411,6 +411,25 @@ class LETKF(ETKF):
                 jax.errors.ConcretizationTypeError):
             pass
 
+    def _fgat_analysis(self,
+                       Xb_tau: ArrayLike,
+                       Yb: ArrayLike,
+                       Y_eff: ArrayLike,
+                       rinv_diag: ArrayLike,
+                       obs_loc_flat: ArrayLike,
+                       rho: float,
+                       key: ArrayLike | None = None) -> ArrayLike:
+        """Localized strict 3D-FGAT analysis at the analysis time ``tau``.
+
+        The domain-localized counterpart of :meth:`ETKF._fgat_analysis`:
+        delegates to :meth:`_localized_analysis` with the tau-time obs-space
+        ensemble ``Yb`` and effective obs vector ``Y_eff`` (so the local
+        innovation is the FGAT innovation), tapering by distance from
+        ``obs_loc_flat``.
+        """
+        return self._localized_analysis(
+                Xb_tau, Yb, Y_eff, rinv_diag, obs_loc_flat, rho, key=key)
+
     def _compute_analysis(self,
                           Xb: ArrayLike,
                           Y: ArrayLike,

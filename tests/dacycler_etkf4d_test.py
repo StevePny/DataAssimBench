@@ -185,6 +185,60 @@ def test_etkf4d_additive_lifts_spread(l96_nature_run, obs_vec_l96, l96_fc_model)
     assert _spread(out1) > _spread(out0)
 
 
+def test_etkf4d_obs_metrics(l96_nature_run, obs_vec_l96, etkf4d_cycler,
+                            l96_fc_model):
+    """4D obs-space metrics: byte-identical analysis, 7 per-cycle scalars,
+    finite ensemble spread, O-A<=O-F (time-matched score), debug per-obs arrays.
+
+    The default O-A score is CAUSAL (obs before the analysis time tau are
+    scored against the tau-time analysis, no back-propagation), so with the
+    default placement (tau=window end) O-A need NOT be <= O-F.  The
+    ``oa_score_mode="time_matched"`` score places a diagnostic analysis at the
+    window start and re-forecasts it, restoring the O-A <= O-F sanity property.
+    """
+    init_state = _make_init(l96_nature_run)
+    kw = dict(input_state=init_state, start_time=init_state['time'].data,
+              obs_vector=obs_vec_l96, obs_error_sd=1.0, analysis_window=0.1,
+              n_cycles=10, return_forecast=True)
+
+    ana_default = etkf4d_cycler.cycle(**kw)
+    ana, metrics = etkf4d_cycler.cycle(return_metrics=True, **kw)
+    assert np.array_equal(np.asarray(ana_default['x'].data),
+                          np.asarray(ana['x'].data))
+
+    for var in ("o_minus_f_rms", "o_minus_a_rms", "bias_f", "bias_a",
+                "obs_space_spread_background", "sigma_obs_max",
+                "n_active_obs"):
+        assert metrics[var].shape == (10,)
+    n_active = np.asarray(metrics["n_active_obs"].data)
+    act = n_active > 0
+    assert bool(np.any(act))
+    spread = np.asarray(metrics["obs_space_spread_background"].data)
+    assert bool(np.all(np.isfinite(spread[act])))
+    assert bool(np.all(spread[act] > 0))
+    assert np.allclose(np.asarray(metrics["sigma_obs_max"].data)[act], 1.0)
+    # Causal O-A is finite (the default score); no O-A<=O-F guarantee.
+    assert bool(np.all(np.isfinite(
+        np.asarray(metrics["o_minus_a_rms"].data)[act])))
+
+    # Time-matched O-A restores the O-A <= O-F sanity property; the analysis is
+    # byte-identical (oa_score_mode is a metrics-only knob).
+    tm = ETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=8,
+                model_obj=l96_fc_model, oa_score_mode="time_matched")
+    ana_tm, metrics_tm = tm.cycle(return_metrics=True, **kw)
+    assert np.array_equal(np.asarray(ana_default['x'].data),
+                          np.asarray(ana_tm['x'].data))
+    of = np.asarray(metrics_tm["o_minus_f_rms"].data)[act]
+    oa = np.asarray(metrics_tm["o_minus_a_rms"].data)[act]
+    assert bool(np.all(oa <= of + 1e-8))
+
+    _, metrics_dbg = etkf4d_cycler.cycle(
+        return_metrics=True, metrics_mode="debug", **kw)
+    for var in ("o_minus_f", "o_minus_a", "obs_active"):
+        assert metrics_dbg[var].dims == ("cycle", "obs")
+        assert metrics_dbg[var].shape[0] == 10
+
+
 def test_etkf4d_apply_rtpp(etkf4d_cycler):
     """RTPP linearly blends analysis toward the prior perturbations:
     alpha=0 is an exact no-op, alpha=1 returns the prior perturbations, and
@@ -231,3 +285,46 @@ def test_etkf4d_rtpp_lifts_spread(l96_nature_run, obs_vec_l96, l96_fc_model):
     out1 = _run(0.8)
     assert bool(np.all(np.isfinite(np.asarray(out1['x'].data))))
     assert _spread(out1) > _spread(out0)
+
+
+# ── analysis_time_index placement sweep (start / mid / end) ──────────────────
+@pytest.mark.parametrize("cls,kw", [
+    (dab.dacycler.ETKF4D, {}),
+    (dab.dacycler.LETKF4D, {"localize_radius": 1.5}),
+])
+@pytest.mark.parametrize("ati", ["start", "mid", "end"])
+def test_etkf4d_analysis_time_placement(
+        l96_nature_run, obs_vec_l96, l96_fc_model, cls, kw, ati):
+    """The 4D ensemble filters must yield a finite, error-reducing analysis for
+    the transform-weight time placed at the window START, MIDDLE, and END.  The
+    IC handoff always re-forecasts tau -> window end, so ``cycle_timestep=0`` is
+    the window-end analysis for every placement."""
+    init_state = _make_init(l96_nature_run)
+
+    def _run(obs_error_sd):
+        cycler = cls(system_dim=5, delta_t=0.01, ensemble_dim=8,
+                     model_obj=l96_fc_model, analysis_time_index=ati, **kw)
+        return cycler.cycle(
+            input_state=init_state, start_time=init_state['time'].data,
+            obs_vector=obs_vec_l96, obs_error_sd=obs_error_sd,
+            analysis_window=0.1, n_cycles=10, return_forecast=True)
+
+    def _rmse(out):
+        ana = np.asarray(out.isel(cycle_timestep=0).mean('ensemble')['x'].data)
+        nat = np.asarray(l96_nature_run['x'].data)
+        idx = [10 + c * 10 for c in range(ana.shape[0])]
+        return float(np.sqrt(np.mean((ana - nat[idx]) ** 2)))
+
+    out_da = _run(1.0)
+    assert bool(np.all(np.isfinite(np.asarray(out_da['x'].data))))
+    rmse_da = _rmse(out_da)
+    rmse_noop = _rmse(_run(1.0e6))     # huge R -> near no-op update
+    assert rmse_da < rmse_noop
+
+
+def test_etkf4d_bad_analysis_time_index_raises(l96_fc_model):
+    with pytest.raises(ValueError, match="analysis_time_index"):
+        c = ETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=8,
+                   model_obj=l96_fc_model, analysis_time_index="bogus")
+        c.steps_per_window = 11
+        c._resolve_analysis_index()

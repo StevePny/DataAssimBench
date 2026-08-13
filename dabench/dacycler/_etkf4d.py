@@ -8,7 +8,7 @@ from dabench import _xarray_jax as xj
 from typing import Callable
 
 from dabench.dacycler import ETKF
-from dabench.dacycler._utils import _solve_pa_wa
+import dabench.dacycler._utils as dac_utils
 
 
 # For typing
@@ -72,35 +72,12 @@ class ETKF4D(ETKF):
 
     def __init__(self, *args, analysis_time_index: int | str = "end",
                  **kwargs):
-        self._analysis_time_spec = analysis_time_index
-        super().__init__(*args, **kwargs)
-
-    def _resolve_analysis_index(self) -> int:
-        """Resolve ``analysis_time_index`` to an int in window bounds.
-
-        ``self.steps_per_window`` is only known once :meth:`cycle` is running,
-        so the spec is stored verbatim and resolved here (a static Python int,
-        safe to use as a trajectory length under ``jax.lax.scan``).
-        """
-        n = int(self.steps_per_window)
-        spec = self._analysis_time_spec
-        if isinstance(spec, str):
-            key = spec.lower()
-            if key == "start":
-                idx = 0
-            elif key == "mid":
-                idx = (n - 1) // 2
-            elif key == "end":
-                idx = n - 1
-            else:
-                raise ValueError(
-                    "analysis_time_index string must be 'start', 'mid' or "
-                    f"'end', got {spec!r}")
-        else:
-            idx = int(spec)
-            if idx < 0:
-                idx += n
-        return max(0, min(idx, n - 1))
+        # 4D default placement is the window END (filter placement); the shared
+        # resolver lives on the base :class:`ETKF`.  FGAT is meaningless for the
+        # 4D path (it already assimilates across the window), so it is not
+        # forwarded here.
+        super().__init__(*args, analysis_time_index=analysis_time_index,
+                         **kwargs)
 
     def _calc_default_H(self,
                         obs_loc_indices: ArrayLike
@@ -167,81 +144,6 @@ class ETKF4D(ETKF):
                 -1, self.ensemble_dim)
         Y = jnp.asarray(obs_values).reshape(-1)
         return Xtraj, Yb, Y, rinv_diag
-
-    def _compute_weights_4d(self,
-                            Yb: ArrayLike,
-                            Y: ArrayLike,
-                            rinv_diag: ArrayLike,
-                            rho: float = 1.0
-                            ) -> tuple[ArrayLike, ArrayLike]:
-        """Time-invariant ETKF transform weights from window-stacked obs.
-
-        Args:
-            Yb: Obs-space ensemble across the window, shape (n_obs, ens_dim).
-            Y: Flattened observation vector, shape (n_obs,).
-            rinv_diag: Diagonal of masked ``R^{-1}``, shape (n_obs,).
-            rho: Multiplicative inflation factor (1.0 = none).
-
-        Returns:
-            ``(Wa, wa)`` -- the ensemble-perturbation transform matrix and the
-            mean-update weight vector.
-        """
-        ensemble_dim = Yb.shape[1]
-        U = jnp.ones((ensemble_dim, ensemble_dim)) / ensemble_dim
-        I = jnp.identity(ensemble_dim)
-
-        yb_bar = jnp.mean(Yb, axis=1)
-        Yb_pert = Yb @ (I - U)
-
-        # Diagonal R^{-1} (masks fold in as zeroed entries), so the obs term
-        # is (Yb_pert^T R^{-1}) acting on Yb_pert / the innovation.
-        YtRinv = Yb_pert.T * rinv_diag[None, :]
-        # SPD transform ``A = (K-1)/rho I + Yb_pert^T R^{-1} Yb_pert``; the
-        # shared solver returns ``Pa = A^{-1}`` and ``Wa = ((K-1)A^{-1})^½``
-        # via eigh (``None``/``qr``/``jacobi``) or the eigh-free Newton-Schulz
-        # path (``self.eigh_impl``).  Both avoid ``sqrtm``/``schur`` (no CUDA
-        # lowering).
-        A = (ensemble_dim - 1) / rho * I + YtRinv @ Yb_pert
-        Pa_ens, Wa, ns_resid = _solve_pa_wa(A, self.eigh_impl, self.ns_iters)
-        self._update_ns_diagnostics(ns_resid)
-        wa = Pa_ens @ (YtRinv @ (Y - yb_bar))
-        return Wa, wa
-
-    def _apply_weights(self,
-                       Xb: ArrayLike,
-                       Wa: ArrayLike,
-                       wa: ArrayLike,
-                       key: ArrayLike | None = None
-                       ) -> ArrayLike:
-        """Apply transform weights to a background ensemble at one time.
-
-        Args:
-            Xb: Background ensemble, shape (system_dim, ens_dim).
-            Wa: Ensemble-perturbation transform matrix, shape (ens, ens).
-            wa: Mean-update weight vector, shape (ens,).
-            key: Optional per-cycle PRNG key enabling structured additive
-                inflation (:meth:`_apply_additive`); ``None`` skips it.
-
-        Returns:
-            Xa: Analysis ensemble, shape (system_dim, ens_dim).
-        """
-        ensemble_dim = Xb.shape[1]
-        U = jnp.ones((ensemble_dim, ensemble_dim)) / ensemble_dim
-        I = jnp.identity(ensemble_dim)
-
-        Xb = Xb @ (I - U) + Xb @ U
-        Xb_bar = jnp.mean(Xb, axis=1)
-        Xb_pert = Xb @ (I - U)
-
-        Xa_pert = Xb_pert @ Wa
-        Xa_pert = self._apply_rtps(Xb_pert, Xa_pert)
-        Xa_pert = self._apply_rtpp(Xb_pert, Xa_pert)
-        if key is not None:
-            Xa_pert = self._apply_additive(Xb_pert, Xa_pert, key)
-        Xa_bar = Xb_bar + jnp.ravel(Xb_pert @ wa)
-        v = jnp.ones((1, ensemble_dim))
-        Xa = Xa_pert + Xa_bar[:, None] @ v
-        return Xa
 
     def _compute_analysis_4d(self,
                              Xb: ArrayLike,
@@ -361,4 +263,72 @@ class ETKF4D(ETKF):
             ).assign_coords(
                 cur_state.coords).assign_attrs(cur_state.attrs)
 
+        metrics = None
+        if self._return_metrics:
+            metrics = self._obs_metrics_4d(
+                    cur_state, Xtraj, tau, Yb, Y, rinv_diag, Wa, wa,
+                    cur_obs_vals, cur_obs_loc_indices, obs_time_mask,
+                    cur_obs_loc_mask, obs_window_indices)
+            return xj.from_xarray(next_state), (forecast_states, metrics)
         return xj.from_xarray(next_state), forecast_states
+
+    def _obs_metrics_4d(self, cur_state, Xtraj, tau, Yb, Y, rinv_diag, Wa, wa,
+                        cur_obs_vals, cur_obs_loc_indices, obs_time_mask,
+                        cur_obs_loc_mask, obs_window_indices):
+        """Causal (no-back-propagation) obs-space metrics for the 4D filters.
+
+        O-F uses the window-stacked prior obs-space ensemble ``Yb`` (the same
+        innovations that drive the transform).  O-A applies the transform
+        weights at the ANALYSIS TIME ``tau`` (the SAME placement used for the
+        IC handoff), re-forecasts the analysis ensemble from ``tau`` to the
+        window end, and scores each observation at its own time WITHOUT
+        acausal back-propagation: observations at times ``>= tau`` are scored
+        against the analysis re-forecast to that obs time, while observations
+        at times ``<= tau`` are scored against the analysis at ``tau`` (the
+        earliest the analysis is valid).
+        """
+        dtype = Xtraj.dtype
+        yb_bar = jnp.mean(Yb, axis=1)
+        if self.H is None:
+            Hs = self._calc_default_H(cur_obs_loc_indices)
+        else:
+            Hs = jnp.repeat(jnp.asarray(self.H)[jnp.newaxis],
+                            cur_obs_vals.shape[0], axis=0)
+
+        # Analysis-at-time closure (no additive key for a clean diagnostic);
+        # the shared scorer selects tau vs window-start per oa_score_mode.
+        def _analysis_at(t):
+            return self._apply_weights(Xtraj[:, t, :].T, Wa, wa)
+
+        ya_bar = self._score_oa_ya(
+                cur_state, _analysis_at, tau, Hs, obs_window_indices, dtype)
+        active = rinv_diag > 0
+        sigma2_diag = jnp.where(
+                active,
+                1.0 / jnp.where(active, rinv_diag, jnp.ones_like(rinv_diag)),
+                jnp.zeros_like(rinv_diag))
+        ens_obs = Yb - yb_bar[:, None]
+
+        # End-of-window O-A (next-cycle IC quality): analysis applied at tau,
+        # propagated to the window END, scored against obs valid at the end.
+        # The full end ENSEMBLE also gives the next-cycle IC spread.
+        end_idx = self.steps_per_window - 1
+        Xa_end_ens = self._xa_end_ensemble(
+                cur_state, _analysis_at(tau), tau)          # (system, ens)
+        Xa_end = jnp.mean(Xa_end_ens, axis=1)
+        ya_end = jax.vmap(lambda i: Hs[i] @ Xa_end)(
+                jnp.arange(Hs.shape[0])).reshape(-1).astype(dtype)
+        # End-of-window analysis obs-space perturbations (obs x ens): drives
+        # ``obs_space_spread_analysis_end`` (spread of the ensemble handed to
+        # the next cycle -- NOT ``obs_space_spread_background`` in-window).
+        Ya_end = jax.vmap(lambda i: Hs[i] @ Xa_end_ens)(
+                jnp.arange(Hs.shape[0])).reshape(-1, self.ensemble_dim)
+        ens_obs_end = (Ya_end - jnp.mean(Ya_end, axis=1)[:, None]).astype(dtype)
+        owi = jnp.asarray(obs_window_indices)
+        end_active = active & (jnp.repeat(owi, Hs.shape[1]) == end_idx)
+        return dac_utils._obs_space_metrics(
+                jnp.asarray(Y, dtype), yb_bar.astype(dtype),
+                ya_bar, active, sigma2_diag, ens_obs=ens_obs,
+                return_per_obs=(self._metrics_mode == "debug"), dtype=dtype,
+                Hxa_end_mean=ya_end, end_active_mask=end_active,
+                ens_obs_end=ens_obs_end)
