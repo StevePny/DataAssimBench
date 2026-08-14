@@ -179,3 +179,74 @@ class LETKF4D(LETKF, ETKF4D):
                     ens_obs_end=ens_obs_end)
             return xj.from_xarray(next_state), (forecast_states, metrics)
         return xj.from_xarray(next_state), forecast_states
+
+    def capture_first_transforms(self,
+                                 input_state: XarrayDatasetLike,
+                                 start_time: float,
+                                 obs_vector: XarrayDatasetLike,
+                                 n_cycles: int,
+                                 obs_error_sd=None,
+                                 analysis_window: float = 0.2,
+                                 analysis_time_in_window: float | None = None
+                                 ) -> np.ndarray:
+        """Materialize the real per-gridpoint transforms ``A`` from cycle 0.
+
+        Runs the SAME pre-scan setup (:meth:`_prepare_cycle`) and the SAME
+        cycle-0 obs gather / window forecast / window-stacking as
+        :meth:`_cycle_and_forecast_4d`, but EAGERLY (outside ``lax.scan``) and
+        stops at :meth:`LETKF.capture_A_matrices` -- so the returned
+        ``(grid_dim, K, K)`` stack is EXACTLY the SPD transforms the first
+        analysis would solve, as concrete host arrays.  For offline solver /
+        precision / ridge diagnostics; does not run the analysis or advance the
+        filter.
+
+        Args mirror :meth:`~dabench.dacycler.DACycler.cycle`.
+
+        Returns:
+            The cycle-0 per-gridpoint transform stack ``(grid_dim, K, K)`` as a
+            NumPy array (dtype follows the ensemble precision).
+        """
+        input_state, all_filtered_padded = self._prepare_cycle(
+            input_state, start_time, obs_vector, obs_error_sd, n_cycles,
+            analysis_window, analysis_time_in_window)
+
+        # Cycle-0 obs indices (first padded row); reproduce the body's gather.
+        cur_state = input_state
+        cur_time = jnp.asarray(cur_state['_cur_time'].data)
+        cur_state = cur_state.drop_vars(['_cur_time'])
+        filtered_idx = jnp.asarray(all_filtered_padded[0])
+        obs_time_mask = filtered_idx > 0
+        filtered_idx = filtered_idx - 1
+
+        cur_obs_vals = jnp.array(
+                self._obs_vector[self._observed_vars]
+                .to_stacked_array('system', ['time']).data
+                ).at[filtered_idx].get()
+        cur_obs_times = jnp.array(
+                self._obs_vector.time.data).at[filtered_idx].get()
+        cur_obs_loc_indices = jnp.array(
+                self._obs_vector.system_index.data
+                ).at[:, filtered_idx].get().reshape(filtered_idx.shape[0], -1)
+        cur_obs_loc_mask = jnp.array(self._obs_loc_masks).at[
+                :, filtered_idx].get().astype(bool).reshape(
+                filtered_idx.shape[0], -1)
+
+        obs_window_indices = jnp.array([
+                jnp.argmin(
+                    jnp.abs(obs_time - (cur_time + self._model_timesteps))
+                    ) for obs_time in cur_obs_times
+            ])
+
+        _, forecast_states = self._step_forecast(
+                cur_state, n_steps=self.steps_per_window)
+        Xtraj, Yb, Y, rinv_diag = self._build_yb(
+                forecast_states, cur_obs_vals, cur_obs_loc_indices,
+                obs_time_mask, cur_obs_loc_mask, obs_window_indices)
+        obs_loc_flat = jnp.asarray(cur_obs_loc_indices).reshape(-1)
+
+        tau = self._resolve_analysis_index()
+        Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
+        A_stack = self.capture_A_matrices(
+                Xb_tau, Yb, Y, rinv_diag, obs_loc_flat,
+                rho=self.multiplicative_inflation)
+        return np.asarray(A_stack)

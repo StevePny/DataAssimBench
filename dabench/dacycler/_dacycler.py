@@ -274,6 +274,94 @@ class DACycler():
             f"{type(self).__name__} enabled 3D-FGAT (_fgat=True) but does not "
             "implement _cycle_and_forecast_fgat.")
 
+    def _prepare_cycle(self,
+                       input_state: XarrayDatasetLike,
+                       start_time: float | np.datetime64,
+                       obs_vector: XarrayDatasetLike,
+                       obs_error_sd: float | ArrayLike | None,
+                       n_cycles: int,
+                       analysis_window: float,
+                       analysis_time_in_window: float | None
+                       ) -> tuple[XarrayDatasetLike, ArrayLike]:
+        """Populate obs/window attributes and build the padded obs indices.
+
+        The shared, side-effecting pre-scan setup extracted verbatim from
+        :meth:`cycle` (byte-identical): sets ``self._observed_vars``,
+        ``self._data_vars``, ``self.analysis_window``, ``self.steps_per_window``,
+        ``self._model_timesteps``, ``self._obs_vector``, ``self.obs_error_sd``,
+        ``self._obs_loc_masks``; runs the one-shot observability check; and
+        returns ``(input_state_with_time, all_filtered_padded)``.  Offline
+        diagnostics reuse this so cycle 0 is reproduced with the SAME obs gather
+        the scan would use.
+        """
+        # These could be different if observer doesn't observe all variables
+        # For now, making them the same
+        self._observed_vars = obs_vector['variable'].values
+        self._data_vars = list(input_state.data_vars)
+
+        if obs_error_sd is None:
+            obs_error_sd = obs_vector.error_sd
+
+        self.analysis_window = analysis_window
+
+        # Whether this cycle rides a forward-looking window (obs gathered from
+        # the analysis time forward across the window): the 4D path always does,
+        # and a 3D-FGAT cycler does too (it needs the true obs times spanning
+        # the window).  A plain 3D cycler keeps the legacy centered window.
+        _forward_window = self._in_4d or self._fgat
+
+        # If don't specify analysis_time_in_window, is assumed to be middle
+        if analysis_time_in_window is None:
+            if _forward_window:
+                analysis_time_in_window = 0
+            else:
+                analysis_time_in_window = self.analysis_window/2
+
+        # Steps per window + 1 to include start
+        self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
+
+        # Time offset from middle of time window, for gathering observations
+        _time_offset = (analysis_window/2) - analysis_time_in_window
+
+        # Set up for jax.lax.scan, which is very fast
+        all_times = dac_utils._get_all_times(
+            start_time,
+            analysis_window,
+            n_cycles)
+
+
+        if self.steps_per_window is None:
+            self.steps_per_window = round(analysis_window/self.delta_t) + 1
+        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
+        # Get the obs vectors for each analysis window
+        all_filtered_idx = dac_utils._get_obs_indices(
+            obs_times=jnp.array(obs_vector.time.values),
+            analysis_times=all_times+_time_offset,
+            start_inclusive=True,
+            end_inclusive=_forward_window,
+            analysis_window=analysis_window
+        )
+        input_state = input_state.assign(_cur_time=start_time)
+
+        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx, add_one=True)
+        self._obs_vector=obs_vector
+        self.obs_error_sd = obs_error_sd
+        if obs_vector.stationary_observers:
+            self._obs_loc_masks = jnp.ones(
+                obs_vector[self._observed_vars].to_array().shape, dtype=bool)
+        else:
+            self._obs_loc_masks = ~np.isnan(
+                obs_vector[self._observed_vars].to_array().data)
+            self._obs_vector=self._obs_vector.fillna(0)
+
+        # One-shot observability / rank-deficiency check (subclass hook; no-op
+        # on the base).  Runs here (concrete host-side, before the scan, AFTER
+        # self._obs_vector is set) so any warning fires exactly once per
+        # cycle() rather than per scan step.
+        self._check_observability(all_filtered_idx, input_state)
+        return input_state, all_filtered_padded
+
     def cycle(self,
               input_state: XarrayDatasetLike,
               start_time: float | np.datetime64,
@@ -327,72 +415,14 @@ class DACycler():
         # replaced -- never appended -- on completion below).
         self.metrics = None
 
-        # These could be different if observer doesn't observe all variables
-        # For now, making them the same
-        self._observed_vars = obs_vector['variable'].values
-        self._data_vars = list(input_state.data_vars)
-
-        if obs_error_sd is None:
-            obs_error_sd = obs_vector.error_sd
-
-        self.analysis_window = analysis_window
-
-        # Whether this cycle rides a forward-looking window (obs gathered from
-        # the analysis time forward across the window): the 4D path always does,
-        # and a 3D-FGAT cycler does too (it needs the true obs times spanning
-        # the window).  A plain 3D cycler keeps the legacy centered window.
-        _forward_window = self._in_4d or self._fgat
-
-        # If don't specify analysis_time_in_window, is assumed to be middle
-        if analysis_time_in_window is None:
-            if _forward_window:
-                analysis_time_in_window = 0
-            else:
-                analysis_time_in_window = self.analysis_window/2
-
-        # Steps per window + 1 to include start
-        self.steps_per_window = round(analysis_window/self.delta_t) + 1
-        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
-
-        # Time offset from middle of time window, for gathering observations
-        _time_offset = (analysis_window/2) - analysis_time_in_window
-
-        # Set up for jax.lax.scan, which is very fast
-        all_times = dac_utils._get_all_times(
-            start_time,
-            analysis_window,
-            n_cycles)
-            
-
-        if self.steps_per_window is None:
-            self.steps_per_window = round(analysis_window/self.delta_t) + 1
-        self._model_timesteps = jnp.arange(self.steps_per_window)*self.delta_t
-        # Get the obs vectors for each analysis window
-        all_filtered_idx = dac_utils._get_obs_indices(
-            obs_times=jnp.array(obs_vector.time.values),
-            analysis_times=all_times+_time_offset,
-            start_inclusive=True,
-            end_inclusive=_forward_window,
-            analysis_window=analysis_window
-        )
-        input_state = input_state.assign(_cur_time=start_time)
-
-        all_filtered_padded = dac_utils._pad_time_indices(all_filtered_idx, add_one=True)
-        self._obs_vector=obs_vector
-        self.obs_error_sd = obs_error_sd
-        if obs_vector.stationary_observers:
-            self._obs_loc_masks = jnp.ones(
-                obs_vector[self._observed_vars].to_array().shape, dtype=bool)
-        else:
-            self._obs_loc_masks = ~np.isnan(
-                obs_vector[self._observed_vars].to_array().data)
-            self._obs_vector=self._obs_vector.fillna(0)
-
-        # One-shot observability / rank-deficiency check (subclass hook; no-op
-        # on the base).  Runs here (concrete host-side, before the scan, AFTER
-        # self._obs_vector is set) so any warning fires exactly once per
-        # cycle() rather than per scan step.
-        self._check_observability(all_filtered_idx, input_state)
+        # Shared setup: populate obs attributes, resolve the window, run the
+        # one-shot observability check, and build the padded per-cycle obs
+        # indices.  Factored into ``_prepare_cycle`` so offline diagnostics
+        # (e.g. transform capture) can reproduce cycle 0 EXACTLY without
+        # re-running the scan.
+        input_state, all_filtered_padded = self._prepare_cycle(
+            input_state, start_time, obs_vector, obs_error_sd, n_cycles,
+            analysis_window, analysis_time_in_window)
 
         if self._in_4d:
             _fn = self._cycle_and_forecast_4d

@@ -221,6 +221,82 @@ def test_letkf4d_l96_cycle(l96_nature_run, obs_vec_l96_observable,
     assert rmse_da < rmse_noop
 
 
+# ── capture_first_transforms: real cycle-0 A stack == analysis transform ────
+def test_letkf4d_capture_first_transforms(l96_nature_run,
+                                          obs_vec_l96_observable,
+                                          l96_fc_model):
+    """``LETKF4D.capture_first_transforms`` must return the EXACT per-gridpoint
+    SPD transforms ``A`` the first analysis solves: a concrete
+    ``(grid_dim, K, K)`` SPD stack that, when solved + recombined the same way
+    ``_local_columns`` does on the same cycle-0 inputs, reproduces the cycler's
+    own analysis columns to round-off.  This is the offline solver-diagnostic
+    capture path (replay real transforms through other backends/precisions)."""
+    ens = 10
+    init_state = _l96_init(l96_nature_run, ens=ens)
+    letkf = LETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=ens,
+                    model_obj=l96_fc_model, localize_radius=1.5)
+    kw = dict(input_state=init_state, start_time=init_state['time'].data,
+              obs_vector=obs_vec_l96_observable, obs_error_sd=0.5,
+              analysis_window=0.1, n_cycles=10)
+
+    A = letkf.capture_first_transforms(**kw)
+    assert A.ndim == 3 and A.shape[1] == A.shape[2] == ens
+    assert np.isfinite(A).all()
+    w = np.linalg.eigvalsh(A)                          # SPD: all eigs > 0
+    assert float(w.min()) > 0.0
+
+    # Rebuild the SAME cycle-0 inputs the capture used, so _local_columns is
+    # called on identical (Xb_grid, Yb, Y, rinv, taper), then reconstruct the
+    # analysis from the captured A and compare to the cycler's own output.
+    inp, allpad = letkf._prepare_cycle(
+        init_state, init_state['time'].data, obs_vec_l96_observable, 0.5, 10,
+        0.1, None)
+    cur_time = jnp.asarray(inp['_cur_time'].data)
+    cur_state = inp.drop_vars(['_cur_time'])
+    fidx = jnp.asarray(allpad[0]) - 1
+    otm = jnp.asarray(allpad[0]) > 0
+    cov = jnp.array(letkf._obs_vector[letkf._observed_vars]
+                    .to_stacked_array('system', ['time']).data).at[fidx].get()
+    cot = jnp.array(letkf._obs_vector.time.data).at[fidx].get()
+    coli = jnp.array(letkf._obs_vector.system_index.data).at[:, fidx].get(
+        ).reshape(fidx.shape[0], -1)
+    colm = jnp.array(letkf._obs_loc_masks).at[:, fidx].get().astype(bool
+        ).reshape(fidx.shape[0], -1)
+    owi = jnp.array([jnp.argmin(jnp.abs(t - (cur_time + letkf._model_timesteps)))
+                     for t in cot])
+    _, fc = letkf._step_forecast(cur_state, n_steps=letkf.steps_per_window)
+    Xtraj, Yb, Y, rinv = letkf._build_yb(fc, cov, coli, otm, colm, owi)
+    obs_loc_flat = jnp.asarray(coli).reshape(-1)
+    tau = letkf._resolve_analysis_index()
+    Xb_tau = Xtraj[:, tau, :].T
+    dtype = Xb_tau.dtype
+    Xb_grid = jax.vmap(letkf.to_grid, in_axes=1, out_axes=1)(Xb_tau)
+    taper = letkf._build_taper(obs_loc_flat, dtype)
+    Xa_ref = np.asarray(letkf._local_columns(
+        Xb_grid, Yb, Y, rinv, taper, rho=letkf.multiplicative_inflation))
+
+    from dabench.dacycler._utils import _solve_pa_wa
+    K = ens
+    Iden = jnp.identity(K, dtype=dtype)
+    U = jnp.ones((K, K), dtype=dtype) / K
+    Yb_pert = Yb @ (Iden - U)
+    innov = (Y - jnp.mean(Yb, axis=1)).astype(dtype)
+    A_j = jnp.asarray(A)
+
+    def _recon(g):
+        Pa, Wa, _ = _solve_pa_wa(A_j[g], letkf.eigh_impl, letkf.ns_iters)
+        YtRinv = Yb_pert.T * (
+            rinv.astype(dtype) * taper[g].astype(dtype))[None, :]
+        wa = Pa @ (YtRinv @ innov)
+        xb_col = Xb_grid[g]
+        xb_bar = jnp.mean(xb_col)
+        xb_pert = xb_col - xb_bar
+        return xb_pert @ Wa + xb_bar + jnp.dot(xb_pert, wa)
+
+    Xa_cap = np.asarray(jax.vmap(_recon)(jnp.arange(A.shape[0])))
+    assert np.allclose(Xa_cap, Xa_ref, rtol=0, atol=1e-9)
+
+
 # ── obs-space metrics: LETKF (inherits ETKF._cycle_obsop) + LETKF4D ─────────
 @pytest.mark.parametrize("cls", [LETKF, LETKF4D])
 def test_letkf_obs_metrics(l96_nature_run, obs_vec_l96, l96_fc_model, cls):

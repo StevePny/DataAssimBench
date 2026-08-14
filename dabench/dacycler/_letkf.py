@@ -241,6 +241,52 @@ class LETKF(ETKF):
             self._taper_cache = taper
         return taper.astype(dtype)
 
+    # ── local (per-gridpoint) ETKF transform capture ──────────────────────
+    def capture_A_matrices(self,
+                           Xb: ArrayLike,
+                           Yb: ArrayLike,
+                           Y: ArrayLike,
+                           rinv_diag: ArrayLike,
+                           obs_loc_indices: ArrayLike,
+                           rho: float) -> jax.Array:
+        """Materialize the per-gridpoint SPD transforms ``A`` (no solve).
+
+        Reproduces EXACTLY the ``A = (K-1)/rho I + Y^T R^{-1} Y`` that
+        :meth:`_local_columns` builds per grid point (same ISHT lift, taper,
+        window-stacked innovations), but returns the raw ``(grid_dim, K, K)``
+        stack instead of solving/recombining.  Intended for OFFLINE solver
+        diagnostics (replay the real transforms through different SPD backends /
+        precisions / ridges).  Call EAGERLY (outside ``lax.scan``) so the result
+        is concrete; the inputs are the same the cycle body passes to
+        :meth:`_localized_analysis`.
+
+        Args:
+            Xb: Background ensemble in spectral/state space, ``(system_dim, K)``.
+            Yb: Obs-space ensemble, ``(n_obs, K)``.
+            Y: Flattened observation vector, ``(n_obs,)``.
+            rinv_diag: Masked diagonal ``R^{-1}``, ``(n_obs,)``.
+            obs_loc_indices: Flattened observed grid indices (for the taper).
+            rho: Multiplicative inflation factor.
+
+        Returns:
+            The per-gridpoint SPD transform stack ``(grid_dim, K, K)``.
+        """
+        dtype = Xb.dtype
+        K = Xb.shape[1]
+        I = jnp.identity(K, dtype=dtype)
+        U = jnp.ones((K, K), dtype=dtype) / K
+        Xb_grid = jax.vmap(self.to_grid, in_axes=1, out_axes=1)(Xb)
+        taper = self._build_taper(obs_loc_indices, dtype)
+        Yb_pert = Yb @ (I - U)
+        rinv = rinv_diag.astype(dtype)
+
+        def _lane_A(taper_row):
+            rinv_local = rinv * taper_row.astype(dtype)        # (n_obs,)
+            YtRinv = Yb_pert.T * rinv_local[None, :]           # (K, n_obs)
+            return (K - 1) / rho * I + YtRinv @ Yb_pert        # (K, K) SPD
+
+        return jax.vmap(_lane_A)(taper)                        # (grid_dim, K, K)
+
     # ── local (per-gridpoint) ETKF solve ──────────────────────────────────
     def _local_columns(self,
                        Xb_grid: ArrayLike,
