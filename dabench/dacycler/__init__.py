@@ -13,6 +13,7 @@ from ._var4d_operator_utils import (
     BFactors,
     build_B_half,
     extract_B_factors,
+    finalize_lowrank_factors,
     pcg_lanczos_solve,
     quadratic_cost,
     window_tlm_rollout,
@@ -21,6 +22,11 @@ from ._bred_vectors import (
     breed_vectors,
     bred_vectors_to_B_factors,
     build_bred_clim_B,
+    )
+from ._ensemble_cov import (
+    EnsCovAccumulator,
+    save_ens_cov_factors,
+    load_ens_cov_b_half,
     )
 
 __all__ = [
@@ -36,10 +42,14 @@ __all__ = [
     'BFactors',
     'build_B_half',
     'extract_B_factors',
+    'finalize_lowrank_factors',
     'pcg_lanczos_solve',
     'quadratic_cost',
     'window_tlm_rollout',
     'breed_vectors',
     'bred_vectors_to_B_factors',
     'build_bred_clim_B',
+    'EnsCovAccumulator',
+    'save_ens_cov_factors',
+    'load_ens_cov_b_half',
     ]

@@ -116,6 +116,90 @@ def build_B_half(bf: BFactors) -> Callable[[ArrayLike], ArrayLike]:
     return apply_B_half
 
 
+def finalize_lowrank_factors(
+        U_raw: ArrayLike,
+        sigma_raw: ArrayLike,
+        state_dim: int,
+        *,
+        sigma_bg: float | None,
+        scale: ArrayLike | None = None,
+        target_trace: float | str | None = "auto",
+        total_var: float | None = None,
+        ) -> tuple[BFactors, dict]:
+    """Trace-match (and, for ``scale``, congruence-map) raw low-rank factors.
+
+    Shared finalize for any persisted raw square-root factor pair
+    ``(U_raw, sigma_raw)`` (bred vectors, climatological ensemble anomalies,
+    ...): the covariance is kept in SQUARE-ROOT form throughout and the
+    control-variable-transform (CVT) congruence is applied to the anomaly
+    factor, never by materialising a dense ``B``.
+
+    Args:
+        U_raw: Orthonormal columns ``(state_dim, K)`` of the raw factor.
+        sigma_raw: Raw ``B^(1/2)`` singular values ``(K,)`` so that
+            ``B_raw = U_raw diag(sigma_raw^2) U_raw^T``.
+        state_dim: Physical dimension ``D``.
+        sigma_bg: Isotropic background std used for trace matching.  The
+            retained subspace is scaled so ``tr(B) = D * sigma_bg^2``.
+        scale: If ``None`` the trace-match is performed in the raw frame in
+            place.  Otherwise the congruence transform ``B_n = D^{-1} B_raw
+            D^{-1}`` with ``D = diag(scale)`` is applied first (re-SVD of the
+            scaled factor ``L = (U_raw / scale) * sigma_raw``).  Must have
+            shape ``(state_dim,)``.
+        target_trace: ``"auto"`` resolves to ``state_dim * sigma_bg^2``
+            (``None`` when ``sigma_bg is None``); pass an explicit float/None
+            to override.
+        total_var: Optional precomputed total variance to trace-match
+            against (raw frame only).  When given, ``alpha2 =
+            target_trace / total_var`` rather than ``sum(sigma_raw^2)`` --
+            lets callers trace-match a truncated subspace against the FULL
+            spectrum (used by the bred path to stay byte-identical).
+
+    Returns:
+        ``(bf, info)`` where ``bf`` is a :class:`BFactors` with
+        ``sigma_bg == 0`` and ``info`` carries ``alpha2``, ``eigvals_top8``,
+        ``frame`` (``"raw"`` / ``"normalised"``), ``K_effective`` and the
+        resolved ``target_trace``.
+    """
+    if target_trace == "auto":
+        tt = (None if sigma_bg is None
+              else float(state_dim) * float(sigma_bg) ** 2)
+    else:
+        tt = target_trace
+    U_raw = jnp.asarray(U_raw)
+    sigma_raw = jnp.asarray(sigma_raw)
+    if scale is None:
+        eig = sigma_raw ** 2
+        tv = float(total_var) if total_var is not None else float(jnp.sum(eig))
+        alpha2 = (1.0 if tt is None else float(tt) / max(tv, 1e-30))
+        sigma = jnp.sqrt(jnp.maximum(eig, 0.0) * alpha2)
+        bf = BFactors(U=U_raw, sigma=sigma, sigma_bg=0.0)
+        eigvals_top8 = [float(v) for v in np.asarray(eig[:8])]
+        frame = "raw"
+    else:
+        s = jnp.asarray(scale, dtype=U_raw.dtype)
+        if s.shape != (state_dim,):
+            raise ValueError(
+                f"scale must have shape ({state_dim},); got {tuple(s.shape)}.")
+        L = (U_raw / s[:, None]) * sigma_raw[None, :]           # (D, K)
+        U_n, sv_n, _ = jnp.linalg.svd(L, full_matrices=False)
+        eig_n = sv_n ** 2
+        tv = float(jnp.sum(eig_n))
+        alpha2 = (1.0 if tt is None else float(tt) / max(tv, 1e-30))
+        sigma_n = jnp.sqrt(jnp.maximum(eig_n, 0.0) * alpha2)
+        bf = BFactors(U=U_n, sigma=sigma_n, sigma_bg=0.0)
+        eigvals_top8 = [float(v) for v in np.asarray(eig_n[:8])]
+        frame = "normalised"
+    info = {
+            "alpha2": float(alpha2),
+            "eigvals_top8": eigvals_top8,
+            "frame": frame,
+            "K_effective": int(bf.U.shape[1]),
+            "target_trace": (None if tt is None else float(tt)),
+            }
+    return bf, info
+
+
 def window_tlm_rollout(
         tlm_op: Callable[[ArrayLike, ArrayLike], ArrayLike],
         x_traj: ArrayLike,

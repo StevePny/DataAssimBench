@@ -27,7 +27,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ._var4d_operator_utils import BFactors
+from ._var4d_operator_utils import BFactors, finalize_lowrank_factors
 
 ArrayLike = np.ndarray | jax.Array
 # forecast_fn(x0: (D,), n_steps: int) -> x_after: (D,)
@@ -181,13 +181,15 @@ def bred_vectors_to_B_factors(
     eig_K = eig[:K_eff]
 
     total_var = float(jnp.sum(eig))
-    if target_trace is not None:
-        alpha2 = float(target_trace) / max(total_var, 1e-30)
-    else:
-        alpha2 = 1.0
-    sigma_K = jnp.sqrt(jnp.maximum(eig_K, 0.0) * alpha2)
-
-    bf = BFactors(U=U_K, sigma=sigma_K, sigma_bg=float(sigma_bg))
+    # Delegate the trace-match to the shared finalize (raw frame).  Passing
+    # ``total_var`` (the FULL spectrum) reproduces the historical alpha2 =
+    # target_trace / sum(eig_full) exactly, even for K < full rank.
+    bf, _fin = finalize_lowrank_factors(
+            U_K, jnp.sqrt(jnp.maximum(eig_K, 0.0)), int(D),
+            sigma_bg=None, scale=None, target_trace=target_trace,
+            total_var=total_var)
+    alpha2 = _fin["alpha2"]
+    bf = BFactors(U=bf.U, sigma=bf.sigma, sigma_bg=float(sigma_bg))
     info = {
             "n_bred_vectors": int(M), "state_dim": int(D),
             "K_requested": int(K), "K_effective": K_eff,
