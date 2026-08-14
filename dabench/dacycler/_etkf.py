@@ -64,8 +64,18 @@ class ETKF(dacycler.DACycler):
             for ML-training integration); ``"qr"``/``"jacobi"`` select lax eigh
             variants.  All match to round-off for the SPD transform.
         ns_iters: Newton-Schulz coupled-iteration budget (only used when
-            ``eigh_impl="newton_schulz"``).  Default 20 -- at the fp64 round-off
-            floor for a well-conditioned (kappa<1e3) 64x64 SPD transform.
+            ``eigh_impl="newton_schulz"``).  Default 40 -- empirically the
+            iteration count needed to reach the fp64 convergence floor across a
+            wide conditioning range (kappa up to ~1e12) for a 128x128 SPD
+            transform; 20 leaves high-kappa (>=1e10) transforms UNDER-converged
+            even at fp64 (residual ~0.2-0.7).  The right budget is
+            problem-dependent (system dimension, ensemble size, localization,
+            inflation all shift the transform's conditioning): callers are
+            strongly advised to run :func:`ns_iter_sweep` on a representative
+            transform from their own system BEFORE trusting the NS path -- it
+            reports, per (precision, conditioning), the per-step residual so you
+            can pick ``ns_iters`` and confirm precision suffices (fp32 has a hard
+            precision floor set by conditioning that NO ``ns_iters`` overcomes).
         ns_resid_warn: Threshold on the Newton-Schulz relative convergence
             residual ``||Z A Z - I||_F / sqrt(K)`` above which a warning is
             emitted suggesting more ``ns_iters`` (fp64-calibrated; loosen under
@@ -91,7 +101,7 @@ class ETKF(dacycler.DACycler):
                  additive_inflation: float = 0.0,
                  additive_seed: int = 0,
                  eigh_impl: str | None = None,
-                 ns_iters: int = 20,
+                 ns_iters: int = 40,
                  ns_resid_warn: float = 1e-6,
                  fgat: bool = False,
                  analysis_time_index: int | str = "mid",

@@ -213,6 +213,89 @@ def _spd_inv_sqrt_ns(A: ArrayLike, n_iter: int = 20) -> jax.Array:
     return Z / jnp.sqrt(s)
 
 
+def ns_iter_sweep(A, n_iters=(4, 8, 12, 16, 20, 30, 40, 60),
+                  dtypes=("float32", "float64"), verbose=True):
+    """Diagnose the Newton-Schulz SPD inverse-sqrt on YOUR transform.
+
+    Before trusting the ``eigh_impl="newton_schulz"`` path for an ETKF/LETKF
+    solve you should confirm, on a transform representative of your own system
+    (its dimension, ensemble size, localization and inflation all set the
+    conditioning of ``A = (K-1)/rho I + Y^T R^{-1} Y``), that (a) your working
+    precision can converge at all and (b) ``ns_iters`` is large enough to reach
+    the floor.  This routine runs the EXACT coupled iteration used internally
+    (:func:`_spd_inv_sqrt_ns`) and captures the relative residual
+    ``||Z A Z - I||_F / sqrt(K)`` at EVERY step, so it exposes both
+    under-convergence and the round-off-driven late-iteration growth/divergence
+    that the coupled form can suffer in low precision.
+
+    Key facts it will surface: fp32 has a HARD precision floor set by ``cond2(A)``
+    (no ``ns_iters`` overcomes it -- above ~1e8 fp32 diverges to NaN); fp64
+    converges cleanly but high-conditioning transforms need more iterations
+    (e.g. ~40 at cond2 >= 1e10, where 20 is under-converged).
+
+    Args:
+        A: An SPD transform ``(K, K)`` from your system (e.g. built as
+            ``(K-1) I + Yb.T @ (Rinv * Yb)`` for one grid point), array-like.
+        n_iters: Iteration counts to report the residual at.
+        dtypes: Precisions to test (needs ``jax_enable_x64=True`` for float64).
+        verbose: Print a per-precision summary table.
+
+    Returns:
+        ``dict`` keyed by dtype name -> ``dict`` with ``cond2`` (float),
+        ``residuals`` (list, per-step in fp64 metric, length ``max(n_iters)``),
+        ``best`` (min residual), ``best_iter`` (1-based), ``at`` (residual at
+        each requested ``n_iters``), and ``late_growth`` (bool: residual rose
+        >3x above its minimum after the minimum -- a divergence warning sign).
+    """
+    A64 = np.asarray(A, dtype=np.float64)
+    K = A64.shape[-1]
+    Iref = np.eye(K)
+    w = np.linalg.eigvalsh(A64)
+    cond2 = float(w[-1] / max(w[0], 1e-300))
+    n_max = int(max(n_iters))
+    out = {}
+    for dtname in dtypes:
+        dt = jnp.dtype(dtname)
+        Adt = jnp.asarray(A64, dtype=dt)
+        Ik = jnp.eye(K, dtype=dt)
+        s = jnp.maximum(jnp.max(jnp.sum(jnp.abs(Adt), axis=-1)),
+                        jnp.asarray(jnp.finfo(dt).tiny, dt))
+        Y = Adt / s
+        Z = Ik
+        half = jnp.asarray(0.5, dt)
+        three_half = jnp.asarray(1.5, dt)
+        resids = []
+        for _ in range(n_max):
+            T = three_half * Ik - half * (Z @ Y)
+            Y = Y @ T
+            Z = T @ Z
+            Zc = np.asarray(Z / jnp.sqrt(s), np.float64)
+            resids.append(
+                float(np.linalg.norm(Zc @ A64 @ Zc - Iref) / np.sqrt(K))
+                if np.isfinite(Zc).all() else float("nan"))
+        arr = np.array(resids)
+        finite = arr[np.isfinite(arr)]
+        if finite.size:
+            best_i = int(np.nanargmin(arr))
+            best = float(arr[best_i])
+            tail = arr[best_i + 1:]
+            late = bool(np.isfinite(tail).any()
+                        and np.nanmax(tail) > 3.0 * best)
+        else:
+            best_i, best, late = -1, float("nan"), True
+        at = {int(n): (float(arr[n - 1]) if n <= len(arr) else float("nan"))
+              for n in n_iters}
+        out[dtname] = dict(cond2=cond2, residuals=resids, best=best,
+                           best_iter=best_i + 1, at=at, late_growth=late)
+    if verbose:
+        print(f"[ns_iter_sweep] K={K}  cond2(A)={cond2:.3e}")
+        for dtname, r in out.items():
+            per = "  ".join(f"n{n}={r['at'][n]:.1e}" for n in n_iters)
+            print(f"  {dtname}: best={r['best']:.2e}@iter{r['best_iter']}  "
+                  f"late-growth={r['late_growth']}\n        {per}")
+    return out
+
+
 def _resolve_eigh_impl(eigh_impl: str | None) -> str | None:
     """Validate/normalize an ``eigh_impl`` selector (shared by all cyclers).
 

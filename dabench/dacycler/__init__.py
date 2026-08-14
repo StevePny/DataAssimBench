@@ -2,6 +2,7 @@
 
 from ._dacycler import DACycler
 from ._var3d import Var3D
+from ._utils import ns_iter_sweep, _spd_inv_sqrt_ns
 from ._etkf import ETKF
 from ._etkf4d import ETKF4D
 from ._letkf import LETKF
@@ -32,6 +33,7 @@ from ._ensemble_cov import (
 __all__ = [
     'DACycler',
     'Var3D',
+    'ns_iter_sweep',
     'ETKF',
     'ETKF4D',
     'LETKF',

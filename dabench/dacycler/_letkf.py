@@ -105,7 +105,7 @@ class LETKF(ETKF):
                  localize_taper: str = "gaspari_cohn",
                  grid_chunk: int | None = 512,
                  eigh_impl: str | None = None,
-                 ns_iters: int = 20,
+                 ns_iters: int = 40,
                  ns_resid_warn: float = 1e-6,
                  increment_taper: ArrayLike | None = None,
                  **kwargs):
