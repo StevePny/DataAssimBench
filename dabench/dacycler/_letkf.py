@@ -275,7 +275,6 @@ class LETKF(ETKF):
         K = Xb.shape[1]
         I = jnp.identity(K, dtype=dtype)
         U = jnp.ones((K, K), dtype=dtype) / K
-        Xb_grid = jax.vmap(self.to_grid, in_axes=1, out_axes=1)(Xb)
         taper = self._build_taper(obs_loc_indices, dtype)
         Yb_pert = Yb @ (I - U)
         rinv = rinv_diag.astype(dtype)
@@ -285,7 +284,20 @@ class LETKF(ETKF):
             YtRinv = Yb_pert.T * rinv_local[None, :]           # (K, n_obs)
             return (K - 1) / rho * I + YtRinv @ Yb_pert        # (K, K) SPD
 
-        return jax.vmap(_lane_A)(taper)                        # (grid_dim, K, K)
+        # Chunk over grid points EXACTLY as ``_local_columns`` (via
+        # ``jax.lax.map`` in blocks of ``self.grid_chunk``) so the peak
+        # ``(chunk, K, n_obs)`` intermediate stays bounded -- a whole-grid
+        # ``vmap`` at the real T42 grid (grid_dim x K x n_obs) OOMs the GPU.
+        G = taper.shape[0]
+        chunk = self.grid_chunk
+        if chunk is None or chunk >= G:
+            return jax.vmap(_lane_A)(taper)                    # (grid_dim, K, K)
+        n_chunks = -(-G // chunk)                              # ceil div
+        pad = n_chunks * chunk - G
+        taper_p = jnp.pad(taper, ((0, pad), (0, 0)))
+        taper_c = taper_p.reshape(n_chunks, chunk, taper.shape[1])
+        A_c = jax.lax.map(lambda blk: jax.vmap(_lane_A)(blk), taper_c)
+        return A_c.reshape(n_chunks * chunk, K, K)[:G]         # (grid_dim, K, K)
 
     # ── local (per-gridpoint) ETKF solve ──────────────────────────────────
     def _local_columns(self,
