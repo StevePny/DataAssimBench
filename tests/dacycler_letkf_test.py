@@ -10,7 +10,8 @@ import jax.numpy as jnp
 import jax.random as jrand
 import dabench as dab
 from dabench.dacycler import ETKF, LETKF, LETKF4D
-from dabench.dacycler._letkf import _gaspari_cohn, _spd_inv_sqrt_ns
+from dabench.dacycler._letkf import (
+    _gaspari_cohn, _great_circle_km, _spd_inv_sqrt_ns, build_patch_geometry)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -407,6 +408,201 @@ def test_letkf_grid_chunk_matches_whole_grid():
     for chunk in (1, 5, 8, 13, 100):
         assert np.allclose(_run(chunk), whole, rtol=0, atol=1e-12), (
             f"chunk={chunk} differs beyond round-off")
+
+
+# ── Regime-A local-patch gather (§14.3) ────────────────────────────────────
+def test_build_patch_geometry_exact_and_truncated():
+    """``build_patch_geometry`` must recover, per grid point, the SAME nearest
+    obs + Gaspari-Cohn weights the dense taper carries.  At ``P=max`` neighbour
+    count nothing is truncated; a smaller ``P`` keeps the NEAREST obs and logs
+    the discarded weight mass."""
+    rng = np.random.default_rng(101)
+    grid_dim, n_obs = 12, 25
+    grid_latlon = np.stack([rng.uniform(-70, 70, grid_dim),
+                            rng.uniform(0, 360, grid_dim)], axis=1)
+    obs_latlon = np.stack([rng.uniform(-70, 70, n_obs),
+                           rng.uniform(0, 360, n_obs)], axis=1)
+    R = 3000.0                                       # km; wide enough to overlap
+
+    patch_idx, patch_gc, diag = build_patch_geometry(
+        grid_latlon, obs_latlon, localize_radius=R, localize_units="km")
+    assert patch_idx.shape == patch_gc.shape
+    assert patch_idx.dtype == np.int32
+    # Exact P => no truncation, no discarded mass.
+    assert diag["pct_truncated"] == 0.0
+    assert diag["weight_mass_discarded"] == 0.0
+    # Every in-patch nonzero weight matches the dense GC of that (grid, obs) pair.
+    dense = np.asarray(_gaspari_cohn(
+        np.asarray(_great_circle_km(
+            grid_latlon[:, 0][:, None], grid_latlon[:, 1][:, None],
+            obs_latlon[:, 0][None, :], obs_latlon[:, 1][None, :])), R))
+    for g in range(grid_dim):
+        for p in range(patch_idx.shape[1]):
+            w = patch_gc[g, p]
+            if w > 0:
+                assert np.isclose(w, dense[g, patch_idx[g, p]], atol=1e-12)
+
+    # Truncated P: keeps the P nearest, reports discarded mass >= 0.
+    idx_t, gc_t, diag_t = build_patch_geometry(
+        grid_latlon, obs_latlon, localize_radius=R, localize_units="km",
+        patch_size=2)
+    assert idx_t.shape[1] == 2
+    assert diag_t["weight_mass_discarded"] >= 0.0
+
+
+def test_letkf_patch_gather_matches_dense():
+    """The sparse local-patch gather (Regime A, §14.3) must reproduce the dense
+    Gaspari-Cohn taper analysis to round-off when ``P`` covers every neighbour:
+    identical GC weights + validity, just gathered instead of broadcast.  This
+    is the equivalence that lets the patch API replace the ``(grid_dim, n_obs)``
+    taper without changing the analysis."""
+    rng = np.random.default_rng(202)
+    grid_dim, n_obs, ens = 15, 30, 5
+    grid_latlon = jnp.asarray(
+        np.stack([rng.uniform(-70, 70, grid_dim),
+                  rng.uniform(0, 360, grid_dim)], axis=1))
+    obs_latlon = jnp.asarray(
+        np.stack([rng.uniform(-70, 70, n_obs),
+                  rng.uniform(0, 360, n_obs)], axis=1))
+    Xb = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+    R = 2500.0
+
+    dense = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=grid_latlon,
+                  obs_latlon=obs_latlon, localize_radius=R, grid_chunk=None)
+    taper = dense._build_taper(jnp.arange(n_obs), jnp.float64)
+    Xa_dense = np.asarray(dense._local_columns(Xb, Yb, Y, rinv, taper, rho=1.0))
+
+    patch_idx, patch_gc, _ = build_patch_geometry(
+        np.asarray(grid_latlon), np.asarray(obs_latlon), localize_radius=R)
+    for chunk in (None, 4, 15):
+        patch = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                      model_obj=None, grid_latlon=grid_latlon,
+                      obs_latlon=obs_latlon, localize_radius=R,
+                      grid_chunk=chunk, patch_idx=patch_idx, patch_gc=patch_gc)
+        Xa_patch = np.asarray(
+            patch._local_columns(Xb, Yb, Y, rinv, None, rho=1.0))
+        assert np.allclose(Xa_patch, Xa_dense, rtol=0, atol=1e-10), (
+            f"patch chunk={chunk} differs from dense taper beyond round-off")
+
+    # capture_A_matrices patch path must match the dense A-stack too.
+    Xb_spec = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    A_dense = np.asarray(dense.capture_A_matrices(
+        Xb_spec, Yb, Y, rinv, jnp.arange(n_obs), rho=1.0))
+    A_patch = np.asarray(patch.capture_A_matrices(
+        Xb_spec, Yb, Y, rinv, jnp.arange(n_obs), rho=1.0))
+    assert np.allclose(A_patch, A_dense, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_no_obs_gridpoint_is_background():
+    """A grid point whose patch is entirely beyond ``2c`` (all-zero patch_w)
+    must fall through to ``A=(K-1)/rho I`` -> analysis = background, exactly like
+    the dense no-obs case."""
+    rng = np.random.default_rng(303)
+    grid_dim, n_obs, ens = 8, 12, 4
+    grid_latlon = np.stack([rng.uniform(-70, 70, grid_dim),
+                            rng.uniform(0, 360, grid_dim)], axis=1)
+    # Put obs far from grid point 0 by placing it at a distinct pole-ish spot.
+    grid_latlon[0] = [-89.0, 0.0]
+    obs_latlon = np.stack([rng.uniform(20, 70, n_obs),
+                           rng.uniform(0, 360, n_obs)], axis=1)
+    R = 500.0                                        # tight: gp0 sees no obs
+    patch_idx, patch_gc, _ = build_patch_geometry(
+        grid_latlon, obs_latlon, localize_radius=R)
+    assert np.all(patch_gc[0] == 0.0)                # gp0 patch fully tapered
+
+    Xb = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+    patch = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid_latlon),
+                  obs_latlon=jnp.asarray(obs_latlon), localize_radius=R,
+                  grid_chunk=None, patch_idx=patch_idx, patch_gc=patch_gc)
+    Xa = np.asarray(patch._local_columns(Xb, Yb, Y, rinv, None, rho=1.0))
+    assert np.allclose(Xa[0], np.asarray(Xb[0]), atol=1e-10)
+
+
+def test_letkf_patch_windowstacked_matches_dense():
+    """With a window-stacked obs axis (``n_times * pool``), the patch gather must
+    tile the static pool geometry per block (offset ``t*pool``) and match the
+    dense tiled taper to round-off -- the 4D path."""
+    rng = np.random.default_rng(404)
+    grid_dim, pool, n_times, ens = 10, 6, 3, 4
+    grid_latlon = np.stack([rng.uniform(-70, 70, grid_dim),
+                            rng.uniform(0, 360, grid_dim)], axis=1)
+    obs_latlon = np.stack([rng.uniform(-70, 70, pool),
+                           rng.uniform(0, 360, pool)], axis=1)
+    n_obs = n_times * pool
+    Xb = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+    R = 4000.0
+
+    dense = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid_latlon),
+                  obs_latlon=jnp.asarray(obs_latlon), localize_radius=R,
+                  grid_chunk=None)
+    taper = dense._build_taper(jnp.asarray(np.tile(np.arange(pool), n_times)),
+                              jnp.float64)
+    assert taper.shape == (grid_dim, n_obs)
+    Xa_dense = np.asarray(dense._local_columns(Xb, Yb, Y, rinv, taper, rho=1.0))
+
+    patch_idx, patch_gc, _ = build_patch_geometry(
+        grid_latlon, obs_latlon, localize_radius=R)
+    patch = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid_latlon),
+                  obs_latlon=jnp.asarray(obs_latlon), localize_radius=R,
+                  grid_chunk=None, patch_idx=patch_idx, patch_gc=patch_gc)
+    Xa_patch = np.asarray(patch._local_columns(Xb, Yb, Y, rinv, None, rho=1.0))
+    assert np.allclose(Xa_patch, Xa_dense, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_localized_analysis_matches_dense():
+    """The FULL ``_localized_analysis`` (ISHT lift -> local solve -> SHT project
+    -> relax) must match between the dense taper and the patch gather to
+    round-off, so ``.cycle()`` is unaffected by the localization refactor.
+    Identity transforms keep grid == spectral so the comparison is direct."""
+    rng = np.random.default_rng(505)
+    grid_dim, n_obs, ens = 14, 28, 6
+    grid_latlon = np.stack([rng.uniform(-70, 70, grid_dim),
+                            rng.uniform(0, 360, grid_dim)], axis=1)
+    obs_latlon = np.stack([rng.uniform(-70, 70, n_obs),
+                           rng.uniform(0, 360, n_obs)], axis=1)
+    Xb = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+    obs_idx = jnp.arange(n_obs)
+    R = 2600.0
+
+    dense = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid_latlon),
+                  obs_latlon=jnp.asarray(obs_latlon), localize_radius=R,
+                  grid_chunk=None)
+    Xa_dense = np.asarray(dense._localized_analysis(
+        Xb, Yb, Y, rinv, obs_idx, rho=1.0))
+
+    patch_idx, patch_gc, _ = build_patch_geometry(
+        grid_latlon, obs_latlon, localize_radius=R)
+    patch = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid_latlon),
+                  obs_latlon=jnp.asarray(obs_latlon), localize_radius=R,
+                  grid_chunk=None, patch_idx=patch_idx, patch_gc=patch_gc)
+    Xa_patch = np.asarray(patch._localized_analysis(
+        Xb, Yb, Y, rinv, obs_idx, rho=1.0))
+    assert np.allclose(Xa_patch, Xa_dense, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_idx_gc_both_or_neither():
+    """``patch_idx`` and ``patch_gc`` must be supplied together (or both None)."""
+    with pytest.raises(ValueError, match="together"):
+        LETKF(system_dim=5, delta_t=0.01, ensemble_dim=4, model_obj=None,
+              patch_idx=np.zeros((5, 2), np.int32))
 
 
 def test_letkf_eigh_impl_invalid_raises():
