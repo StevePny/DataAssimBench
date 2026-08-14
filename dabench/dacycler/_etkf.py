@@ -438,7 +438,13 @@ class ETKF(dacycler.DACycler):
         if sigma <= 0.0:
             return Xa_pert
         ensemble_dim = Xa_pert.shape[1]
-        Z = jax.random.normal(key, (ensemble_dim, ensemble_dim))
+        # dtype-relative Z: jax.random.normal defaults to float64 when
+        # jax_enable_x64 is on (dabench force-enables it), which would promote a
+        # float32 analysis to float64 (E = Xb_pert @ Z) and break the fp32
+        # lax.scan carry.  Pin Z to the perturbation dtype (the DTYPE INVARIANT:
+        # derive every intermediate from the input array dtype, never force one).
+        Z = jax.random.normal(key, (ensemble_dim, ensemble_dim),
+                              dtype=Xa_pert.dtype)
         E = Xb_pert @ Z
         E = E - jnp.mean(E, axis=1, keepdims=True)   # mean-zero across members
         rms = jnp.sqrt(jnp.mean(E ** 2))
