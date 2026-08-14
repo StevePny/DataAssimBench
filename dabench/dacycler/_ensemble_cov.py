@@ -83,6 +83,19 @@ class EnsCovAccumulator:
         m = X.shape[0]
         if m < 2:
             return                                       # no anomaly info
+        # Finite-guard: a non-finite row (a detonated fp32 cycling run, say)
+        # otherwise reaches np.linalg.svd and surfaces only as the opaque
+        # "SVD did not converge".  Fail loudly with the offending row index and
+        # a NaN/Inf breakdown so the caller can localise the blow-up upstream.
+        if not np.isfinite(X).all():
+            n_nan = int(np.isnan(X).sum())
+            n_inf = int(np.isinf(X).sum())
+            raise ValueError(
+                f"EnsCovAccumulator.update: row {self.n_rows} (0-based) is "
+                f"non-finite (NaN={n_nan}, Inf={n_inf} of {X.size} entries) -- "
+                f"the forecast ensemble detonated upstream; the streaming SVD "
+                f"cannot proceed.  Re-run with the caller's finite-check to "
+                f"localise the first non-finite cycle/step.")
         self.n_ens = m
         self.n_rows += 1
         a = (X - X.mean(axis=0, keepdims=True)) / np.sqrt(m - 1.0)  # (m, D)
