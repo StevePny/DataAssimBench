@@ -105,9 +105,15 @@ class LETKF4D(LETKF, ETKF4D):
                     jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
                    if self.additive_inflation > 0.0 else None)
         Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
+        # Regime-B moving-obs geometry: precomputed-stack row (cyc) OR the live
+        # host-callback single-slice obs positions (obs_ll_t).  Both None for
+        # Regime A / dense -> no cost.
+        cyc = self._cycle_index(cur_time)
+        obs_ll_t = self._callback_obs_latlon_4d(cur_obs_loc_indices)
         Xa = self._localized_analysis(
                 Xb_tau, Yb, Y, rinv_diag, obs_loc_flat,
-                rho=self.multiplicative_inflation, key=add_key)
+                rho=self.multiplicative_inflation, key=add_key, cycle_idx=cyc,
+                obs_latlon_t=obs_ll_t)
 
         # 5. Reuse the incoming state's dim names (ensemble-first carry).
         xdims = cur_state['x'].dims
@@ -140,7 +146,8 @@ class LETKF4D(LETKF, ETKF4D):
             def _analysis_at(t):
                 return self._localized_analysis(
                         Xtraj[:, t, :].T, Yb, Y, rinv_diag, obs_loc_flat,
-                        rho=self.multiplicative_inflation, key=None)
+                        rho=self.multiplicative_inflation, key=None,
+                        cycle_idx=cyc, obs_latlon_t=obs_ll_t)
 
             ya_bar = self._score_oa_ya(
                     cur_state, _analysis_at, tau, Hs, obs_window_indices, dtype)
@@ -248,5 +255,7 @@ class LETKF4D(LETKF, ETKF4D):
         Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
         A_stack = self.capture_A_matrices(
                 Xb_tau, Yb, Y, rinv_diag, obs_loc_flat,
-                rho=self.multiplicative_inflation)
+                rho=self.multiplicative_inflation,
+                cycle_idx=(0 if self._use_patch_series else None),
+                obs_latlon_t=self._callback_obs_latlon_4d(cur_obs_loc_indices))
         return np.asarray(A_stack)

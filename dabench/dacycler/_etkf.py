@@ -675,7 +675,9 @@ class ETKF(dacycler.DACycler):
                        rinv_diag: ArrayLike,
                        obs_loc_flat: ArrayLike,
                        rho: float,
-                       key: ArrayLike | None = None) -> ArrayLike:
+                       key: ArrayLike | None = None,
+                       cycle_idx=None,
+                       obs_latlon_t=None) -> ArrayLike:
         """Strict 3D-FGAT analysis at the single analysis time ``tau``.
 
         Global (non-localized) ETKF transform: builds the weights from the
@@ -694,11 +696,15 @@ class ETKF(dacycler.DACycler):
             obs_loc_flat: Flattened observed grid indices (localized override).
             rho: Multiplicative inflation factor.
             key: Optional per-cycle additive-inflation PRNG key.
+            cycle_idx: Accepted for signature parity with the localized
+                Regime-B override (unused in the global ETKF path).
+            obs_latlon_t: Accepted for signature parity with the localized
+                Regime-B callback override (unused in the global ETKF path).
 
         Returns:
             Analysis ensemble at tau, shape (system_dim, ens).
         """
-        del obs_loc_flat
+        del obs_loc_flat, cycle_idx, obs_latlon_t
         Wa, wa = self._compute_weights_4d(Yb, Y_eff, rinv_diag, rho=rho)
         return self._apply_weights(Xb_tau, Wa, wa, key=key)
 
@@ -759,9 +765,15 @@ class ETKF(dacycler.DACycler):
                     jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
                    if self.additive_inflation > 0.0 else None)
         Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
+        # Regime-B moving-obs geometry (LETKF-FGAT only; None otherwise):
+        # precomputed-stack row (cyc) or live host-callback obs positions.
+        cyc = getattr(self, "_cycle_index", lambda _t: None)(cur_time)
+        obs_ll_t = getattr(self, "_callback_obs_latlon_4d",
+                           lambda _i: None)(cur_obs_loc_indices)
         Xa = self._fgat_analysis(
                 Xb_tau, Yb, Y_eff, rinv_diag, obs_loc_flat,
-                rho=self.multiplicative_inflation, key=add_key)
+                rho=self.multiplicative_inflation, key=add_key, cycle_idx=cyc,
+                obs_latlon_t=obs_ll_t)
 
         xdims = cur_state['x'].dims
         Xa_oriented = Xa.T if xdims[0] == 'ensemble' else Xa
@@ -782,13 +794,15 @@ class ETKF(dacycler.DACycler):
             metrics = self._obs_metrics_fgat(
                     cur_state, Xtraj, tau, Yb, Y_eff, rinv_diag, obs_loc_flat,
                     cur_obs_vals, cur_obs_loc_indices, obs_time_mask,
-                    cur_obs_loc_mask, obs_window_indices)
+                    cur_obs_loc_mask, obs_window_indices, cycle_idx=cyc,
+                    obs_latlon_t=obs_ll_t)
             return xj.from_xarray(next_state), (forecast_states, metrics)
         return xj.from_xarray(next_state), forecast_states
 
     def _obs_metrics_fgat(self, cur_state, Xtraj, tau, Yb, Y_eff, rinv_diag,
                           obs_loc_flat, cur_obs_vals, cur_obs_loc_indices,
-                          obs_time_mask, cur_obs_loc_mask, obs_window_indices):
+                          obs_time_mask, cur_obs_loc_mask, obs_window_indices,
+                          cycle_idx=None, obs_latlon_t=None):
         """Obs-space metrics for the 3D-FGAT ensemble path.
 
         O-F is the FGAT innovation ``d = y - H_i xbar(t_obs_i)`` scored at each
@@ -834,7 +848,8 @@ class ETKF(dacycler.DACycler):
         # clean deterministic diagnostic.)
         Xa_tau = self._fgat_analysis(
                 Xtraj[:, tau, :].T, Yb, Y_eff, rinv_diag, obs_loc_flat,
-                rho=self.multiplicative_inflation, key=None)
+                rho=self.multiplicative_inflation, key=None, cycle_idx=cycle_idx,
+                obs_latlon_t=obs_latlon_t)
         xbar_a_tau = jnp.mean(Xa_tau, axis=1)                 # (system,)
         ya_bar = jax.vmap(lambda i: Hs[i] @ xbar_a_tau)(
                 jnp.arange(Hs.shape[0])).reshape(-1).astype(dtype)

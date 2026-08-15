@@ -11,7 +11,8 @@ import jax.random as jrand
 import dabench as dab
 from dabench.dacycler import ETKF, LETKF, LETKF4D
 from dabench.dacycler._letkf import (
-    _gaspari_cohn, _great_circle_km, _spd_inv_sqrt_ns, build_patch_geometry)
+    _gaspari_cohn, _great_circle_km, _spd_inv_sqrt_ns, build_patch_geometry,
+    build_patch_geometry_series, PatchGeometryProducer)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -603,6 +604,196 @@ def test_letkf_patch_idx_gc_both_or_neither():
     with pytest.raises(ValueError, match="together"):
         LETKF(system_dim=5, delta_t=0.01, ensemble_dim=4, model_obj=None,
               patch_idx=np.zeros((5, 2), np.int32))
+
+
+# ── Regime B (per-cycle / moving-observer patch geometry, §14.4) ───────────
+def _regimeB_setup(seed, G=14, npool=28, ens=6, n_cycles=4):
+    """Common (grid, per-cycle obs positions, ensemble) fixture for Regime B."""
+    rng = np.random.default_rng(seed)
+    grid = np.stack([rng.uniform(-70, 70, G), rng.uniform(0, 360, G)], axis=1)
+    series = [np.stack([rng.uniform(-70, 70, npool),
+                        rng.uniform(0, 360, npool)], axis=1)
+              for _ in range(n_cycles)]
+    Xb = jnp.asarray(rng.standard_normal((G, ens)))
+    Yb = jnp.asarray(rng.standard_normal((npool, ens)))
+    Y = jnp.asarray(rng.standard_normal(npool))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, npool))
+    return grid, series, Xb, Yb, Y, rinv, npool, ens
+
+
+def test_letkf_patch_series_builder_row0_matches_static():
+    """``build_patch_geometry_series`` row t == the static single-cycle build at
+    that cycle's obs positions (same metric, same GC weights, same P)."""
+    grid, series, *_ = _regimeB_setup(31)
+    pidx, pgc, diag = build_patch_geometry_series(
+        grid, series, localize_radius=2600.0)
+    P = diag["P"]
+    assert pidx.shape == (len(series), grid.shape[0], P)
+    for t, o in enumerate(series):
+        pi, pw, _ = build_patch_geometry(
+            grid, o, localize_radius=2600.0, patch_size=P)
+        assert np.array_equal(pidx[t], pi)
+        assert np.allclose(pgc[t], pw, rtol=0, atol=1e-12)
+
+
+def test_letkf_patch_series_producer_matches_eager():
+    """The async ``PatchGeometryProducer`` yields cycle 0 immediately and a full
+    stack byte-identical to the eager builder."""
+    grid, series, *_ = _regimeB_setup(32)
+    eager_idx, eager_gc, _ = build_patch_geometry_series(
+        grid, series, localize_radius=2600.0)
+    prod = build_patch_geometry_series(
+        grid, series, localize_radius=2600.0, producer=True)
+    assert isinstance(prod, PatchGeometryProducer)
+    i0, w0, _ = prod.build0()
+    assert np.array_equal(i0, eager_idx[0]) and np.allclose(w0, eager_gc[0])
+    full_idx, full_gc, _ = prod.stack()
+    assert np.array_equal(full_idx, eager_idx)
+    assert np.allclose(full_gc, eager_gc, rtol=0, atol=1e-12)
+
+
+def test_letkf_patch_series_static_pool_matches_regimeA():
+    """When every cycle's obs positions equal the static pool, Regime B (series)
+    reproduces Regime A to round-off for every cycle index (3D solve)."""
+    grid, series, Xb, Yb, Y, rinv, npool, ens = _regimeB_setup(33)
+    pool = series[0]
+    same = [pool] * len(series)
+    obs_idx = jnp.arange(npool)
+    piA, pgA, _ = build_patch_geometry(grid, pool, localize_radius=2600.0)
+    A = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+              model_obj=None, grid_latlon=jnp.asarray(grid),
+              obs_latlon=jnp.asarray(pool), localize_radius=2600.0,
+              grid_chunk=None, patch_idx=piA, patch_gc=pgA)
+    XaA = np.asarray(A._localized_analysis(Xb, Yb, Y, rinv, obs_idx, rho=1.0))
+    pidx, pgc, _ = build_patch_geometry_series(
+        grid, same, localize_radius=2600.0)
+    B = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+              model_obj=None, grid_latlon=jnp.asarray(grid),
+              obs_latlon=jnp.asarray(pool), localize_radius=2600.0,
+              grid_chunk=None, patch_idx_series=pidx, patch_gc_series=pgc,
+              patch_pool_sizes=[npool] * len(same))
+    for t in range(len(same)):
+        XaB = np.asarray(B._localized_analysis(
+            Xb, Yb, Y, rinv, obs_idx, rho=1.0, cycle_idx=t))
+        assert np.allclose(XaB, XaA, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_series_moving_obs_matches_per_cycle_static():
+    """Moving observers: Regime B row t == a fresh Regime A build at cycle t's
+    obs positions, and it is byte-identical under jit with a TRACED cycle_idx
+    (the ``lax.scan`` consumption mode)."""
+    grid, series, Xb, Yb, Y, rinv, npool, ens = _regimeB_setup(34)
+    obs_idx = jnp.arange(npool)
+    pidx, pgc, diag = build_patch_geometry_series(
+        grid, series, localize_radius=2600.0)
+    P = diag["P"]
+    B = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+              model_obj=None, grid_latlon=jnp.asarray(grid),
+              obs_latlon=jnp.asarray(series[0]), localize_radius=2600.0,
+              grid_chunk=None, patch_idx_series=pidx, patch_gc_series=pgc,
+              patch_pool_sizes=[npool] * len(series))
+    f = jax.jit(lambda t: B._localized_analysis(
+        Xb, Yb, Y, rinv, obs_idx, rho=1.0, cycle_idx=t))
+    for t, o in enumerate(series):
+        pi, pw, _ = build_patch_geometry(
+            grid, o, localize_radius=2600.0, patch_size=P)
+        A = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid),
+                  obs_latlon=jnp.asarray(o), localize_radius=2600.0,
+                  grid_chunk=None, patch_idx=pi, patch_gc=pw)
+        XaA = np.asarray(A._localized_analysis(Xb, Yb, Y, rinv, obs_idx,
+                                               rho=1.0))
+        XaB = np.asarray(f(jnp.int32(t)))
+        assert np.allclose(XaB, XaA, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_series_window_stacked_4d():
+    """Regime B window-stacks the per-cycle pool geometry across the 4D obs axis
+    (n_obs = n_times * pool) exactly as the dense taper tiles; matches a fresh
+    Regime A build at each cycle's positions."""
+    grid, series, Xb, Yb0, Y0, rinv0, npool, ens = _regimeB_setup(35)
+    n_times = 3
+    rng = np.random.default_rng(350)
+    nobs = n_times * npool
+    Yb = jnp.asarray(rng.standard_normal((nobs, ens)))
+    Y = jnp.asarray(rng.standard_normal(nobs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, nobs))
+    obs_idx = jnp.arange(nobs)
+    pidx, pgc, diag = build_patch_geometry_series(
+        grid, series, localize_radius=2600.0)
+    P = diag["P"]
+    B = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+              model_obj=None, grid_latlon=jnp.asarray(grid),
+              obs_latlon=jnp.asarray(series[0]), localize_radius=2600.0,
+              grid_chunk=4, patch_idx_series=pidx, patch_gc_series=pgc,
+              patch_pool_sizes=[npool] * len(series))
+    for t, o in enumerate(series):
+        pi, pw, _ = build_patch_geometry(
+            grid, o, localize_radius=2600.0, patch_size=P)
+        A = LETKF(system_dim=grid.shape[0], delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=jnp.asarray(grid),
+                  obs_latlon=jnp.asarray(o), localize_radius=2600.0,
+                  grid_chunk=4, patch_idx=pi, patch_gc=pw)
+        XaA = np.asarray(A._localized_analysis(Xb, Yb, Y, rinv, obs_idx,
+                                               rho=1.0))
+        XaB = np.asarray(B._localized_analysis(
+            Xb, Yb, Y, rinv, obs_idx, rho=1.0, cycle_idx=t))
+        assert np.allclose(XaB, XaA, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_callback_matches_series_and_regimeA():
+    """The Regime-B host-callback fallback (per-cycle pure_callback rebuild)
+    matches a fresh Regime A build at the same obs positions to round-off,
+    including under jit (the pure_callback is scan-legal)."""
+    rng = np.random.default_rng(36)
+    G, npool, ens = 14, 10, 6
+    grid = np.stack([rng.uniform(-70, 70, G), rng.uniform(0, 360, G)], axis=1)
+    obs_grid_idx = rng.choice(G, size=npool, replace=False)
+    o = grid[obs_grid_idx]                 # obs positions == grid rows
+    obs_idx = jnp.arange(npool)
+    Xb = jnp.asarray(rng.standard_normal((G, ens)))
+    Yb = jnp.asarray(rng.standard_normal((npool, ens)))
+    Y = jnp.asarray(rng.standard_normal(npool))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, npool))
+    P = int(build_patch_geometry(grid, o, localize_radius=2600.0)[2]["P"])
+
+    def cb(grid_ll, obs_ll, radius, units, Pfix):
+        pi, pw, _ = build_patch_geometry(
+            grid_ll, obs_ll, radius, units, patch_size=Pfix)
+        return pi, pw
+
+    C = LETKF(system_dim=G, delta_t=0.01, ensemble_dim=ens, model_obj=None,
+              grid_latlon=jnp.asarray(grid), obs_latlon=jnp.asarray(o),
+              localize_radius=2600.0, grid_chunk=4,
+              patch_callback=cb, patch_callback_P=P)
+    f = jax.jit(lambda: C._localized_analysis(
+        Xb, Yb, Y, rinv, obs_idx, rho=1.0, obs_latlon_t=jnp.asarray(o)))
+    XaC = np.asarray(f())
+    pi, pw, _ = build_patch_geometry(
+        grid, o, localize_radius=2600.0, patch_size=P)
+    A = LETKF(system_dim=G, delta_t=0.01, ensemble_dim=ens, model_obj=None,
+              grid_latlon=jnp.asarray(grid), obs_latlon=jnp.asarray(o),
+              localize_radius=2600.0, grid_chunk=4, patch_idx=pi, patch_gc=pw)
+    XaA = np.asarray(A._localized_analysis(Xb, Yb, Y, rinv, obs_idx, rho=1.0))
+    assert np.allclose(XaC, XaA, rtol=0, atol=1e-10)
+
+
+def test_letkf_patch_series_both_or_neither_and_mutual_exclusion():
+    """series both-or-neither guard, mutual exclusion with static patch_idx, and
+    the callback requiring patch_callback_P + grid_latlon."""
+    G = 6
+    with pytest.raises(ValueError, match="supplied together"):
+        LETKF(system_dim=G, delta_t=0.01, ensemble_dim=4, model_obj=None,
+              patch_idx_series=np.zeros((3, G, 2), np.int32))
+    with pytest.raises(ValueError, match="not both"):
+        LETKF(system_dim=G, delta_t=0.01, ensemble_dim=4, model_obj=None,
+              patch_idx=np.zeros((G, 2), np.int32),
+              patch_gc=np.zeros((G, 2)),
+              patch_idx_series=np.zeros((3, G, 2), np.int32),
+              patch_gc_series=np.zeros((3, G, 2)))
+    with pytest.raises(ValueError, match="patch_callback_P"):
+        LETKF(system_dim=G, delta_t=0.01, ensemble_dim=4, model_obj=None,
+              grid_latlon=np.zeros((G, 2)), patch_callback=lambda *a: None)
 
 
 def test_letkf_eigh_impl_invalid_raises():

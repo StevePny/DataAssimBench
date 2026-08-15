@@ -174,6 +174,212 @@ def build_patch_geometry(grid_latlon: ArrayLike,
     return patch_idx, patch_gc, diag
 
 
+def build_patch_geometry_series(grid_latlon: ArrayLike,
+                                obs_latlon_series,
+                                localize_radius: float,
+                                localize_units: str = "km",
+                                patch_size: int | None = None,
+                                producer: bool = False,
+                                ):
+    """Per-cycle local-patch geometry for Regime-B LETKF localization.
+
+    Regime B (§14.4) is the MOVING-observer case: the obs positions differ
+    every cycle, so the gridpoint->obs geometry is NOT static and must be
+    rebuilt per cycle.  This is the B1 (host k-d tree per cycle) route from the
+    design doc: given the KNOWN obs schedule, build the whole
+    ``(n_cycles, grid_dim, P)`` geometry stack ONCE up front and consume it as a
+    per-cycle scan input (the cycler indexes row ``t`` each cycle -- no host
+    round-trip mid-scan).  Reuses :func:`build_patch_geometry` per cycle, so the
+    metric and Gaspari-Cohn weights are IDENTICAL to Regime A; when every
+    cycle's obs positions equal the static pool the two are byte-identical.
+
+    A single GLOBAL ``P`` is used across all cycles (the JIT/scan shape
+    contract): ``P = max`` over cycles of the exact per-cycle neighbour count
+    (or the supplied ``patch_size``, with the usual logged truncation of the
+    farthest obs on over-full cycles/grid points).
+
+    Args:
+        grid_latlon: ``(grid_dim, 2)`` (lat_deg, lon_deg) per grid point;
+            stationary across cycles (the model grid does not move).
+        obs_latlon_series: per-cycle obs positions -- either a length-``n_cycles``
+            sequence of ``(n_obs_t, 2)`` arrays (ragged obs counts allowed) or a
+            single ``(n_cycles, n_obs, 2)`` array.  Each entry is that cycle's
+            obs slice (NOT window-stacked); 4D window-stacking is handled on
+            device by :meth:`LETKF._build_patch_w`.
+        localize_radius: Gaspari-Cohn half-width ``c`` (support cutoff ``2c``).
+        localize_units: ``"km"`` (default) or ``"deg"``.
+        patch_size: Fixed global ``P``.  ``None`` -> the exact max neighbour
+            count over ALL cycles (no truncation).
+        producer: If True return a :class:`PatchGeometryProducer` that builds
+            cycle 0 synchronously and the rest on a background thread (the first
+            cycle is available immediately; the remainder fill while the caller
+            sets up the run).  If False (default) build the full stack eagerly.
+
+    Returns:
+        If ``producer`` is False: ``(patch_idx, patch_gc, diag)`` with
+        ``patch_idx`` ``(n_cycles, grid_dim, P)`` int32, ``patch_gc``
+        ``(n_cycles, grid_dim, P)`` float64, and ``diag`` a dict with the global
+        ``P`` and per-cycle diagnostic lists.  If ``producer`` is True: a
+        :class:`PatchGeometryProducer` (call ``.stack()`` for the same tuple).
+    """
+    series = _normalize_obs_series(obs_latlon_series)
+    if producer:
+        return PatchGeometryProducer(
+            grid_latlon, series, localize_radius, localize_units, patch_size)
+    return _build_series_eager(
+        grid_latlon, series, localize_radius, localize_units, patch_size)
+
+
+def _normalize_obs_series(obs_latlon_series) -> list:
+    """Coerce the per-cycle obs positions into a list of ``(n_obs_t, 2)``."""
+    if isinstance(obs_latlon_series, (list, tuple)):
+        out = [np.asarray(o, dtype=np.float64) for o in obs_latlon_series]
+    else:
+        arr = np.asarray(obs_latlon_series, dtype=np.float64)
+        if arr.ndim != 3 or arr.shape[2] != 2:
+            raise ValueError(
+                "obs_latlon_series array must be (n_cycles, n_obs, 2); got "
+                f"{arr.shape}")
+        out = [arr[t] for t in range(arr.shape[0])]
+    if len(out) == 0:
+        raise ValueError("obs_latlon_series must contain at least one cycle.")
+    for t, o in enumerate(out):
+        if o.ndim != 2 or o.shape[1] != 2:
+            raise ValueError(
+                f"obs_latlon_series[{t}] must be (n_obs_t, 2); got {o.shape}")
+    return out
+
+
+def _build_series_eager(grid_latlon, series, localize_radius, localize_units,
+                        patch_size) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Build the full ``(n_cycles, grid_dim, P)`` stack, one cycle at a time.
+
+    A single global ``P`` is chosen (max exact neighbour count across cycles
+    when ``patch_size`` is None) so every cycle's ``(grid_dim, P)`` slab has the
+    same shape; per-cycle geometries are then re-emitted at that ``P`` and
+    stacked.  The per-cycle padding pool differs (each cycle references its OWN
+    obs slice), which is recorded so :meth:`LETKF._build_patch_w` can window-
+    stack correctly; here every cycle is a single (non-stacked) slice.
+    """
+    n_cycles = len(series)
+    if patch_size is None:
+        P = 1
+        for o in series:
+            _, _, d = build_patch_geometry(
+                grid_latlon, o, localize_radius, localize_units, None)
+            P = max(P, int(d["P"]))
+    else:
+        P = int(patch_size)
+    idx_stack, gc_stack, per_cycle = [], [], []
+    for o in series:
+        pidx, pgc, d = build_patch_geometry(
+            grid_latlon, o, localize_radius, localize_units, patch_size=P)
+        idx_stack.append(pidx)
+        gc_stack.append(pgc)
+        per_cycle.append(d)
+    patch_idx = np.stack(idx_stack, axis=0).astype(np.int32)
+    patch_gc = np.stack(gc_stack, axis=0).astype(np.float64)
+    diag = {
+        "P": int(P),
+        "n_cycles": int(n_cycles),
+        "pool_sizes": [int(o.shape[0]) for o in series],
+        "patch_max": [int(d["patch_max"]) for d in per_cycle],
+        "pct_truncated": [float(d["pct_truncated"]) for d in per_cycle],
+        "weight_mass_discarded": [float(d["weight_mass_discarded"])
+                                  for d in per_cycle],
+    }
+    return patch_idx, patch_gc, diag
+
+
+class PatchGeometryProducer:
+    """Async host-side builder for the Regime-B per-cycle patch geometry stack.
+
+    The DA cycle loop is sequential: it needs cycle 0's ``(grid_dim, P)``
+    geometry immediately, but the remaining cycles' geometries can be built on a
+    background thread while the caller finishes run setup (and, since the whole
+    ``lax.scan`` consumes the completed stack, before the scan launches).  This
+    matches the intent "the first timestep is needed immediately, then fill in
+    while the rest is prepared".
+
+    ``build0()`` returns cycle 0's slab synchronously and kicks off the worker;
+    ``stack()`` blocks until the full ``(n_cycles, grid_dim, P)`` stack is ready
+    and returns the same ``(patch_idx, patch_gc, diag)`` as the eager builder.
+    A single global ``P`` (computed up front) fixes the slab shape so the worker
+    can fill a preallocated stack in place.
+    """
+
+    def __init__(self, grid_latlon, series, localize_radius, localize_units,
+                 patch_size):
+        import threading
+        self._grid = np.asarray(grid_latlon, dtype=np.float64)
+        self._series = series
+        self._radius = float(localize_radius)
+        self._units = str(localize_units)
+        self._n = len(series)
+        self._G = int(self._grid.shape[0])
+        # Fix the global P up front (needs one ball-count pass per cycle when
+        # patch_size is None) so every slab shares a shape.
+        if patch_size is None:
+            P = 1
+            for o in series:
+                _, _, d = build_patch_geometry(
+                    self._grid, o, self._radius, self._units, None)
+                P = max(P, int(d["P"]))
+        else:
+            P = int(patch_size)
+        self._P = P
+        self._idx = np.zeros((self._n, self._G, P), dtype=np.int32)
+        self._gc = np.zeros((self._n, self._G, P), dtype=np.float64)
+        self._per_cycle = [None] * self._n
+        self._done = threading.Event()
+        self._built0 = False
+        self._thread = None
+
+    def _build_one(self, t: int) -> None:
+        pidx, pgc, d = build_patch_geometry(
+            self._grid, self._series[t], self._radius, self._units,
+            patch_size=self._P)
+        self._idx[t] = pidx
+        self._gc[t] = pgc
+        self._per_cycle[t] = d
+
+    def build0(self) -> tuple[np.ndarray, np.ndarray, dict]:
+        """Build + return cycle 0's slab now; start filling the rest async."""
+        import threading
+        if not self._built0:
+            self._build_one(0)
+            self._built0 = True
+
+            def _worker():
+                for t in range(1, self._n):
+                    self._build_one(t)
+                self._done.set()
+
+            if self._n == 1:
+                self._done.set()
+            else:
+                self._thread = threading.Thread(target=_worker, daemon=True)
+                self._thread.start()
+        return self._idx[0], self._gc[0], (self._per_cycle[0] or {})
+
+    def stack(self) -> tuple[np.ndarray, np.ndarray, dict]:
+        """Block until the full stack is built; return (idx, gc, diag)."""
+        if not self._built0:
+            self.build0()
+        self._done.wait()
+        per = self._per_cycle
+        diag = {
+            "P": int(self._P),
+            "n_cycles": int(self._n),
+            "pool_sizes": [int(o.shape[0]) for o in self._series],
+            "patch_max": [int(d["patch_max"]) for d in per],
+            "pct_truncated": [float(d["pct_truncated"]) for d in per],
+            "weight_mass_discarded": [float(d["weight_mass_discarded"])
+                                      for d in per],
+        }
+        return self._idx, self._gc, diag
+
+
 class LETKF(ETKF):
     """Local Ensemble Transform Kalman Filter DA Cycler (Hunt et al. 2007).
 
@@ -222,6 +428,11 @@ class LETKF(ETKF):
                  increment_taper: ArrayLike | None = None,
                  patch_idx: ArrayLike | None = None,
                  patch_gc: ArrayLike | None = None,
+                 patch_idx_series: ArrayLike | None = None,
+                 patch_gc_series: ArrayLike | None = None,
+                 patch_pool_sizes: ArrayLike | None = None,
+                 patch_callback: Callable | None = None,
+                 patch_callback_P: int | None = None,
                  **kwargs):
         self.to_grid = (lambda x: x) if to_grid is None else to_grid
         self.from_grid = (lambda x: x) if from_grid is None else from_grid
@@ -257,6 +468,105 @@ class LETKF(ETKF):
                 int(self._obs_latlon.shape[0]) if self._obs_latlon is not None
                 else int(self._patch_idx.max()) + 1)
         self._patch_w_cache = None
+        # Regime-B per-cycle local-patch geometry (§14.4, B1): a STACKED
+        # ``(n_cycles, grid_dim, P)`` geometry from
+        # :func:`build_patch_geometry_series` for MOVING observers.  Each cycle
+        # ``t`` indexes row ``t`` (derived on device from ``cur_time``), so the
+        # gather lane is the same as Regime A but the geometry changes per cycle.
+        # Consumed as a device-resident stack (built host-side up front from the
+        # known obs schedule) -- NOT rebuilt inside ``lax.scan``.  Both-or-neither
+        # with ``patch_gc_series``; mutually exclusive with the static Regime-A
+        # ``patch_idx``.  ``patch_pool_sizes`` is the per-cycle single-slice obs
+        # count (for window-stacking); if omitted it is inferred as the last axis
+        # is a single slice (n_times inferred at solve time from the obs axis).
+        if (patch_idx_series is None) != (patch_gc_series is None):
+            raise ValueError(
+                "patch_idx_series and patch_gc_series must be supplied together "
+                "(or both None).")
+        if patch_idx_series is not None and patch_idx is not None:
+            raise ValueError(
+                "supply EITHER the static Regime-A patch_idx/patch_gc OR the "
+                "per-cycle Regime-B patch_idx_series/patch_gc_series, not both.")
+        self._patch_idx_series = (
+            None if patch_idx_series is None
+            else jnp.asarray(patch_idx_series, dtype=jnp.int32))
+        self._patch_gc_series = (None if patch_gc_series is None
+                                 else jnp.asarray(patch_gc_series))
+        self._patch_pool_sizes = None
+        self._patch_pool_host = None
+        if self._patch_idx_series is not None:
+            if self._patch_idx_series.ndim != 3:
+                raise ValueError(
+                    "patch_idx_series must be (n_cycles, grid_dim, P); got "
+                    f"{self._patch_idx_series.shape}")
+            if self._patch_idx_series.shape != self._patch_gc_series.shape:
+                raise ValueError(
+                    f"patch_idx_series {self._patch_idx_series.shape} and "
+                    f"patch_gc_series {self._patch_gc_series.shape} must have "
+                    "the same (n_cycles, grid_dim, P) shape.")
+            n_cyc = int(self._patch_idx_series.shape[0])
+            if patch_pool_sizes is None:
+                # No per-cycle pool sizes given: infer a single shared pool from
+                # obs_latlon (the common stationary-count case is Regime A;
+                # for B the caller should pass patch_pool_sizes).  Fall back to
+                # max index + 1 per cycle.
+                if self._obs_latlon is not None:
+                    self._patch_pool_sizes = jnp.full(
+                        (n_cyc,), int(self._obs_latlon.shape[0]),
+                        dtype=jnp.int32)
+                else:
+                    self._patch_pool_sizes = (
+                        self._patch_idx_series.max(axis=(1, 2)) + 1
+                        ).astype(jnp.int32)
+            else:
+                self._patch_pool_sizes = jnp.asarray(
+                    patch_pool_sizes, dtype=jnp.int32).reshape(-1)
+                if int(self._patch_pool_sizes.shape[0]) != n_cyc:
+                    raise ValueError(
+                        f"patch_pool_sizes length {self._patch_pool_sizes.shape[0]}"
+                        f" != n_cycles {n_cyc}.")
+            # Host-known constant single-slice pool size for window-stacking:
+            # ``n_times = n_obs // pool`` is a STATIC shape, so the pool count
+            # must be a Python int and constant across the run.  Derive it from
+            # the host-side pool sizes and require they are all equal.
+            _pools_host = np.asarray(
+                patch_pool_sizes if patch_pool_sizes is not None
+                else np.asarray(self._patch_pool_sizes)).reshape(-1)
+            if _pools_host.size and not np.all(_pools_host == _pools_host[0]):
+                raise ValueError(
+                    "Regime-B window-stacking requires a CONSTANT per-cycle obs "
+                    "slice count across the run (n_times is a static shape); "
+                    f"got varying patch_pool_sizes={_pools_host.tolist()}.")
+            self._patch_pool_host = (int(_pools_host[0]) if _pools_host.size
+                                     else None)
+        # Regime-B FALLBACK for an UNKNOWN obs schedule (§14.4): rebuild the
+        # ``(grid_dim, P)`` geometry on the HOST every cycle via
+        # :func:`jax.pure_callback`, from that cycle's live obs positions
+        # (``grid_latlon[obs_loc_indices]``).  This is the general moving-obs
+        # route when the schedule cannot be precomputed; it SERIALIZES the GPU
+        # cycle (a host round-trip per analysis) and is slower than the
+        # precomputed stack -- prefer the stack when the schedule is known.
+        # ``patch_callback`` is ``(grid_ll, obs_ll, radius, units, P) ->
+        # (patch_idx (grid_dim,P) int32, patch_gc (grid_dim,P) float)``; default
+        # uses :func:`build_patch_geometry`.  ``patch_callback_P`` fixes ``P``
+        # (the static output shape) and is REQUIRED.  Mutually exclusive with the
+        # static Regime-A patch_idx and the Regime-B series.
+        self._patch_callback = patch_callback
+        self._patch_callback_P = (None if patch_callback_P is None
+                                  else int(patch_callback_P))
+        if patch_callback is not None:
+            if patch_idx is not None or patch_idx_series is not None:
+                raise ValueError(
+                    "patch_callback is mutually exclusive with patch_idx "
+                    "(Regime A) and patch_idx_series (precomputed Regime B).")
+            if self._patch_callback_P is None or self._patch_callback_P < 1:
+                raise ValueError(
+                    "patch_callback requires patch_callback_P >= 1 (the fixed "
+                    "patch size P setting the static geometry shape).")
+            if self._grid_latlon is None:
+                raise ValueError(
+                    "patch_callback requires grid_latlon (the moving-obs "
+                    "geometry is built from grid_latlon[obs_loc_indices]).")
         self.localize_radius = float(localize_radius)
         if localize_units not in ("km", "deg"):
             raise ValueError(
@@ -385,58 +695,157 @@ class LETKF(ETKF):
 
     @property
     def _use_patch(self) -> bool:
-        """Whether the sparse local-patch gather (§14.3) is active."""
-        return self._patch_idx is not None
+        """Whether ANY sparse local-patch gather (Regime A or B) is active."""
+        return (self._patch_idx is not None
+                or self._patch_idx_series is not None
+                or self._patch_callback is not None)
 
-    def _build_patch_w(self, n_obs: int, dtype
-                       ) -> tuple[jax.Array, jax.Array]:
+    @property
+    def _use_patch_series(self) -> bool:
+        """Whether the precomputed per-cycle Regime-B geometry stack is active."""
+        return self._patch_idx_series is not None
+
+    @property
+    def _use_patch_callback(self) -> bool:
+        """Whether the per-cycle host-callback Regime-B fallback is active."""
+        return self._patch_callback is not None
+
+    def _select_patch(self, cycle_idx):
+        """Return this cycle's static ``(grid_dim, P)`` geometry + pool size.
+
+        Regime A: the single static ``(patch_idx, patch_gc, pool)`` held on
+        ``self`` (``cycle_idx`` ignored).  Regime B: index row ``cycle_idx`` of
+        the ``(n_cycles, grid_dim, P)`` stack -- a device gather, so this is
+        ``lax.scan``-safe (``cycle_idx`` may be a tracer).  ``pool`` is the
+        single-slice obs count that :meth:`_build_patch_w` uses to window-stack.
+        """
+        if self._patch_idx_series is not None:
+            t = (0 if cycle_idx is None
+                 else jnp.asarray(cycle_idx).astype(jnp.int32))
+            n_cyc = int(self._patch_idx_series.shape[0])
+            t = jnp.clip(t, 0, n_cyc - 1)
+            p_idx = self._patch_idx_series[t]                  # (grid_dim, P)
+            p_gc = self._patch_gc_series[t]                    # (grid_dim, P)
+            pool = self._patch_pool_sizes[t]                   # scalar (int32)
+            return p_idx, p_gc, pool
+        return self._patch_idx, self._patch_gc, self._patch_pool_size
+
+    def _callback_patch(self, obs_latlon_t):
+        """Host-rebuild this cycle's ``(grid_dim, P)`` geometry via pure_callback.
+
+        The Regime-B fallback for an unknown obs schedule: given this cycle's
+        obs positions ``obs_latlon_t (pool, 2)``, call the (default or supplied)
+        host builder on the CPU each cycle and return the fixed-``P`` geometry.
+        Uses :func:`jax.pure_callback` so it is ``lax.scan``-legal (at the cost
+        of a host round-trip that serializes the GPU cycle).
+        """
+        import functools
+        grid_ll = np.asarray(self._grid_latlon, dtype=np.float64)
+        P = int(self._patch_callback_P)
+        G = int(grid_ll.shape[0])
+        radius = float(self.localize_radius)
+        units = str(self.localize_units)
+        builder = self._patch_callback
+
+        def _host(obs_ll):
+            obs = np.asarray(obs_ll, dtype=np.float64)
+            pidx, pgc = builder(grid_ll, obs, radius, units, P)
+            return (np.asarray(pidx, dtype=np.int32),
+                    np.asarray(pgc, dtype=np.float64))
+
+        out_shapes = (jax.ShapeDtypeStruct((G, P), jnp.int32),
+                      jax.ShapeDtypeStruct((G, P), jnp.float64))
+        p_idx, p_gc = jax.pure_callback(_host, out_shapes, obs_latlon_t)
+        return p_idx, p_gc
+
+    def _build_patch_w(self, n_obs: int, dtype, cycle_idx=None,
+                       obs_latlon_t=None) -> tuple[jax.Array, jax.Array]:
         """Window-stacked patch gather indices + weights for the local solve.
 
-        Expands the static single-slice geometry ``(grid_dim, P)`` onto the
+        Expands this cycle's single-slice geometry ``(grid_dim, P)`` onto the
         (possibly window-stacked) obs axis of length ``n_obs``.  In 4D the obs
-        axis repeats the fixed pool ``n_times`` times (``n_obs =
-        n_times * pool``), so a grid point's patch in window block ``t`` gathers
-        pool slots ``patch_idx + t * pool``; the DISTANCE-ONLY Gaspari-Cohn
-        weight is identical in every block (same stationary geometry, exactly as
-        the dense taper tiles).  Per-cycle observation ACTIVITY is NOT applied
-        here: it is carried by the zeroed ``rinv_diag`` entries the lane gathers
+        axis repeats the pool ``n_times`` times (``n_obs = n_times * pool``), so
+        a grid point's patch in window block ``t`` gathers pool slots
+        ``patch_idx + t * pool``; the DISTANCE-ONLY Gaspari-Cohn weight is
+        identical in every block (same geometry within a cycle, exactly as the
+        dense taper tiles).  Per-cycle observation ACTIVITY is NOT applied here:
+        it is carried by the zeroed ``rinv_diag`` entries the lane gathers
         (``rinv[gathered_idx]``), matching the dense path's ``rinv * taper``.
 
+        Three geometry sources: Regime A (static, cached across cycles);
+        precomputed Regime-B series (indexed by ``cycle_idx``); and the
+        Regime-B host callback (``obs_latlon_t`` -> :meth:`_callback_patch`,
+        rebuilt each cycle).  For the callback the single-slice pool size is the
+        callback obs count (``obs_latlon_t`` rows) which must match
+        ``patch_callback_P``'s pool; ``n_obs`` must be a static Python int (the
+        obs axis length is a shape).
+
         Returns ``(patch_idx_ws, patch_w_ws)``, both ``(grid_dim, n_times * P)``:
-        int32 obs-axis indices and the dtype-cast GC weights.  Cached like the
-        dense taper (concrete only; recomputed under a JAX trace so no tracer
-        leaks onto ``self``).
+        int32 obs-axis indices and the dtype-cast GC weights.
         """
-        if self._patch_w_cache is not None:
+        callback = self._use_patch_callback
+        series = self._use_patch_series
+        cacheable = not series and not callback
+        if cacheable and self._patch_w_cache is not None:
             idx_c, w_c = self._patch_w_cache
             if int(idx_c.shape[1]) == n_obs // self._patch_pool_size \
                     * self._patch_idx.shape[1]:
                 return idx_c, w_c.astype(dtype)
             # Obs-axis length changed (different window stacking) -> rebuild.
             self._patch_w_cache = None
-        pool = self._patch_pool_size
-        if pool is None or pool <= 0:
-            raise ValueError(
-                "patch localization requires a known pool size; supply "
-                "obs_latlon or non-empty patch_idx.")
-        if n_obs % pool != 0:
-            raise ValueError(
-                f"obs axis ({n_obs}) is not an integer multiple of the patch "
-                f"pool size ({pool}); cannot align the local patches to the "
-                "window-stacked observations.")
-        n_times = n_obs // pool
+        if callback:
+            if obs_latlon_t is None:
+                raise ValueError(
+                    "patch_callback mode requires obs_latlon_t (this cycle's "
+                    "obs positions) to be threaded into the local solve.")
+            p_idx, p_gc = self._callback_patch(obs_latlon_t)
+            pool = int(jnp.asarray(obs_latlon_t).shape[0])
+        else:
+            p_idx, p_gc, pool = self._select_patch(cycle_idx)
+        if callback:
+            if pool <= 0 or n_obs % pool != 0:
+                raise ValueError(
+                    f"obs axis ({n_obs}) is not an integer multiple of the "
+                    f"callback pool size ({pool}).")
+            n_times = n_obs // pool
+            pool_off = pool
+        elif not series:
+            if pool is None or pool <= 0:
+                raise ValueError(
+                    "patch localization requires a known pool size; supply "
+                    "obs_latlon or non-empty patch_idx.")
+            if n_obs % int(pool) != 0:
+                raise ValueError(
+                    f"obs axis ({n_obs}) is not an integer multiple of the patch"
+                    f" pool size ({pool}); cannot align the local patches to the"
+                    " window-stacked observations.")
+            n_times = n_obs // int(pool)
+            pool_off = int(pool)
+        else:
+            # Regime B: pool is a traced scalar.  n_times is a STATIC int
+            # (n_obs // per-cycle pool); every cycle in the series shares the
+            # same P and (validated at construction) the same pool count, so use
+            # the host-known constant pool size to keep shapes static.
+            pool_host = self._patch_pool_host
+            if pool_host is None or pool_host <= 0 or n_obs % pool_host != 0:
+                raise ValueError(
+                    f"obs axis ({n_obs}) is not an integer multiple of the "
+                    f"Regime-B pool size ({pool_host}); the per-cycle obs slice "
+                    "count must be constant across the run for window-stacking.")
+            n_times = n_obs // pool_host
+            pool_off = pool_host             # host int (pool constant across run)
+        P = p_idx.shape[1]
         # (grid_dim, P) -> (grid_dim, n_times, P) with per-block pool offset,
         # then flatten the (n_times, P) axes to (grid_dim, n_times*P).
-        base = self._patch_idx[:, None, :]                     # (G, 1, P)
-        offs = (jnp.arange(n_times, dtype=jnp.int32) * pool
+        base = p_idx[:, None, :]                               # (G, 1, P)
+        offs = (jnp.arange(n_times, dtype=jnp.int32) * pool_off
                 )[None, :, None]                               # (1, nt, 1)
-        idx_ws = (base + offs).reshape(self._patch_idx.shape[0], n_times
-                                       * self._patch_idx.shape[1])
+        idx_ws = (base + offs).reshape(p_idx.shape[0], n_times * P)
         w_ws = jnp.broadcast_to(
-            self._patch_gc[:, None, :],
-            (self._patch_gc.shape[0], n_times, self._patch_gc.shape[1])
+            p_gc[:, None, :], (p_gc.shape[0], n_times, P)
             ).reshape(idx_ws.shape)
-        self._patch_w_cache = (idx_ws, w_ws)
+        if cacheable:
+            self._patch_w_cache = (idx_ws, w_ws)
         return idx_ws, w_ws.astype(dtype)
 
     # ── local (per-gridpoint) ETKF transform capture ──────────────────────
@@ -446,7 +855,9 @@ class LETKF(ETKF):
                            Y: ArrayLike,
                            rinv_diag: ArrayLike,
                            obs_loc_indices: ArrayLike,
-                           rho: float) -> jax.Array:
+                           rho: float,
+                           cycle_idx=None,
+                           obs_latlon_t=None) -> jax.Array:
         """Materialize the per-gridpoint SPD transforms ``A`` (no solve).
 
         Reproduces EXACTLY the ``A = (K-1)/rho I + Y^T R^{-1} Y`` that
@@ -465,6 +876,10 @@ class LETKF(ETKF):
             rinv_diag: Masked diagonal ``R^{-1}``, ``(n_obs,)``.
             obs_loc_indices: Flattened observed grid indices (for the taper).
             rho: Multiplicative inflation factor.
+            cycle_idx: Regime-B (series) per-cycle geometry row selector
+                (ignored in Regime A / dense).
+            obs_latlon_t: Regime-B (callback) this cycle's obs positions
+                ``(pool, 2)`` (ignored otherwise).
 
         Returns:
             The per-gridpoint SPD transform stack ``(grid_dim, K, K)``.
@@ -479,7 +894,8 @@ class LETKF(ETKF):
 
         if self._use_patch:
             # Sparse gather: each lane reads only its <= P nearest obs (§14.3).
-            patch_idx, patch_w = self._build_patch_w(n_obs, dtype)
+            patch_idx, patch_w = self._build_patch_w(
+                n_obs, dtype, cycle_idx, obs_latlon_t)
 
             def _lane_A(args):
                 idx_g, w_g = args                              # (Pw,), (Pw,)
@@ -526,7 +942,9 @@ class LETKF(ETKF):
                        Y: ArrayLike,
                        rinv_diag: ArrayLike,
                        taper: ArrayLike,
-                       rho: float) -> jax.Array:
+                       rho: float,
+                       cycle_idx=None,
+                       obs_latlon_t=None) -> jax.Array:
         """Fused per-gridpoint local ETKF: returns the analysis grid columns.
 
         vmaps over grid points; each lane tapers the FULL window-stacked
@@ -548,6 +966,10 @@ class LETKF(ETKF):
             rinv_diag: Masked diagonal ``R^{-1}``, ``(n_obs,)``.
             taper: Gaspari-Cohn taper, ``(grid_dim, n_obs)``.
             rho: Multiplicative inflation factor.
+            cycle_idx: Regime-B (series) per-cycle geometry row selector
+                (ignored in Regime A / dense).
+            obs_latlon_t: Regime-B (callback) this cycle's obs positions
+                ``(pool, 2)`` (ignored otherwise).
 
         Returns:
             Analysis perturbation-and-mean grid columns, ``(grid_dim, K)``.
@@ -575,7 +997,8 @@ class LETKF(ETKF):
             # ``rinv`` already carries per-cycle validity (zeroed for inactive
             # obs), so ``rinv[idx] * patch_w`` matches the dense ``rinv*taper``;
             # an all-zero patch_w -> A=(K-1)/rho I -> analysis = background.
-            patch_idx, patch_w = self._build_patch_w(n_obs, dtype)
+            patch_idx, patch_w = self._build_patch_w(
+                n_obs, dtype, cycle_idx, obs_latlon_t)
 
             def _lane(xb_col, idx_g, w_g):
                 Yb_g = Yb_pert[idx_g]                          # (Pw, K) gather
@@ -638,7 +1061,9 @@ class LETKF(ETKF):
                             rinv_diag: ArrayLike,
                             obs_loc_indices: ArrayLike,
                             rho: float,
-                            key: ArrayLike | None = None) -> ArrayLike:
+                            key: ArrayLike | None = None,
+                            cycle_idx=None,
+                            obs_latlon_t=None) -> ArrayLike:
         """Full LETKF analysis: lift -> local solves -> project -> relax.
 
         Args:
@@ -650,6 +1075,13 @@ class LETKF(ETKF):
             rho: Multiplicative inflation factor.
             key: Optional per-cycle PRNG key enabling structured additive
                 inflation on the spectral perturbations; ``None`` skips it.
+            cycle_idx: Regime-B (series) per-cycle geometry row selector
+                (``None`` in Regime A / dense; the 4D/FGAT call sites pass the
+                scan cycle index derived from ``cur_time`` so the moving-obs
+                geometry tracks the cycle).
+            obs_latlon_t: Regime-B (callback) this cycle's obs positions
+                ``(pool, 2)`` for the per-cycle host k-d tree rebuild
+                (``None`` otherwise).
 
         Returns:
             Analysis ensemble in spectral/state space, ``(system_dim, K)``.
@@ -668,7 +1100,8 @@ class LETKF(ETKF):
 
         # 2. Fused per-gridpoint local ETKF -> analysis grid columns.
         Xa_grid = self._local_columns(
-            Xb_grid, Yb, Y, rinv_diag, taper, rho)             # (grid_dim, K)
+            Xb_grid, Yb, Y, rinv_diag, taper, rho, cycle_idx,
+            obs_latlon_t)                                      # (grid_dim, K)
 
         # 3. SHT project back to spectral; split mean + perturbations so the
         #    relaxation/inflation acts on the SPECTRAL perturbations (RTPS is a
@@ -719,6 +1152,35 @@ class LETKF(ETKF):
                 jax.errors.ConcretizationTypeError):
             pass
 
+    def _cycle_index(self, cur_time):
+        """Scan cycle index ``t`` from the carried ``cur_time`` (Regime B).
+
+        Mirrors the additive-inflation key derivation
+        (``round(cur_time / analysis_window)``); returns ``None`` when no
+        per-cycle geometry stack is active so Regime A / dense pay nothing.
+        Traced-safe (used only to index the device-resident geometry stack).
+        """
+        if not self._use_patch_series:
+            return None
+        return jnp.round(
+            jnp.asarray(cur_time) / self.analysis_window).astype(jnp.int32)
+
+    def _callback_obs_latlon_4d(self, cur_obs_loc_indices):
+        """Single-slice obs positions ``(obs_dim, 2)`` for the Regime-B callback.
+
+        Returns ``None`` unless the host-callback fallback is active.  The
+        window-stacked location indices are ``(n_times, obs_dim)`` and the pool
+        geometry recurs every window block (stationary within the window), so the
+        FIRST block's positions ``grid_latlon[indices[0]]`` are the single-slice
+        pool the callback rebuilds; :meth:`_build_patch_w` then window-stacks it.
+        """
+        if not self._use_patch_callback:
+            return None
+        idx2d = jnp.asarray(cur_obs_loc_indices)
+        first = (idx2d[0] if idx2d.ndim == 2
+                 else idx2d.reshape(-1)).astype(jnp.int32)
+        return self._grid_latlon[first]                        # (obs_dim, 2)
+
     def _fgat_analysis(self,
                        Xb_tau: ArrayLike,
                        Yb: ArrayLike,
@@ -726,7 +1188,9 @@ class LETKF(ETKF):
                        rinv_diag: ArrayLike,
                        obs_loc_flat: ArrayLike,
                        rho: float,
-                       key: ArrayLike | None = None) -> ArrayLike:
+                       key: ArrayLike | None = None,
+                       cycle_idx=None,
+                       obs_latlon_t=None) -> ArrayLike:
         """Localized strict 3D-FGAT analysis at the analysis time ``tau``.
 
         The domain-localized counterpart of :meth:`ETKF._fgat_analysis`:
@@ -736,7 +1200,8 @@ class LETKF(ETKF):
         ``obs_loc_flat``.
         """
         return self._localized_analysis(
-                Xb_tau, Yb, Y_eff, rinv_diag, obs_loc_flat, rho, key=key)
+                Xb_tau, Yb, Y_eff, rinv_diag, obs_loc_flat, rho, key=key,
+                cycle_idx=cycle_idx, obs_latlon_t=obs_latlon_t)
 
     def _compute_analysis(self,
                           Xb: ArrayLike,
@@ -752,6 +1217,17 @@ class LETKF(ETKF):
         delegates to :meth:`_localized_analysis`.  ``obs_loc_indices`` for
         the taper is recovered from the nonzero column of each ``H`` row.
         """
+        # Regime-B per-cycle geometry needs the scan cycle index, which the
+        # legacy single-slice 3D path does not carry.  Regime B is a WINDOWED
+        # (4D / 3D-FGAT) feature; require one of those cyclers rather than
+        # silently reusing cycle-0 geometry every cycle.
+        if self._use_patch_series or self._use_patch_callback:
+            raise ValueError(
+                "Regime-B per-cycle patch geometry (patch_idx_series / "
+                "patch_callback) is only supported on the windowed cyclers "
+                "(LETKF4D, or LETKF with fgat=True); the legacy single-slice 3D "
+                "path has no per-cycle geometry hook.  Use the static Regime-A "
+                "patch_idx for plain 3D.")
         Yb = self._apply_obsop(Xb, H, h)                       # (n_obs, K)
         Y = jnp.asarray(Y).reshape(-1)
         # Diagonal R^{-1}: R is the (masked) obs error covariance from the base
