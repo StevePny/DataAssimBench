@@ -857,7 +857,8 @@ class LETKF(ETKF):
                            obs_loc_indices: ArrayLike,
                            rho: float,
                            cycle_idx=None,
-                           obs_latlon_t=None) -> jax.Array:
+                           obs_latlon_t=None,
+                           to_host: bool = False):
         """Materialize the per-gridpoint SPD transforms ``A`` (no solve).
 
         Reproduces EXACTLY the ``A = (K-1)/rho I + Y^T R^{-1} Y`` that
@@ -880,9 +881,18 @@ class LETKF(ETKF):
                 (ignored in Regime A / dense).
             obs_latlon_t: Regime-B (callback) this cycle's obs positions
                 ``(pool, 2)`` (ignored otherwise).
+            to_host: If ``True``, transfer each grid block to host as it is
+                computed and return a single concatenated ``np.ndarray`` (never
+                materializing the whole ``(grid_dim, K, K)`` stack on-device on
+                top of the resident DA working set -- this is what OOMs the
+                capture path on a 24 GB GPU at the real T42 grid).  Requires a
+                finite ``grid_chunk``.  Default ``False`` returns the on-device
+                ``jax.Array`` (unchanged behaviour).
 
         Returns:
-            The per-gridpoint SPD transform stack ``(grid_dim, K, K)``.
+            The per-gridpoint SPD transform stack ``(grid_dim, K, K)`` as a
+            ``jax.Array`` (``to_host=False``) or ``np.ndarray``
+            (``to_host=True``).
         """
         dtype = Xb.dtype
         K = Xb.shape[1]
@@ -923,7 +933,26 @@ class LETKF(ETKF):
         # ``vmap`` at the real T42 grid OOMs the GPU on the dense path.
         chunk = self.grid_chunk
         if chunk is None or chunk >= G:
-            return jax.vmap(_lane_A)(lane_inputs)              # (grid_dim, K, K)
+            A_full = jax.vmap(_lane_A)(lane_inputs)            # (grid_dim, K, K)
+            return np.asarray(A_full) if to_host else A_full
+
+        if to_host:
+            # Stream block-by-block to host: compute one ``(chunk, K, K)``
+            # block, copy it into the preallocated NumPy stack, and free the
+            # device block before the next -- so the device never holds the
+            # whole ``(grid_dim, K, K)`` stack on top of the resident DA
+            # working set (the OOM that killed the L4 capture).
+            _lane_A_blk = jax.jit(jax.vmap(_lane_A))
+            out = np.empty((G, K, K), dtype=np.dtype(dtype))
+            for start in range(0, G, chunk):
+                stop = min(start + chunk, G)
+                blk = jax.tree_util.tree_map(
+                        lambda a, s=start, e=stop: a[s:e], lane_inputs)
+                A_blk = _lane_A_blk(blk)                       # (<=chunk, K, K)
+                out[start:stop] = np.asarray(A_blk)
+                del A_blk
+            return out
+
         n_chunks = -(-G // chunk)                              # ceil div
         pad = n_chunks * chunk - G
 

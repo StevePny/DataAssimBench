@@ -257,5 +257,6 @@ class LETKF4D(LETKF, ETKF4D):
                 Xb_tau, Yb, Y, rinv_diag, obs_loc_flat,
                 rho=self.multiplicative_inflation,
                 cycle_idx=(0 if self._use_patch_series else None),
-                obs_latlon_t=self._callback_obs_latlon_4d(cur_obs_loc_indices))
+                obs_latlon_t=self._callback_obs_latlon_4d(cur_obs_loc_indices),
+                to_host=True)
         return np.asarray(A_stack)

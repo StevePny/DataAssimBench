@@ -497,6 +497,25 @@ def test_letkf_patch_gather_matches_dense():
         Xb_spec, Yb, Y, rinv, jnp.arange(n_obs), rho=1.0))
     assert np.allclose(A_patch, A_dense, rtol=0, atol=1e-10)
 
+    # to_host=True (block-streamed device->host, the OOM fix) must be
+    # byte-identical to the on-device stack for BOTH the dense and patch
+    # paths, incl. a finite grid_chunk that exercises the streaming loop.
+    dense_c = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                    model_obj=None, grid_latlon=grid_latlon,
+                    obs_latlon=obs_latlon, localize_radius=R, grid_chunk=4)
+    A_dense_host = dense_c.capture_A_matrices(
+        Xb_spec, Yb, Y, rinv, jnp.arange(n_obs), rho=1.0, to_host=True)
+    assert isinstance(A_dense_host, np.ndarray)
+    assert np.array_equal(A_dense_host, A_dense)
+    patch_c = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                    model_obj=None, grid_latlon=grid_latlon,
+                    obs_latlon=obs_latlon, localize_radius=R, grid_chunk=4,
+                    patch_idx=patch_idx, patch_gc=patch_gc)
+    A_patch_host = patch_c.capture_A_matrices(
+        Xb_spec, Yb, Y, rinv, jnp.arange(n_obs), rho=1.0, to_host=True)
+    assert isinstance(A_patch_host, np.ndarray)
+    assert np.array_equal(A_patch_host, A_patch)
+
 
 def test_letkf_patch_no_obs_gridpoint_is_background():
     """A grid point whose patch is entirely beyond ``2c`` (all-zero patch_w)
