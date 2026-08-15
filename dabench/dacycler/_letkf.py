@@ -937,18 +937,34 @@ class LETKF(ETKF):
             return np.asarray(A_full) if to_host else A_full
 
         if to_host:
-            # Stream block-by-block to host: compute one ``(chunk, K, K)``
+            # Stream block-by-block to host: compute one ``(cap_chunk, K, K)``
             # block, copy it into the preallocated NumPy stack, and free the
             # device block before the next -- so the device never holds the
             # whole ``(grid_dim, K, K)`` stack on top of the resident DA
             # working set (the OOM that killed the L4 capture).
+            #
+            # The block size is bounded by the per-lane INTERMEDIATE, not by
+            # ``self.grid_chunk``: vmapping ``_lane_A`` over a block of ``c``
+            # grid points materializes a ``(c, K, W)`` ``Y^T R^{-1}`` temporary
+            # (W = the window-stacked ``n_obs`` on the dense path, or the patch
+            # width ``P`` on the sparse path) BEFORE the ``(c, K, K)`` output.
+            # At the real T42 grid this dense temporary is ~2.8 GiB at c=256
+            # (K=128, W~1.2e4, fp64) and OOMs the 24 GB L4 alongside the
+            # resident DA working set -- so cap the block so that temporary
+            # stays under ~256 MiB.  Smaller blocks are byte-identical (same
+            # ``_lane_A``, same order; only the partition changes -- see the
+            # ``grid_chunk``-varied equivalence test).
+            W = int(patch_idx.shape[1]) if self._use_patch else n_obs
+            budget_lanes = max(1, (256 * 1024 * 1024)
+                               // (K * max(1, W) * np.dtype(dtype).itemsize))
+            cap_chunk = max(1, min(chunk, budget_lanes))
             _lane_A_blk = jax.jit(jax.vmap(_lane_A))
             out = np.empty((G, K, K), dtype=np.dtype(dtype))
-            for start in range(0, G, chunk):
-                stop = min(start + chunk, G)
+            for start in range(0, G, cap_chunk):
+                stop = min(start + cap_chunk, G)
                 blk = jax.tree_util.tree_map(
                         lambda a, s=start, e=stop: a[s:e], lane_inputs)
-                A_blk = _lane_A_blk(blk)                       # (<=chunk, K, K)
+                A_blk = _lane_A_blk(blk)                       # (<=cap_chunk,K,K)
                 out[start:stop] = np.asarray(A_blk)
                 del A_blk
             return out
