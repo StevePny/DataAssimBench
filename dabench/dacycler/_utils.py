@@ -29,10 +29,17 @@ def _get_all_times(
 
     
     """
+    # NB: build the per-cycle offsets as ``arange(N) * window`` (an INTEGER
+    # index scaled by the window) rather than ``arange(0, N*window, window)``.
+    # The float-stop form returns N+1 elements whenever floating-point rounding
+    # nudges ``N*window`` just above the last multiple (e.g. window=0.1 at
+    # N in {3, 6, 12}), which then mismatches the length-N ``repeat`` addend and
+    # silently corrupts the obs schedule; ``arange(N)`` is exactly N elements
+    # for any window, and its first-N values are byte-identical to the old form
+    # on every non-buggy case.
     all_times = (
             jnp.repeat(start_time, analysis_cycles)
-            + jnp.arange(0, analysis_cycles*analysis_window,
-                            analysis_window)
+            + jnp.arange(analysis_cycles)*analysis_window
                     )
 
     return all_times

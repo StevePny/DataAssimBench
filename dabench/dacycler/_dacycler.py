@@ -372,7 +372,8 @@ class DACycler():
               analysis_time_in_window: float | None = None,
               return_forecast: bool = False,
               return_metrics: bool = False,
-              metrics_mode: str = "default"
+              metrics_mode: str = "default",
+              return_final_state: bool = False
               ) -> XarrayDatasetLike:
         """Perform DA cycle repeatedly, including analysis and forecast
 
@@ -401,6 +402,17 @@ class DACycler():
                 ``return_metrics=True``). ``"default"`` emits per-cycle
                 aggregate scalars; ``"debug"`` ALSO emits the full per-obs
                 O-F/O-A arrays and an obs-active mask.
+            return_final_state: If True, additionally returns the scan's
+                FINAL carry state (the window-boundary background the next
+                cycle would consume) as the LAST element of the return tuple,
+                as a plain :class:`xarray.Dataset` with the ``_cur_time`` coord
+                dropped.  This is the state ``return_forecast=True`` DROPS from
+                the emitted output (``drop_isel(cycle_timestep=-1)``), so a
+                batched/chunked driver that splits one long ``cycle`` into
+                several sequential calls can thread the EXACT carry between
+                batches (byte-identical to a single monolithic call) instead of
+                re-deriving it with an extra model step.  Default False (return
+                shape unchanged).
         """
 
         if metrics_mode not in ("default", "debug"):
@@ -446,12 +458,25 @@ class DACycler():
         analysis_ds = (all_vals_ds.drop_isel(cycle_timestep=-1)
                        if return_forecast
                        else all_vals_ds.isel(cycle_timestep=0))
+        # The scan's final carry is the window-boundary background the NEXT
+        # cycle would consume -- exactly the frame return_forecast=True drops
+        # above.  Surface it (as a plain xr.Dataset, _cur_time removed) so a
+        # batched driver can thread the EXACT carry between chunked cycle()
+        # calls; only materialised when asked (return shape unchanged by default).
+        final_state = None
+        if return_final_state:
+            final_state = cur_state.to_xarray().drop_vars(
+                    '_cur_time', errors='ignore')
         if not self._return_metrics:
+            if return_final_state:
+                return analysis_ds, final_state
             return analysis_ds
         metrics = self._assemble_metrics_ds(all_metrics)
         # Store on the instance for after-run access (see CyclerMetrics); also
         # return it (backward-compatible tuple contract).
         self.metrics = metrics
+        if return_final_state:
+            return analysis_ds, metrics, final_state
         return analysis_ds, metrics
 
     def clear_metrics(self) -> None:

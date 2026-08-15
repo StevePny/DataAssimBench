@@ -322,6 +322,134 @@ def test_etkf4d_analysis_time_placement(
     assert rmse_da < rmse_noop
 
 
+def _batched_cycle(cycler, init_state, obs_vector, obs_error_sd, start_time0,
+                   analysis_window, n_cycles, batch, return_metrics=False,
+                   metrics_mode="default"):
+    """Reference batched driver: split one cycle() into sequential chunks.
+
+    Mirrors the MLTLM run_4dvar._run_cycle_batched contract: each batch passes
+    start_time advanced by cycles_done*analysis_window (obs are gathered by
+    ABSOLUTE time), threads the EXACT scan carry via return_final_state=True as
+    the next batch's input_state, and concatenates the per-batch outputs along
+    'cycle'.  Returns the SAME (analysis[, metrics]) shape as a monolithic call.
+    """
+    import xarray as xr
+    cur = init_state
+    a_parts, m_parts = [], []
+    done = 0
+    while done < n_cycles:
+        this_len = min(batch, n_cycles - done)
+        out = cycler.cycle(
+            input_state=cur,
+            start_time=start_time0 + done * analysis_window,
+            obs_vector=obs_vector, obs_error_sd=obs_error_sd,
+            analysis_window=analysis_window, n_cycles=this_len,
+            return_forecast=True, return_final_state=True,
+            return_metrics=return_metrics, metrics_mode=metrics_mode)
+        if return_metrics:
+            a_ds, m_ds, final_state = out
+            m_parts.append(m_ds.to_dataset()
+                           if hasattr(m_ds, "to_dataset") else m_ds)
+        else:
+            a_ds, final_state = out
+        a_parts.append(a_ds)
+        cur = final_state
+        done += this_len
+    analysis = xr.concat(a_parts, dim="cycle")
+    if return_metrics:
+        return analysis, xr.concat(m_parts, dim="cycle")
+    return analysis
+
+
+def test_etkf4d_return_final_state_is_dropped_boundary_frame(
+        l96_nature_run, obs_vec_l96, etkf4d_cycler):
+    """return_final_state yields the EXACT frame return_forecast drops.
+
+    With return_forecast=True the emitted output drops cycle_timestep=-1 (the
+    window-boundary background the scan carries into the next cycle).  A single
+    cycle() over N cycles must return, as its final_state, the same tensor a
+    (N+1)-cycle run would expose as its N-th cycle's dropped boundary frame --
+    i.e. running N cycles then 1 more from that final_state must reproduce the
+    monolithic (N+1)-cycle output byte-for-byte.
+    """
+    init_state = _make_init(l96_nature_run)
+    kw = dict(obs_vector=obs_vec_l96, obs_error_sd=1.0, analysis_window=0.1)
+    t0 = init_state['time'].data
+
+    # n_cycles=8 with batch=4 -> chunks [4, 4].  (The _get_all_times arange
+    # float-endpoint bug that used to corrupt n in {3,6,12} at window=0.1 is now
+    # fixed in dabench.dacycler._utils; see test_etkf4d_batched_equals_
+    # monolithic_previously_buggy_n for the direct regression on n=6.)
+    mono = etkf4d_cycler.cycle(
+        input_state=init_state, start_time=t0, n_cycles=8,
+        return_forecast=True, **kw)
+    batched = _batched_cycle(
+        etkf4d_cycler, init_state, obs_vec_l96, 1.0, t0, 0.1, 8, batch=4)
+
+    a_mono = np.asarray(mono['x'].data)
+    a_bat = np.asarray(batched['x'].data)
+    assert a_mono.shape == a_bat.shape
+    assert np.array_equal(a_mono, a_bat), (
+        "batched analysis must be byte-identical to the monolithic scan")
+
+
+@pytest.mark.parametrize("batch", [1, 2, 4, 8])
+def test_etkf4d_batched_equals_monolithic(
+        l96_nature_run, obs_vec_l96, etkf4d_cycler, batch):
+    """Batched cycling == monolithic cycling (analysis + metrics), any batch.
+
+    The whole point of the batched driver is progress/memory WITHOUT changing
+    the numeric result: for every batch size the concatenated analysis and the
+    per-cycle obs metrics must match a single 8-cycle cycle() to round-off
+    (byte-identical, since the handoff threads the exact scan carry).  Batch
+    sizes 1/2/4/8 decompose 8 cycles into chunks {1,2,4,8}, so the test isolates
+    the batching handoff.
+    """
+    init_state = _make_init(l96_nature_run)
+    t0 = init_state['time'].data
+    a_mono, m_mono = etkf4d_cycler.cycle(
+        input_state=init_state, start_time=t0, obs_vector=obs_vec_l96,
+        obs_error_sd=1.0, analysis_window=0.1, n_cycles=8,
+        return_forecast=True, return_metrics=True)
+    a_bat, m_bat = _batched_cycle(
+        etkf4d_cycler, init_state, obs_vec_l96, 1.0, t0, 0.1, 8, batch=batch,
+        return_metrics=True)
+
+    assert np.array_equal(np.asarray(a_mono['x'].data),
+                          np.asarray(a_bat['x'].data))
+    m_mono_ds = m_mono.to_dataset() if hasattr(m_mono, "to_dataset") else m_mono
+    for var in ("o_minus_f_rms", "o_minus_a_rms", "bias_f", "bias_a",
+                "obs_space_spread_background", "sigma_obs_max",
+                "n_active_obs"):
+        assert np.allclose(np.asarray(m_mono_ds[var].data),
+                           np.asarray(m_bat[var].data), rtol=0, atol=0), var
+
+
+@pytest.mark.parametrize("n_cycles", [3, 6])
+def test_etkf4d_previously_buggy_n_runs_and_batches(
+        l96_nature_run, obs_vec_l96, etkf4d_cycler, n_cycles):
+    """n in {3,6} at window=0.1 now runs (regression for the arange bug).
+
+    Before the _get_all_times fix, ``jnp.arange(0, n*0.1, 0.1)`` returned n+1
+    times for n in {3,6,12}, so a plain ``cycle(n_cycles=n, analysis_window=0.1)``
+    either raised a broadcast error or silently shifted the obs schedule.  This
+    pins that these counts now (a) run, (b) return exactly n cycles, and (c)
+    stay byte-identical between monolithic and batched execution.
+    """
+    init_state = _make_init(l96_nature_run)
+    t0 = init_state['time'].data
+    mono = etkf4d_cycler.cycle(
+        input_state=init_state, start_time=t0, obs_vector=obs_vec_l96,
+        obs_error_sd=1.0, analysis_window=0.1, n_cycles=n_cycles,
+        return_forecast=True)
+    assert int(mono.sizes['cycle']) == n_cycles
+    assert bool(np.all(np.isfinite(np.asarray(mono['x'].data))))
+    batched = _batched_cycle(
+        etkf4d_cycler, init_state, obs_vec_l96, 1.0, t0, 0.1, n_cycles, batch=2)
+    assert np.array_equal(np.asarray(mono['x'].data),
+                          np.asarray(batched['x'].data))
+
+
 def test_etkf4d_bad_analysis_time_index_raises(l96_fc_model):
     with pytest.raises(ValueError, match="analysis_time_index"):
         c = ETKF4D(system_dim=5, delta_t=0.01, ensemble_dim=8,
