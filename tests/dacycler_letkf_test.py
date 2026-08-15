@@ -516,6 +516,21 @@ def test_letkf_patch_gather_matches_dense():
     assert isinstance(A_patch_host, np.ndarray)
     assert np.array_equal(A_patch_host, A_patch)
 
+    # The dense to_host path builds the taper PER BLOCK (via grid_rows) so the
+    # full (grid_dim, n_obs) taper -- itself the capture OOM at the real T42
+    # grid -- is never formed.  A partial-slice build must (a) equal the full
+    # taper's corresponding rows byte-for-byte, and (b) NOT populate the
+    # whole-grid cache (which holds the full matrix only).
+    fresh = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=grid_latlon,
+                  obs_latlon=obs_latlon, localize_radius=R, grid_chunk=4)
+    full_taper = np.asarray(fresh._build_taper(jnp.arange(n_obs), jnp.float64))
+    fresh._taper_cache = None                       # force a partial rebuild
+    blk_taper = np.asarray(fresh._build_taper(
+        jnp.arange(n_obs), jnp.float64, grid_rows=slice(2, 6)))
+    assert np.array_equal(blk_taper, full_taper[2:6])
+    assert fresh._taper_cache is None               # partial build bypasses cache
+
 
 def test_letkf_patch_no_obs_gridpoint_is_background():
     """A grid point whose patch is entirely beyond ``2c`` (all-zero patch_w)

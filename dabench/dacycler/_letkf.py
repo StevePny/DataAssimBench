@@ -631,7 +631,8 @@ class LETKF(ETKF):
         return (self.localize_radius if self.localize_units == "km"
                 else self.localize_radius * _DEG2KM)
 
-    def _distances(self, obs_loc_indices: ArrayLike) -> jax.Array:
+    def _distances(self, obs_loc_indices: ArrayLike,
+                   grid_rows: slice | None = None) -> jax.Array:
         """Dense ``(grid_dim, n_obs)`` distance matrix (km or index units).
 
         Uses great-circle distances from ``grid_latlon`` when provided; else
@@ -644,11 +645,20 @@ class LETKF(ETKF):
         (``obs_dim``); the slice geometry is then tiled ``n_times`` times to
         match, since the same locations recur every window step (validity is
         carried separately by the zeroed ``rinv_diag`` entries).
+
+        ``grid_rows`` (optional) restricts the GRID-point axis to a slice so
+        only ``(len(rows), n_obs)`` is formed -- used by the block-streamed
+        capture path so the full ``(grid_dim, n_obs)`` distance/taper matrix
+        (~700 MiB at the real T42 grid) is never materialized on the GPU.
+        The obs axis and every distance value are byte-identical to the full
+        matrix's corresponding rows (same metric, same order).
         """
         obs_idx = jnp.asarray(obs_loc_indices).reshape(-1).astype(jnp.int32)
         n_obs = int(obs_idx.shape[0])
         if self._grid_latlon is not None:
             grid_ll = self._grid_latlon                       # (grid_dim, 2)
+            if grid_rows is not None:
+                grid_ll = grid_ll[grid_rows]
             if self._obs_latlon is not None:
                 obs_ll = self._obs_latlon                      # (obs_dim, 2)
                 n_slice = int(obs_ll.shape[0])
@@ -668,12 +678,14 @@ class LETKF(ETKF):
         # 1-D periodic index ring.
         n = int(self.system_dim)
         grid_pos = jnp.arange(n, dtype=jnp.float32)[:, None]
+        if grid_rows is not None:
+            grid_pos = grid_pos[grid_rows]
         obs_pos = obs_idx.astype(jnp.float32)[None, :]
         d = jnp.abs(grid_pos - obs_pos)
         return jnp.minimum(d, n - d)
 
     def _build_taper(self, obs_loc_indices: ArrayLike,
-                     dtype) -> jax.Array:
+                     dtype, grid_rows: slice | None = None) -> jax.Array:
         """Dense ``(grid_dim, n_obs)`` Gaspari-Cohn taper matrix.
 
         The obs network is a fixed pool, so the gridpoint->obs geometry is
@@ -684,12 +696,20 @@ class LETKF(ETKF):
         tracer would let it escape the trace and raise
         :class:`jax.errors.UnexpectedTracerError` on the next cycle, making
         the cycler single-use.  Exactly 0 beyond ``2c``.
+
+        ``grid_rows`` (optional) restricts the GRID-point axis to a slice so
+        only that block of taper rows is formed -- the block-streamed capture
+        path passes it so the full ``(grid_dim, n_obs)`` taper is never built
+        on-device.  A partial slice bypasses the whole-grid cache on BOTH read
+        and write (the cache holds the full matrix only), so the returned rows
+        are byte-identical to the corresponding rows of the full taper.
         """
-        if self._taper_cache is not None:
+        if grid_rows is None and self._taper_cache is not None:
             return self._taper_cache.astype(dtype)
-        dist = self._distances(obs_loc_indices)
+        dist = self._distances(obs_loc_indices, grid_rows=grid_rows)
         taper = _gaspari_cohn(dist, self._radius_km())
-        if not isinstance(jnp.asarray(obs_loc_indices), jax.core.Tracer):
+        if (grid_rows is None
+                and not isinstance(jnp.asarray(obs_loc_indices), jax.core.Tracer)):
             self._taper_cache = taper
         return taper.astype(dtype)
 
@@ -916,16 +936,22 @@ class LETKF(ETKF):
 
             lane_inputs = (patch_idx, patch_w)
             G = patch_idx.shape[0]
+            W = int(patch_idx.shape[1])                        # patch width P
         else:
-            taper = self._build_taper(obs_loc_indices, dtype)
-
             def _lane_A(taper_row):
                 rinv_local = rinv * taper_row.astype(dtype)    # (n_obs,)
                 YtRinv = Yb_pert.T * rinv_local[None, :]       # (K, n_obs)
                 return (K - 1) / rho * I + YtRinv @ Yb_pert    # (K, K) SPD
 
-            lane_inputs = taper
-            G = taper.shape[0]
+            # The dense taper is ``(grid_dim, n_obs)`` (~700 MiB at the real T42
+            # grid); building it whole (even once) is itself the capture OOM, so
+            # on the streaming path DEFER it and build only each block's rows
+            # below.  Non-streaming callers still build it once here.
+            G = int(self._grid_latlon.shape[0]
+                    if self._grid_latlon is not None else self.system_dim)
+            W = n_obs
+            if not to_host:
+                lane_inputs = self._build_taper(obs_loc_indices, dtype)
 
         # Chunk over grid points EXACTLY as ``_local_columns`` (via
         # ``jax.lax.map`` in blocks of ``self.grid_chunk``) so the peak
@@ -933,8 +959,13 @@ class LETKF(ETKF):
         # ``vmap`` at the real T42 grid OOMs the GPU on the dense path.
         chunk = self.grid_chunk
         if chunk is None or chunk >= G:
-            A_full = jax.vmap(_lane_A)(lane_inputs)            # (grid_dim, K, K)
-            return np.asarray(A_full) if to_host else A_full
+            if self._use_patch or not to_host:
+                A_full = jax.vmap(_lane_A)(lane_inputs)        # (grid_dim, K, K)
+                return np.asarray(A_full) if to_host else A_full
+            # dense + to_host + single block: build the whole taper once (the
+            # caller opted out of chunking) and vmap.
+            taper = self._build_taper(obs_loc_indices, dtype)
+            return np.asarray(jax.vmap(_lane_A)(taper))
 
         if to_host:
             # Stream block-by-block to host: compute one ``(cap_chunk, K, K)``
@@ -951,10 +982,11 @@ class LETKF(ETKF):
             # At the real T42 grid this dense temporary is ~2.8 GiB at c=256
             # (K=128, W~1.2e4, fp64) and OOMs the 24 GB L4 alongside the
             # resident DA working set -- so cap the block so that temporary
-            # stays under ~256 MiB.  Smaller blocks are byte-identical (same
-            # ``_lane_A``, same order; only the partition changes -- see the
-            # ``grid_chunk``-varied equivalence test).
-            W = int(patch_idx.shape[1]) if self._use_patch else n_obs
+            # stays under ~256 MiB.  On the dense path the block's taper rows
+            # are built INSIDE the loop (via ``grid_rows``) so the full
+            # ``(grid_dim, n_obs)`` taper is never formed.  Smaller blocks are
+            # byte-identical (same ``_lane_A``, same order; only the partition
+            # changes -- see the ``grid_chunk``-varied equivalence test).
             budget_lanes = max(1, (256 * 1024 * 1024)
                                // (K * max(1, W) * np.dtype(dtype).itemsize))
             cap_chunk = max(1, min(chunk, budget_lanes))
@@ -962,8 +994,13 @@ class LETKF(ETKF):
             out = np.empty((G, K, K), dtype=np.dtype(dtype))
             for start in range(0, G, cap_chunk):
                 stop = min(start + cap_chunk, G)
-                blk = jax.tree_util.tree_map(
-                        lambda a, s=start, e=stop: a[s:e], lane_inputs)
+                if self._use_patch:
+                    blk = jax.tree_util.tree_map(
+                            lambda a, s=start, e=stop: a[s:e], lane_inputs)
+                else:
+                    blk = self._build_taper(
+                            obs_loc_indices, dtype,
+                            grid_rows=slice(start, stop))      # (<=cap_chunk,n_obs)
                 A_blk = _lane_A_blk(blk)                       # (<=cap_chunk,K,K)
                 out[start:stop] = np.asarray(A_blk)
                 del A_blk
