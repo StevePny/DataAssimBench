@@ -150,6 +150,67 @@ def test_localize_khatri_rao_matches_dense_schur():
     assert np.linalg.norm(B_loc - B_schur) / np.linalg.norm(B_schur) < 1e-12
 
 
+def test_diag_replace_unit_correlation_diagonal(tmp_path):
+    # Diagonal-replacement (correlation-only) B: diag(B) == sigma_bg^2 exactly
+    # on the full-rank subspace, and trace == D * sigma_bg^2.
+    D, n_ens, R = 8, 6, 5
+    rows = _make_rows(D, n_ens, R, seed=12)
+    npz = _save_tmp(tmp_path, rows, D, n_ens, R)
+    sb = 0.2
+    op, info = load_ens_cov_b_half(npz, sigma_bg=sb, diag_replace=True)
+    assert info["diag_replace"] is True
+    B = _dense_B_from_op(op, D)
+    # Every coefficient's variance overwritten with the flat sigma_bg^2.
+    assert np.allclose(np.diag(B), sb ** 2, atol=1e-9), np.diag(B)
+    assert np.isclose(np.trace(B), D * sb ** 2, atol=1e-9), np.trace(B)
+
+
+def test_diag_replace_preserves_correlation_structure(tmp_path):
+    # The off-diagonal CORRELATION of the diag-replaced B matches that of the
+    # pure trace-matched ens-cov B (only the variances are overwritten).
+    D, n_ens, R = 8, 6, 5
+    rows = _make_rows(D, n_ens, R, seed=13)
+    npz = _save_tmp(tmp_path, rows, D, n_ens, R)
+    op_pure, _ = load_ens_cov_b_half(npz, sigma_bg=0.15,
+                                     hybrid_alpha=0.0, hybrid_beta=1.0)
+    op_corr, _ = load_ens_cov_b_half(npz, sigma_bg=0.15, diag_replace=True)
+    B_pure = _dense_B_from_op(op_pure, D)
+    B_corr = _dense_B_from_op(op_corr, D)
+
+    def _corr(B):
+        s = np.sqrt(np.clip(np.diag(B), 1e-30, None))
+        return B / np.outer(s, s)
+
+    assert np.allclose(_corr(B_pure), _corr(B_corr), atol=1e-9)
+
+
+def test_diag_replace_with_localization(tmp_path):
+    # Localize FIRST, then replace the diagonal: diag stays sigma_bg^2 and the
+    # correlation matches the LOCALIZED (not raw) ens-cov correlation.
+    D, n_ens, R = 12, 8, 6
+    rows = _make_rows(D, n_ens, R, seed=14)
+    npz = _save_tmp(tmp_path, rows, D, n_ens, R)
+    rng = np.random.default_rng(15)
+    G = rng.normal(size=(D, 5))
+    G = G / np.maximum(np.sqrt((G ** 2).sum(1, keepdims=True)), 1e-30)
+    sb = 0.25
+    op_loc, _ = load_ens_cov_b_half(npz, sigma_bg=sb,
+                                    hybrid_alpha=0.0, hybrid_beta=1.0,
+                                    localize_G=G, localize_K=D)
+    op_lc, info = load_ens_cov_b_half(npz, sigma_bg=sb, diag_replace=True,
+                                      localize_G=G, localize_K=D)
+    assert info["diag_replace"] is True and info["localized"] is True
+    B_loc = _dense_B_from_op(op_loc, D)
+    B_lc = _dense_B_from_op(op_lc, D)
+    assert np.allclose(np.diag(B_lc), sb ** 2, atol=1e-9)
+
+    def _corr(B):
+        s = np.sqrt(np.clip(np.diag(B), 1e-30, None))
+        return B / np.outer(s, s)
+
+    assert np.allclose(_corr(B_loc), _corr(B_lc), atol=1e-8)
+
+
 def test_localize_preserves_trace_through_loader(tmp_path):
     # Localization changes structure, not total variance: the finalize trace-
     # match yields the SAME trace_B with or without localization.

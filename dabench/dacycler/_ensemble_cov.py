@@ -204,6 +204,37 @@ def localize_lowrank_factors(U_raw, sigma_raw, G, K_cap):
     return U_loc, sigma_loc
 
 
+def _correlation_replace_factors(bf, sigma_bg: float):
+    """Diagonal-replacement (correlation-only) B: ``B = sigma_bg^2 * corr(B_ens)``.
+
+    Keeps the OFF-diagonal correlation structure of the low-rank ``B_ens = U
+    diag(sigma^2) U^T`` but OVERWRITES its per-coefficient variance with a flat
+    ``sigma_bg^2`` -- i.e. ``B = D^{1/2} C D^{1/2}`` with ``C = corr(B_ens)`` and
+    ``D = sigma_bg^2 I``.  This prevents a rank-deficient / miscalibrated
+    climatological variance from poisoning the prior while retaining its
+    structure (the correlation-matrix reconstruction trick).
+
+    ``bf`` is a trace-matched :class:`BFactors` (``sigma_bg == 0``, pure
+    low-rank).  The row (per-coefficient) variance is ``d_i = sum_k U_ik^2
+    sigma_k^2 = diag(B_ens)``; the correlation square-root factor is ``X_tilde
+    = (U diag(sigma)) / sqrt(d)`` (unit-diagonal ``X_tilde X_tilde^T``).  Scaling
+    by ``sigma_bg`` and re-SVDing recovers orthonormal ``(U', sigma')`` so that
+    ``B = U' diag(sigma'^2) U'^T`` has ``diag(B) = sigma_bg^2`` on the retained
+    subspace (off-complement floor kept at 0).  Coefficients with ``d_i = 0``
+    (unspanned by the low-rank subspace) get a ``sigma_bg`` isotropic floor via
+    the returned ``sigma_bg`` so they are not left at zero variance.
+    """
+    U = np.asarray(bf.U, dtype=np.float64)                  # (D, K)
+    sigma = np.asarray(bf.sigma, dtype=np.float64)          # (K,)
+    X = U * sigma[None, :]                                  # (D, K) raw sqrt
+    d = np.sum(X ** 2, axis=1)                              # (D,) diag(B_ens)
+    inv_std = np.where(d > 0.0, 1.0 / np.sqrt(np.maximum(d, 1e-300)), 0.0)
+    X_corr = (X * inv_std[:, None]) * float(sigma_bg)       # (D, K) = sigma_bg*X~
+    U2, s2, _ = np.linalg.svd(X_corr, full_matrices=False)
+    return BFactors(U=jnp.asarray(U2), sigma=jnp.asarray(s2),
+                    sigma_bg=float(sigma_bg))
+
+
 def _hybridize_ens_cov_factors(bf, sigma_bg: float, alpha: float, beta: float):
     """Additive low-rank hybrid ``B = alpha·sigma_bg^2 I + beta·B_ens``.
 
@@ -234,6 +265,7 @@ def load_ens_cov_b_half(
     hybrid_beta: float = 1.0,
     localize_G: "np.ndarray | None" = None,
     localize_K: "int | None" = None,
+    diag_replace: bool = False,
 ) -> Tuple[Callable, dict]:
     """Reload raw ens-cov factors → TRUE low-rank ``B^(1/2)`` (trace-matched).
 
@@ -253,6 +285,15 @@ def load_ens_cov_b_half(
     finalize) via :func:`localize_lowrank_factors`, recapped to ``localize_K``
     modes (default: the pre-localization ``K``).  ``None`` ⇒ no localization
     (byte-identical to the prior behaviour).
+
+    When ``diag_replace`` is ``True``, the DIAGONAL-REPLACEMENT (correlation-
+    only) prior ``B = sigma_bg^2 · corr(B_ens)`` is formed instead of the
+    additive hybrid: the (optionally localized, trace-matched) low-rank ``B_ens``
+    keeps its off-diagonal correlation but its per-coefficient variance is
+    overwritten with a flat ``sigma_bg^2`` (see
+    :func:`_correlation_replace_factors`).  ``hybrid_alpha`` / ``hybrid_beta``
+    are ignored in this mode.  Ordering: localize FIRST, then replace the
+    diagonal, so the correlation is the localized one.
     """
     import json
 
@@ -285,8 +326,11 @@ def load_ens_cov_b_half(
     alpha2 = _fin["alpha2"]
     eigvals_top8 = _fin["eigvals_top8"]
     frame = _fin["frame"]
-    bf_hyb = _hybridize_ens_cov_factors(
-        bf, float(sigma_bg), float(hybrid_alpha), float(hybrid_beta))
+    if bool(diag_replace):
+        bf_hyb = _correlation_replace_factors(bf, float(sigma_bg))
+    else:
+        bf_hyb = _hybridize_ens_cov_factors(
+            bf, float(sigma_bg), float(hybrid_alpha), float(hybrid_beta))
     B_half_op = build_B_half(bf_hyb)
 
     K_eff = int(bf_hyb.U.shape[1])
@@ -304,6 +348,7 @@ def load_ens_cov_b_half(
         "alpha2": float(alpha2),
         "hybrid_alpha": float(hybrid_alpha),
         "hybrid_beta": float(hybrid_beta),
+        "diag_replace": bool(diag_replace),
         "sigma_bg_target": float(sigma_bg),
         "trace_B": trace_B,
         "localized": bool(localized),
