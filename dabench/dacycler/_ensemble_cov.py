@@ -170,6 +170,40 @@ def save_ens_cov_factors(
     )
 
 
+def localize_lowrank_factors(U_raw, sigma_raw, G, K_cap):
+    """Schur-localize a low-rank factor with ``rho = G G^T``, kept low-rank.
+
+    Applies covariance localization ``B_loc = (X X^T) o (G G^T)`` to the raw
+    square-root factor ``X = U_raw diag(sigma_raw)`` WITHOUT materialising the
+    ``state_dim x state_dim`` matrix, via the column-wise Khatri-Rao identity
+    ``(X X^T) o (G G^T) = X_loc X_loc^T`` with ``X_loc = [x_k o g_p]_{k,p}``
+    (shape ``(D, K*P)``).  The rank is then recapped to ``K_cap`` through the
+    SMALL reduced Gram ``M = X_loc^T X_loc`` ((K*P)^2): eigendecompose, keep the
+    top ``K_cap``, and recover orthonormal ``U_loc`` + ``sigma_loc`` by the
+    symmetric-square-root ``U_loc = X_loc V Lambda^{-1/2}``.  ``G`` is the caller-
+    supplied localization factor (``(D, P)``, row-normalised so ``diag(G G^T)=1``
+    so the diagonal/variance is preserved); building ``G`` is model-specific and
+    lives outside this generic module.  Returns raw ``(U_loc, sigma_loc)`` in the
+    SAME frame as the input (consume via :func:`finalize_lowrank_factors`).
+    """
+    X = np.asarray(U_raw, dtype=np.float64) * np.asarray(sigma_raw, np.float64)
+    G = np.asarray(G, dtype=np.float64)
+    D, K = X.shape
+    if G.shape[0] != D:
+        raise ValueError(f"G rows {G.shape[0]} != state_dim {D}.")
+    P = G.shape[1]
+    X_loc = (X[:, :, None] * G[:, None, :]).reshape(D, K * P)   # (D, K*P)
+    M = X_loc.T @ X_loc                                         # (K*P, K*P)
+    evals, evecs = np.linalg.eigh(M)
+    order = np.argsort(evals)[::-1]
+    keep = order[:max(1, int(K_cap))]
+    ev = np.clip(evals[keep], 0.0, None)
+    V = evecs[:, keep]
+    U_loc = X_loc @ (V / np.sqrt(np.maximum(ev, 1e-30))[None, :])
+    sigma_loc = np.sqrt(ev)
+    return U_loc, sigma_loc
+
+
 def _hybridize_ens_cov_factors(bf, sigma_bg: float, alpha: float, beta: float):
     """Additive low-rank hybrid ``B = alpha·sigma_bg^2 I + beta·B_ens``.
 
@@ -198,6 +232,8 @@ def load_ens_cov_b_half(
     K: "int | None" = None,
     hybrid_alpha: float = 0.0,
     hybrid_beta: float = 1.0,
+    localize_G: "np.ndarray | None" = None,
+    localize_K: "int | None" = None,
 ) -> Tuple[Callable, dict]:
     """Reload raw ens-cov factors → TRUE low-rank ``B^(1/2)`` (trace-matched).
 
@@ -210,6 +246,13 @@ def load_ens_cov_b_half(
     alpha·sigma_bg^2 I + beta·B_ens`` is formed by
     :func:`_hybridize_ens_cov_factors`, giving total ``tr(B) =
     (alpha+beta)·state_dim·sigma_bg^2``.  Returns ``(B_half_op, info)``.
+
+    When ``localize_G`` (a ``(state_dim, P)`` localization factor with
+    ``rho = G G^T``, built model-side) is given, covariance localization
+    ``B_loc = B o rho`` is applied to the RAW factors first (before the
+    finalize) via :func:`localize_lowrank_factors`, recapped to ``localize_K``
+    modes (default: the pre-localization ``K``).  ``None`` ⇒ no localization
+    (byte-identical to the prior behaviour).
     """
     import json
 
@@ -228,6 +271,14 @@ def load_ens_cov_b_half(
     if K_req is not None and K_req > 0:
         U_raw = U_raw[:, :K_req]
         sigma_raw = sigma_raw[:K_req]
+
+    localized = False
+    if localize_G is not None:
+        K_pre = int(U_raw.shape[1])
+        K_cap = int(localize_K) if (localize_K and int(localize_K) > 0) else K_pre
+        U_raw, sigma_raw = localize_lowrank_factors(
+            U_raw, sigma_raw, localize_G, K_cap)
+        localized = True
 
     bf, _fin = finalize_lowrank_factors(
         U_raw, sigma_raw, state_dim, sigma_bg=sigma_bg, scale=scale)
@@ -255,6 +306,8 @@ def load_ens_cov_b_half(
         "hybrid_beta": float(hybrid_beta),
         "sigma_bg_target": float(sigma_bg),
         "trace_B": trace_B,
+        "localized": bool(localized),
+        "localize_P": (0 if localize_G is None else int(np.asarray(localize_G).shape[1])),
         "n_rows_accum": build_info.get("n_rows_accum"),
         "ensemble_dim": build_info.get("ensemble_dim"),
         "src_method": build_info.get("src_method",

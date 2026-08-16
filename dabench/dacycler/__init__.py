@@ -33,6 +33,7 @@ from ._ensemble_cov import (
     EnsCovAccumulator,
     save_ens_cov_factors,
     load_ens_cov_b_half,
+    localize_lowrank_factors,
     )
 
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     'EnsCovAccumulator',
     'save_ens_cov_factors',
     'load_ens_cov_b_half',
+    'localize_lowrank_factors',
     ]

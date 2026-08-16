@@ -21,6 +21,7 @@ from dabench.dacycler import (  # noqa: E402
         EnsCovAccumulator,
         save_ens_cov_factors,
         load_ens_cov_b_half,
+        localize_lowrank_factors,
         )
 
 
@@ -133,3 +134,38 @@ def test_hybrid_default_is_pure_ens(tmp_path):
     op_p, _ = load_ens_cov_b_half(npz, sigma_bg=0.1)
     v = np.random.default_rng(10).normal(size=D)
     assert np.allclose(np.asarray(op_h(v)), np.asarray(op_p(v)), atol=1e-12)
+
+
+def test_localize_khatri_rao_matches_dense_schur():
+    # (X X^T) o (G G^T) == X_loc X_loc^T exactly (machine precision).
+    rng = np.random.default_rng(7)
+    D, K, P = 20, 5, 4
+    U, _ = np.linalg.qr(rng.normal(size=(D, K)))
+    sig = np.abs(rng.normal(size=K)) + 0.1
+    G = rng.normal(size=(D, P))
+    X = U * sig[None, :]
+    B_schur = (X @ X.T) * (G @ G.T)
+    U_loc, sig_loc = localize_lowrank_factors(U, sig, G, K_cap=K * P)
+    B_loc = (U_loc * sig_loc[None, :]) @ (U_loc * sig_loc[None, :]).T
+    assert np.linalg.norm(B_loc - B_schur) / np.linalg.norm(B_schur) < 1e-12
+
+
+def test_localize_preserves_trace_through_loader(tmp_path):
+    # Localization changes structure, not total variance: the finalize trace-
+    # match yields the SAME trace_B with or without localization.
+    D, n_ens, R = 12, 8, 6
+    rows = _make_rows(D, n_ens, R, seed=8)
+    npz = _save_tmp(tmp_path, rows, D, n_ens, R)
+    rng = np.random.default_rng(11)
+    G = rng.normal(size=(D, 5))
+    G = G / np.maximum(np.sqrt((G ** 2).sum(1, keepdims=True)), 1e-30)
+    _, i0 = load_ens_cov_b_half(npz, sigma_bg=0.2,
+                                hybrid_alpha=1.0, hybrid_beta=1.0)
+    op1, i1 = load_ens_cov_b_half(npz, sigma_bg=0.2,
+                                  hybrid_alpha=1.0, hybrid_beta=1.0,
+                                  localize_G=G, localize_K=D)
+    assert i0["localized"] is False and i1["localized"] is True
+    assert i1["localize_P"] == 5
+    assert np.isclose(i0["trace_B"], i1["trace_B"], rtol=1e-9)
+    v = rng.normal(size=D)
+    assert np.isfinite(np.asarray(op1(v))).all()
