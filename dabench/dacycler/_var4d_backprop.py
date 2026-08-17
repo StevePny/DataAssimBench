@@ -68,6 +68,15 @@ class Var4DBackprop(dacycler.DACycler):
             ``jax.grad`` (e.g. model co-training), where divergence
             protection must instead be handled by the outer optimizer.
             Default True preserves the standard eval/forensic behavior.
+        lr_scale: Traceable scalar multiplier on the inner search step
+            length (the per-iteration SGD update). The effective inner
+            step is ``lr_scale * learning_rate`` (with ``lr_decay``
+            applied on top). Default 1.0 (a no-op preserving the
+            standard behavior). Passing a JAX scalar makes the inner
+            search length differentiable under an outer ``jax.grad``, so
+            co-training can LEARN it (it strongly affects inner-solve
+            convergence). Kept separate from ``learning_rate`` so the
+            static schedule and the learned multiplier compose cleanly.
     """
     _in_4d: bool = True
     _uses_ensemble: bool = False
@@ -87,6 +96,7 @@ class Var4DBackprop(dacycler.DACycler):
                  obs_window_indices: ArrayLike | list | None = None,
                  loss_growth_limit: float = 10,
                  raise_on_diverge: bool = True,
+                 lr_scale: ArrayLike | float = 1.0,
                  **kwargs
                  ):
 
@@ -97,6 +107,10 @@ class Var4DBackprop(dacycler.DACycler):
         self.obs_window_indices = obs_window_indices
         self.loss_growth_limit = loss_growth_limit
         self.raise_on_diverge = raise_on_diverge
+        # Traceable multiplier on the inner search step length. Stored as a
+        # JAX scalar so an outer jax.grad flows through it (learned inner LR);
+        # default 1.0 is a no-op preserving standard behavior.
+        self.lr_scale = jnp.asarray(lr_scale, dtype=float)
 
         # Var4D Backprop requires H to be a JAX array
         if H is not None:
@@ -233,6 +247,11 @@ class Var4DBackprop(dacycler.DACycler):
                         lambda: loss_val)
 
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
+            # Compose the learned/traced search-length multiplier on top of the
+            # static optax schedule. lr_scale defaults to 1.0 (no-op); when a
+            # JAX scalar is passed, an outer jax.grad flows through it here.
+            updates = jax.tree_util.tree_map(
+                    lambda u: self.lr_scale * u, updates)
             x0_ar.data = optax.apply_updates(
                 x0_ar.data, updates)
             xa0_ds = x0_ar.to_unstacked_dataset('system').assign_attrs(
