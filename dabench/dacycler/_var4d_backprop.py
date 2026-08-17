@@ -60,6 +60,14 @@ class Var4DBackprop(dacycler.DACycler):
             during one analysis cycle, JAX will cut off computation and
             return an error. This prevents it from hanging indefinitely
             when loss grows exponentionally. Default is 10.
+        raise_on_diverge: If True (default), the nan and loss-growth
+            guards raise via ``jax.debug.callback`` (a host side-effect).
+            Set False to collapse those guard branches to pass-through so
+            the analysis is a pure-JAX graph with no host callback --
+            required when differentiating the analysis under an outer
+            ``jax.grad`` (e.g. model co-training), where divergence
+            protection must instead be handled by the outer optimizer.
+            Default True preserves the standard eval/forensic behavior.
     """
     _in_4d: bool = True
     _uses_ensemble: bool = False
@@ -78,6 +86,7 @@ class Var4DBackprop(dacycler.DACycler):
                  steps_per_window: int | None = None,
                  obs_window_indices: ArrayLike | list | None = None,
                  loss_growth_limit: float = 10,
+                 raise_on_diverge: bool = True,
                  **kwargs
                  ):
 
@@ -87,6 +96,7 @@ class Var4DBackprop(dacycler.DACycler):
         self.steps_per_window = steps_per_window
         self.obs_window_indices = obs_window_indices
         self.loss_growth_limit = loss_growth_limit
+        self.raise_on_diverge = raise_on_diverge
 
         # Var4D Backprop requires H to be a JAX array
         if H is not None:
@@ -178,6 +188,11 @@ class Var4DBackprop(dacycler.DACycler):
 
             # Cost is the sum of the two terms
             loss_val = initial_term + obs_term
+            # raise_on_diverge is a static Python bool: when False the guard
+            # cond is dropped at trace time, leaving a pure-JAX (callback-free)
+            # graph safe to differentiate under an outer jax.grad.
+            if not self.raise_on_diverge:
+                return loss_val
             return jax.lax.cond(
                     jnp.isnan(loss_val),
                     lambda: self._callback_raise_error(self._raise_nan_error,
@@ -207,11 +222,15 @@ class Var4DBackprop(dacycler.DACycler):
                     i == 0,
                     lambda: loss_val,
                     lambda: init_loss)
-            loss_val = jax.lax.cond(
-                    loss_val/init_loss > self.loss_growth_limit,
-                    lambda: self._callback_raise_error(
-                        self._raise_loss_growth_error, loss_val),
-                    lambda: loss_val)
+            # Guard dropped at trace time when raise_on_diverge is False (see
+            # _make_loss) so the backprop epoch stays callback-free for outer
+            # differentiation; outer optimizer handles divergence instead.
+            if self.raise_on_diverge:
+                loss_val = jax.lax.cond(
+                        loss_val/init_loss > self.loss_growth_limit,
+                        lambda: self._callback_raise_error(
+                            self._raise_loss_growth_error, loss_val),
+                        lambda: loss_val)
 
             updates, opt_state = optimizer.update(dx0_hess, opt_state)
             x0_ar.data = optax.apply_updates(
