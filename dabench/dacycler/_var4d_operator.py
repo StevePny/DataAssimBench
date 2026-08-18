@@ -492,6 +492,14 @@ class Var4DOperator(dacycler.DACycler):
         Hxa_end = jax.vmap(lambda i: Hs_m[i] @ xa_traj[end_idx])(
                 jnp.arange(Hs_m.shape[0]))
         end_active = (active & jnp.repeat(owi == end_idx, obs_dim))
+        # NOTE: obs-space SPREAD overrides are omitted here (=> NaN, schema
+        # uniform with Var4DBackprop).  This is a MATRIX-FREE cycler: B and the
+        # window TLM are applied as operators (apply_B_half / tlm_op), never
+        # materialised, precisely to avoid O(system_dim) dense cost.  Deriving
+        # obs_space_spread_background / _analysis_end (as Var4D does) would
+        # require densifying B_half and M via system_dim matvecs per cycle,
+        # defeating the operator design; the O-F/O-A innovations that training
+        # and forensics consume do NOT depend on the spreads.
         metrics = dac_utils._obs_space_metrics(
                 y, Hxb.reshape(-1).astype(dtype), Hxa.reshape(-1).astype(dtype),
                 active, sigma2_diag, ens_obs=None,

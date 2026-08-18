@@ -219,6 +219,30 @@ def test_etkf_obs_metrics(l96_nature_run, obs_vec_l96, etkf_cycler):
     assert np.all(np.isnan(of_full[~active]))
     assert bool(np.all(np.isfinite(of_full[active])))
 
+    # (8) Differentiable-by-default: metric leaves are JAX arrays unless
+    # detach_metrics=True, which numpy-converts with NaN-aware value parity
+    # (the eval/forensics path opts in to detach to preserve host behaviour).
+    assert isinstance(metrics["o_minus_f_rms"].data, jax.Array)
+    _, metrics_np = etkf_cycler.cycle(
+        return_metrics=True, detach_metrics=True, **kw)
+    assert isinstance(metrics_np["o_minus_f_rms"].data, np.ndarray)
+    for var in ("o_minus_f_rms", "o_minus_a_rms", "bias_f", "bias_a",
+                "obs_space_spread_background", "sigma_obs_max",
+                "n_active_obs"):
+        assert np.allclose(np.asarray(metrics[var].data),
+                           np.asarray(metrics_np[var].data), equal_nan=True)
+
+    # (9) The differentiable zero-masked innovations equal the NaN-masked
+    # eval fields on ACTIVE obs and are finite (0) on inactive ones.
+    for masked, nan_field in (("o_minus_f_masked", "o_minus_f"),
+                              ("o_minus_a_masked", "o_minus_a")):
+        fm = np.asarray(metrics_dbg[masked].data)
+        fn = np.asarray(metrics_dbg[nan_field].data)
+        assert metrics_dbg[masked].dims == ("cycle", "obs")
+        assert bool(np.all(np.isfinite(fm)))
+        assert np.allclose(fm[active], fn[active])
+        assert bool(np.all(fm[~active] == 0))
+
 
 def test_etkf_obs_metrics_bad_mode(l96_nature_run, obs_vec_l96, etkf_cycler):
     init_state = _etkf_init(l96_nature_run)

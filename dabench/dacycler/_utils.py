@@ -520,6 +520,19 @@ def _obs_space_metrics(y, Hxb_mean, Hxa_mean, active_mask, sigma2_diag,
         out["o_minus_f"] = jnp.where(active, of, nan)
         out["o_minus_a"] = jnp.where(active, oa, nan)
         out["obs_active"] = m
+        # Differentiable (training-facing) innovations: ZERO-masked at inactive
+        # obs via the safe-gradient DOUBLE-WHERE.  The eval fields above use
+        # ``where(active, of, nan)``, whose reverse pass routes a NaN cotangent
+        # into ``of`` at inactive slots (0*NaN=NaN), poisoning gradients even
+        # when the forward value is finite.  Here we FIRST replace inactive
+        # entries with a safe 0 (so no NaN/Inf enters the VJP), THEN multiply by
+        # the 0/1 mask -- finite everywhere and correctly zero-gradient at
+        # inactive obs.  ``of``/``oa`` are already finite (y - H x on real
+        # inputs); the double-where also hardens against padded-obs NaNs.
+        of_safe = jnp.where(active, of, jnp.asarray(0, dtype))
+        oa_safe = jnp.where(active, oa, jnp.asarray(0, dtype))
+        out["o_minus_f_masked"] = of_safe * m
+        out["o_minus_a_masked"] = oa_safe * m
     return out
 
 
@@ -614,8 +627,17 @@ class CyclerMetrics:
     # -- memory -------------------------------------------------------------
     @property
     def nbytes(self) -> int:
-        return int(sum(np.asarray(self._ds[k].data).nbytes
-                       for k in self._ds.data_vars))
+        # Compute from shape/dtype (size * itemsize) rather than
+        # ``np.asarray(...).nbytes`` so this works on JAX arrays -- including
+        # traced ones under ``jax.grad``/``jax.jit`` -- without forcing a
+        # device->host transfer or breaking the trace (differentiable-metrics
+        # path, ``detach_metrics=False``).  Numeric result is identical for
+        # numpy-backed datasets.
+        total = 0
+        for k in self._ds.data_vars:
+            data = self._ds[k].data
+            total += int(data.size) * int(data.dtype.itemsize)
+        return int(total)
 
     def memory_report(self) -> str:
         mb = self.nbytes / (1024.0 ** 2)

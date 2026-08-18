@@ -1,4 +1,14 @@
-"""Class for Var 4D Backpropagation Data Assimilation Cycler object"""
+"""Class for Var 4D Backpropagation Data Assimilation Cycler object
+
+NOTE (differentiable-metrics sweep): this module is EXCLUDED from the uniform
+obs-space metrics contract.  It is NOT registered in ``dacycler/__init__.py``,
+not exercised by any test, and its ``_cycle_obsop`` predates the current
+dataset-based cycle API (it operates on raw arrays, returns ``(xa, loss_vals)``
+rather than ``(analysis_ds, metrics)``, and calls a nonexistent
+``self.step_forecast`` / ``vector.StateVector``).  It is effectively dead code;
+bringing it to metrics parity would require rewriting it against the current
+API and is intentionally out of scope.
+"""
 
 import inspect
 import warnings

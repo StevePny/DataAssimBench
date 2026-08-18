@@ -45,6 +45,7 @@ class DACycler():
     _fgat: bool = False
     _return_metrics: bool = False       # set True only inside cycle()
     _metrics_mode: str = "default"      # "default" | "debug"
+    _detach_metrics: bool = False       # set inside cycle(); True => numpy
     # Baseline per-cycle scalar metrics emitted by EVERY cycler.  Cycler paths
     # may emit ADDITIONAL scalars (e.g. the FGAT tau-restricted comparison
     # pair); ``_assemble_metrics_ds`` stacks any extra scalar leaf present in
@@ -54,7 +55,14 @@ class DACycler():
                        "n_active_obs", "o_minus_a_rms_end", "bias_a_end",
                        "n_active_obs_end", "obs_space_spread_analysis_end")
     # Per-obs (2-D ``(cycle, obs)``) debug leaves, emitted only in debug mode.
-    _METRIC_PEROBS = ("o_minus_f", "o_minus_a", "obs_active")
+    # ``o_minus_f`` / ``o_minus_a`` are NaN-masked at inactive obs (eval-facing,
+    # NOT differentiable through the NaN branch).  ``o_minus_f_masked`` /
+    # ``o_minus_a_masked`` are the SAME innovations ZERO-masked via the
+    # safe-gradient double-where (finite everywhere, differentiable) -- the
+    # TRAINING-facing fields an outer loss backprops through (e.g. co-training
+    # Mode B O-F).  ``obs_active`` is the 1/0 active mask.
+    _METRIC_PEROBS = ("o_minus_f", "o_minus_a", "obs_active",
+                      "o_minus_f_masked", "o_minus_a_masked")
     # After-run-accessible metrics container (set by cycle(); None otherwise).
     metrics = None
     # Warn once per run if debug-mode metrics exceed this many bytes (T42+
@@ -373,6 +381,7 @@ class DACycler():
               return_forecast: bool = False,
               return_metrics: bool = False,
               metrics_mode: str = "default",
+              detach_metrics: bool = False,
               return_final_state: bool = False
               ) -> XarrayDatasetLike:
         """Perform DA cycle repeatedly, including analysis and forecast
@@ -402,6 +411,14 @@ class DACycler():
                 ``return_metrics=True``). ``"default"`` emits per-cycle
                 aggregate scalars; ``"debug"`` ALSO emits the full per-obs
                 O-F/O-A arrays and an obs-active mask.
+            detach_metrics: Only consulted when ``return_metrics=True``.
+                Default False keeps the emitted metrics as DIFFERENTIABLE JAX
+                arrays (leaves carry gradient wrt model params through the
+                O-F/O-A innovations), so an outer training loss can backprop
+                through them.  True numpy-converts the metric leaves before
+                returning (the legacy behaviour), which detaches gradients but
+                frees device memory / matches prior host-array consumers.  Set
+                True for pure eval/forensics where gradients are not needed.
             return_final_state: If True, additionally returns the scan's
                 FINAL carry state (the window-boundary background the next
                 cycle would consume) as the LAST element of the return tuple,
@@ -421,6 +438,7 @@ class DACycler():
                 f"got {metrics_mode!r}")
         self._return_metrics = bool(return_metrics)
         self._metrics_mode = metrics_mode
+        self._detach_metrics = bool(detach_metrics)
         # Leak guard: drop any metrics retained from a PRIOR run at the START of
         # this cycle so an aborted/failed run never leaves a large array pinned,
         # and memory stays bounded to a single run's worth (the attribute is
@@ -492,18 +510,26 @@ class DACycler():
         emitted dict (beyond the baseline ``_METRIC_SCALARS``) is stacked too,
         so cycler-specific extras (e.g. the FGAT tau-restricted comparison
         pair) propagate without every cycler having to emit them.
+
+        When ``self._detach_metrics`` is True the leaves are numpy-converted
+        here (legacy behaviour: detaches gradients, frees device memory).  When
+        False (the differentiable default) the scan-stacked JAX leaves are kept
+        as-is, so an outer training loss can backprop through the O-F/O-A
+        innovations.
         """
+        def _leaf(v):
+            return np.asarray(v) if self._detach_metrics else v
+
         perobs = set(self._METRIC_PEROBS)
         data_vars = {}
         for k, v in all_metrics.items():
             if k in perobs:
                 continue
-            data_vars[k] = (('cycle',), np.asarray(v))
+            data_vars[k] = (('cycle',), _leaf(v))
         if self._metrics_mode == "debug":
             for k in self._METRIC_PEROBS:
                 if k in all_metrics:
-                    data_vars[k] = (('cycle', 'obs'),
-                                    np.asarray(all_metrics[k]))
+                    data_vars[k] = (('cycle', 'obs'), _leaf(all_metrics[k]))
         metrics = dac_utils.CyclerMetrics(xr.Dataset(data_vars))
         if metrics.nbytes > self._METRICS_WARN_BYTES:
             import warnings

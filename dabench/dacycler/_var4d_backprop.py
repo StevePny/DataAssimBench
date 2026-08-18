@@ -340,4 +340,54 @@ class Var4DBackprop(dacycler.DACycler):
 
         xa0_ds = epoch_state_tuple[0].to_xarray()
 
-        return xa0_ds
+        if not self._return_metrics:
+            return xa0_ds
+
+        # Uniform obs-space metrics (differentiable by default -- see base
+        # cycle()/_assemble_metrics_ds).  Mirrors the Var4D template
+        # (_var4d.py) but for the backprop path: forecast the background and
+        # analysis trajectories, project each to obs space at the per-obs window
+        # index, and delegate the reductions to the shared helper.  Var4DBackprop
+        # Hs is already per-time (n_times, obs_dim, system_dim) -- NO transpose.
+        # Paid ONLY when return_metrics=True (up to 2 extra short integrations);
+        # the return_metrics=False path above is byte-identical to before.
+        dtype = jnp.asarray(obs_values).dtype
+        _, Xb_ds = self.model_obj.forecast(
+                xb0_ds, n_steps=self.steps_per_window)
+        _, Xa_ds = self.model_obj.forecast(
+                xa0_ds, n_steps=self.steps_per_window)
+        Xb_ar = jnp.asarray(Xb_ds.to_stacked_array('system', ['time']).data)
+        Xa_ar = jnp.asarray(Xa_ds.to_stacked_array('system', ['time']).data)
+        owi = jnp.asarray(obs_window_indices)
+        Hs_m = jnp.asarray(Hs, dtype)
+        Hxb = jax.vmap(lambda i: Hs_m[i] @ Xb_ar[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        Hxa = jax.vmap(lambda i: Hs_m[i] @ Xa_ar[owi[i]])(
+                jnp.arange(Hs_m.shape[0]))
+        y = jnp.asarray(obs_values, dtype).reshape(-1)
+        obs_dim = Hs_m.shape[1]
+        active = (jnp.repeat(jnp.asarray(obs_time_mask, bool), obs_dim)
+                  & jnp.asarray(obs_loc_mask, bool).reshape(-1))
+        sigma2_diag = jnp.broadcast_to(
+                jnp.diag(jnp.asarray(R, dtype)),
+                (Hs_m.shape[0], obs_dim)).reshape(-1)
+
+        # End-of-window O-A (next-cycle IC quality): analysis re-forecast to the
+        # window END, scored against obs valid at the end (owi == last idx).
+        end_idx = self.steps_per_window - 1
+        Hxa_end = jax.vmap(lambda i: Hs_m[i] @ Xa_ar[end_idx])(
+                jnp.arange(Hs_m.shape[0]))
+        end_active = (active & jnp.repeat(owi == end_idx, obs_dim))
+
+        # NOTE: obs-space SPREAD overrides are omitted here (=> NaN, schema
+        # uniform).  The Var4D template derives them from a TLM via
+        # model_obj.compute_tlm, which the co-training v11 adapter
+        # (V9DABenchModel) does not implement; the O-F/O-A innovations that
+        # Mode-B training consumes do NOT depend on the spreads.
+        metrics = dac_utils._obs_space_metrics(
+                y, Hxb.reshape(-1).astype(dtype), Hxa.reshape(-1).astype(dtype),
+                active, sigma2_diag, ens_obs=None,
+                return_per_obs=(self._metrics_mode == "debug"), dtype=dtype,
+                Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
+                end_active_mask=end_active)
+        return xa0_ds, metrics
