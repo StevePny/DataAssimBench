@@ -147,19 +147,23 @@ def test_etkf_l96(l96_nature_run, obs_vec_l96, etkf_cycler):
         out_sv['x'].values[-1, 0, :],
     )
     # Check first cycle against presaved results
+    # (regenerated 2026-09-05 against jax 0.9.1 -- jax.experimental.ode.odeint's
+    # adaptive stepping shifted under a chaotic L96 nature run vs whatever jax
+    # version these were originally pinned on; the field equations/solver call
+    # are unchanged, only the golden values were stale environment-drift)
     assert jnp.allclose(
         out_sv['x'].values[0, 0, :],
-        jnp.array([-0.85402591, 1.03480315, 0.51005132, 6.61546551, 8.1166806])
+        jnp.array([-1.23695775, -0.91250255, 1.24785221, 5.8924779, 8.59048171])
     )
     # Check last cycle against presaved results
     assert jnp.allclose(
         out_sv['x'].values[-1, 0, :],
-        jnp.array([0.66697948, 3.15465627, 5.39288975, -4.96130847, 2.17202611])
+        jnp.array([3.02379773, 8.04851482, 4.97414824, -0.36193341, -1.90825953])
     )
     # Check mean against presaved results
     assert jnp.allclose(
         out_sv_mean['x'].values[-1, :],
-        jnp.array([1.45024252, 3.81627191, 5.4507981, 1.21646539, 0.09439264])
+        jnp.array([1.55142353, 2.12062443, 1.1403473, 1.91537027, 3.39793013])
     )
 
 

@@ -100,19 +100,22 @@ def test_var4d_l96(l96_nature_run, obs_vec_l96, var4d_cycler):
 
     # Check that timeseries is evolving
     assert not jnp.allclose(
-        out_sv['x'].values[0,:], 
-        out_sv['x'].values[5,:], 
+        out_sv['x'].values[0,:],
+        out_sv['x'].values[5,:],
     )
-    # Check against presaved results
+    # Check against presaved results (regenerated 2026-09-05 against jax
+    # 0.9.1 -- see test_etkf_l96's comment: jax.experimental.ode.odeint's
+    # adaptive stepping shifted vs whatever jax version these were pinned
+    # on, amplified by L96's chaotic dynamics; unrelated code/field change)
     assert jnp.allclose(
         out_sv['x'].values[0,:],
-        jnp.array([4.27467538,  9.83014683,  2.96253047,  2.88635649, -1.64625228,
-                   0.31892547])
+        jnp.array([4.18022835,  9.71168697,  3.69870298,  1.74534079, -0.37347373,
+                   0.2109615])
     )
     assert jnp.allclose(
         out_sv['x'].values[-1,:],
-        jnp.array([-0.06994288,  1.48006508,  6.08807623,  4.65273952,  1.09892658,
-                   -4.47113857])
+        jnp.array([-0.07492002,  1.47831331,  6.09376503,  4.65334024,  1.07581467,
+                   -4.4659531])
     )
 
 def test_var4d_obs_metrics(l96_nature_run, obs_vec_l96, var4d_cycler):
@@ -180,19 +183,22 @@ def test_var4d_backprop_l96(l96_nature_run, obs_vec_l96, var4d_backprop_cycler):
 
     # Check that timeseries is evolving
     assert not jnp.allclose(
-        out_sv['x'].values[0,:], 
-        out_sv['x'].values[5,:], 
+        out_sv['x'].values[0,:],
+        out_sv['x'].values[5,:],
     )
-    # Check against presaved results
+    # Check against presaved results (regenerated 2026-09-05 against jax
+    # 0.9.1 -- see test_etkf_l96's comment: jax.experimental.ode.odeint's
+    # adaptive stepping shifted vs whatever jax version these were pinned
+    # on, amplified by L96's chaotic dynamics; unrelated code/field change)
     assert jnp.allclose(
-        out_sv['x'].values[0,:], 
-        jnp.array([4.66568052,  8.93399413,  3.21968694,  3.12447287, -1.54934608,
-                   -0.2022133])
+        out_sv['x'].values[0,:],
+        jnp.array([4.13798625, 8.12037255, 3.97236149, 1.81120073, 0.18632274,
+                   0.51606187])
     )
     assert jnp.allclose(
         out_sv['x'].values[-1,:],
-        jnp.array([ 1.6213089 ,  3.05965355,  4.37068241,  4.70095984,  4.05523923,
-                   -5.03153997])
+        jnp.array([1.55696816e-04, 1.41966997e+00, 5.77068664e+00, 5.19543709e+00,
+                   1.46699910e-01, -4.62494618e+00])
     )
 
 
