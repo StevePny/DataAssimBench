@@ -240,11 +240,13 @@ class ETKF4D(ETKF):
         #    next IC is every member forecast to the next-cycle start.
         tau = self._resolve_analysis_index()
         # Fresh per-cycle key (folded from the window index) enables structured
-        # additive inflation; None when additive is off (byte-identical path).
-        add_key = (jax.random.fold_in(
-                    self._additive_key,
-                    jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
-                   if self.additive_inflation > 0.0 else None)
+        # additive inflation. ALWAYS folded (not gated on additive_inflation's
+        # VALUE, which may be a traced scalar under W4 Stage 5 co-training) --
+        # fold_in is cheap/pure regardless of magnitude, and _apply_additive is
+        # an exact no-op at sigma=0, so this composes safely either way.
+        add_key = jax.random.fold_in(
+            self._additive_key,
+            jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
         Xa = self._apply_weights(Xtraj[:, tau, :].T, Wa, wa,
                                  key=add_key)        # (system, ens)
         # Reuse the incoming state's variable/dim names so the analysis dataset

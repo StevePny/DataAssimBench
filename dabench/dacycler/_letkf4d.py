@@ -100,10 +100,13 @@ class LETKF4D(LETKF, ETKF4D):
 
         # 4. Localized analysis at the chosen in-window time tau.
         tau = self._resolve_analysis_index()
-        add_key = (jax.random.fold_in(
-                    self._additive_key,
-                    jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
-                   if self.additive_inflation > 0.0 else None)
+        # ALWAYS fold a real key (not gated on additive_inflation's VALUE --
+        # that would branch on a traced scalar under W4 Stage 5 co-training).
+        # fold_in is cheap/pure regardless of magnitude, and _apply_additive
+        # is an exact no-op at sigma=0, so this composes safely either way.
+        add_key = jax.random.fold_in(
+            self._additive_key,
+            jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
         Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
         # Regime-B moving-obs geometry: precomputed-stack row (cyc) OR the live
         # host-callback single-slice obs positions (obs_ll_t).  Both None for

@@ -110,7 +110,23 @@ class ETKF(dacycler.DACycler):
                  ):
 
         self.ensemble_dim = ensemble_dim
-        self.multiplicative_inflation = multiplicative_inflation
+        # Traceable: stored as JAX scalars (not Python float()) so an outer
+        # jax.grad can flow through them (learned inflation/relaxation, W4
+        # Stage 5 co-training) -- mirrors Var4DBackprop.lr_scale (709f762).
+        # NO explicit dtype: jnp.asarray(python_float) is WEAKLY-typed
+        # (weak_type=True), so it still defers to the OTHER operand's dtype
+        # under promotion exactly like a raw Python float did (an explicit
+        # dtype=float forces float64 and silently breaks fp32-purity
+        # elsewhere in the cycle -- caught by
+        # test_letkf_dtype_purity_fp32). A TRACED array passed in here is
+        # returned unchanged (jnp.asarray is a no-op on an existing array),
+        # so this stays a no-op for callers that already pass a JAX scalar.
+        # Default values are byte-identical; the two Python-level branches
+        # that previously short-circuited on additive_inflation's VALUE
+        # (here and in _cycle_and_forecast_4d) are removed below since the
+        # additive-inflation math is already an exact no-op at sigma=0 (see
+        # _apply_additive).
+        self.multiplicative_inflation = jnp.asarray(multiplicative_inflation)
         # 3D-FGAT opt-in.  When True the 3D cycler assimilates observations
         # distributed across the window: innovations are formed against the
         # background trajectory AT each obs time, but the analysis increment is
@@ -144,9 +160,9 @@ class ETKF(dacycler.DACycler):
                 "oa_score_mode must be 'causal' or 'time_matched', got "
                 f"{oa_score_mode!r}")
         self.oa_score_mode = oa_score_mode
-        self.rtps_relaxation = float(rtps_relaxation)
-        self.rtpp_relaxation = float(rtpp_relaxation)
-        self.additive_inflation = float(additive_inflation)
+        self.rtps_relaxation = jnp.asarray(rtps_relaxation)
+        self.rtpp_relaxation = jnp.asarray(rtpp_relaxation)
+        self.additive_inflation = jnp.asarray(additive_inflation)
         self._additive_key = jax.random.PRNGKey(int(additive_seed))
         # SPD-solver backend for the K x K transform (shared with LETKF via
         # ``_solve_pa_wa``).  ``None`` -> eigh (exact current behaviour);
@@ -444,9 +460,13 @@ class ETKF(dacycler.DACycler):
         Returns:
             The inflated analysis perturbations, same shape as ``Xa_pert``.
         """
+        # NOTE: no `if sigma <= 0.0: return Xa_pert` early-return -- sigma may
+        # be a TRACED scalar (W4 Stage 5), and the math below is already an
+        # exact no-op at sigma=0 (E gets scaled by sigma/max(rms,1) -> 0), so
+        # the branch was a compute-saving optimization, not a correctness
+        # requirement; removing it trades a skippable matmul+random draw at
+        # sigma=0 for traceability.
         sigma = self.additive_inflation
-        if sigma <= 0.0:
-            return Xa_pert
         ensemble_dim = Xa_pert.shape[1]
         # dtype-relative Z: jax.random.normal defaults to float64 when
         # jax_enable_x64 is on (dabench force-enables it), which would promote a
@@ -760,10 +780,13 @@ class ETKF(dacycler.DACycler):
         obs_loc_flat = jnp.asarray(cur_obs_loc_indices).reshape(-1)
 
         # 4. Analysis at tau, then re-forecast tau -> window end for next IC.
-        add_key = (jax.random.fold_in(
-                    self._additive_key,
-                    jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
-                   if self.additive_inflation > 0.0 else None)
+        # ALWAYS fold a real key (not gated on additive_inflation's VALUE --
+        # that would branch on a traced scalar under W4 Stage 5 co-training).
+        # fold_in is cheap/pure regardless of magnitude, and _apply_additive
+        # is an exact no-op at sigma=0, so this composes safely either way.
+        add_key = jax.random.fold_in(
+            self._additive_key,
+            jnp.round(cur_time / self.analysis_window).astype(jnp.int32))
         Xb_tau = Xtraj[:, tau, :].T                            # (system, ens)
         # Regime-B moving-obs geometry (LETKF-FGAT only; None otherwise):
         # precomputed-stack row (cyc) or live host-callback obs positions.
