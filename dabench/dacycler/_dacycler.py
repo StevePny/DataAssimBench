@@ -471,7 +471,7 @@ class DACycler():
         # which operates on fixed-size padded inputs, is wrapped. Forward
         # numerics are unchanged -- only what's cached for backward differs.
         cur_state, scan_out = jax.lax.scan(
-                jax.checkpoint(_fn), xj.from_xarray(input_state),
+                _fn, xj.from_xarray(input_state),
                 all_filtered_padded)
         if self._return_metrics:
             all_values, all_metrics = scan_out
