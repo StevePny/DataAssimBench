@@ -213,10 +213,24 @@ def _spd_inv_sqrt_ns(A: ArrayLike, n_iter: int = 20) -> jax.Array:
     Z = jnp.broadcast_to(I, A.shape).astype(dtype)
     half = jnp.asarray(0.5, dtype)
     three_half = jnp.asarray(1.5, dtype)
-    for _ in range(int(n_iter)):
+
+    # Gradient-checkpointed jax.lax.scan (was an unrolled Python for-loop):
+    # identical matmul sequence, but reverse-mode AD no longer retains every
+    # one of the n_iter (up to 40) iterations' (Y, Z, T) intermediates -- it
+    # recomputes each step from its own (Y, Z) input during backward instead.
+    # This matters most when A is BATCHED over many local solves (e.g.
+    # LETKF4D's dense localization vmaps this over every grid point), where
+    # an unrolled tape of shape (n_points, n_iter, K, K) is what actually
+    # exhausted GPU memory for a real T21 (state_dim ~500+) reverse-mode
+    # gradient (jax.grad through a full DA-cycle tape, W5 FSOI in MLTLM).
+    # Forward numerics are byte-for-byte the same coupled iteration.
+    @jax.checkpoint
+    def _ns_step(carry, _):
+        Y, Z = carry
         T = three_half * I - half * (Z @ Y)
-        Y = Y @ T
-        Z = T @ Z
+        return (Y @ T, T @ Z), None
+
+    (Y, Z), _ = jax.lax.scan(_ns_step, (Y, Z), xs=None, length=int(n_iter))
     return Z / jnp.sqrt(s)
 
 
