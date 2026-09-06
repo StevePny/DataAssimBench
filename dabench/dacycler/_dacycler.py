@@ -460,8 +460,19 @@ class DACycler():
             _fn = self._cycle_and_forecast_fgat
         else:
             _fn = self._cycle_and_forecast
+        # Gradient-checkpoint the per-cycle scan body: under reverse-mode AD,
+        # an unremat'd scan retains EVERY cycle's forward activations (H
+        # application, localization/taper, the ensemble transform) for the
+        # backward pass. jax.checkpoint recomputes one cycle's internals from
+        # its own (carry, obs-index) input instead of caching them -- safe
+        # here specifically because ``_prepare_cycle`` (the dynamic-shape
+        # obs-indexing, ``jnp.nonzero``/``jnp.where`` without ``size=``) has
+        # ALREADY run above, outside this boundary; only the per-cycle body,
+        # which operates on fixed-size padded inputs, is wrapped. Forward
+        # numerics are unchanged -- only what's cached for backward differs.
         cur_state, scan_out = jax.lax.scan(
-                _fn, xj.from_xarray(input_state), all_filtered_padded)
+                jax.checkpoint(_fn), xj.from_xarray(input_state),
+                all_filtered_padded)
         if self._return_metrics:
             all_values, all_metrics = scan_out
         else:
