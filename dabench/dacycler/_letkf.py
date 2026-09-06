@@ -1133,7 +1133,14 @@ class LETKF(ETKF):
             xb_blk, extra_blk = args
             return jax.vmap(_lane)(xb_blk, *extra_blk)         # (chunk, K)
 
-        Xa_c = jax.lax.map(_block, (Xb_c, extra_c))            # (n_chunks,chunk,K)
+        # jax.lax.map is scan-based: chunking alone only bounds the FORWARD
+        # peak (one block materialized at a time). Without jax.checkpoint on
+        # the per-block function, reverse-mode AD still retains every one of
+        # the n_chunks blocks' activations for backward -- checkpointing here
+        # recomputes one block from its own (xb_blk, extra_blk) input instead,
+        # so backward peak is also bounded to ~one chunk. Safe: _block
+        # operates on fixed-size padded chunks, no dynamic shapes.
+        Xa_c = jax.lax.map(jax.checkpoint(_block), (Xb_c, extra_c))  # (n_chunks,chunk,K)
         return Xa_c.reshape(n_chunks * chunk, K)[:G]           # (grid_dim, K)
 
     def _localized_analysis(self,

@@ -411,6 +411,51 @@ def test_letkf_grid_chunk_matches_whole_grid():
             f"chunk={chunk} differs beyond round-off")
 
 
+def test_letkf_grid_chunk_gradient_matches_finite_diff():
+    """The chunked ``jax.lax.map(jax.checkpoint(_block), ...)`` path (added to
+    bound REVERSE-mode memory -- chunking alone only bounds the forward
+    peak) must still be differentiable and agree with finite differences,
+    cross-checked against the unchunked whole-grid ``vmap`` gradient."""
+    rng = np.random.default_rng(23)
+    grid_dim, n_obs, ens = 13, 20, 4          # 13 % 5 != 0 -> padding path
+    grid_latlon = jnp.asarray(
+        np.stack([rng.uniform(-80, 80, grid_dim),
+                  rng.uniform(0, 360, grid_dim)], axis=1))
+    obs_latlon = jnp.asarray(
+        np.stack([rng.uniform(-80, 80, n_obs),
+                  rng.uniform(0, 360, n_obs)], axis=1))
+    Xb = jnp.asarray(rng.standard_normal((grid_dim, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+
+    def _loss(chunk, xb):
+        c = LETKF(system_dim=grid_dim, delta_t=0.01, ensemble_dim=ens,
+                  model_obj=None, grid_latlon=grid_latlon,
+                  obs_latlon=obs_latlon, localize_radius=5000.0,
+                  grid_chunk=chunk)
+        taper = c._build_taper(jnp.arange(n_obs), jnp.float64)
+        cols = c._local_columns(xb, Yb, Y, rinv, taper, rho=1.0)
+        return jnp.sum(cols ** 2)
+
+    for chunk in (5, 8):
+        g_chunked = jax.grad(lambda xb: _loss(chunk, xb))(Xb)
+        g_whole = jax.grad(lambda xb: _loss(None, xb))(Xb)
+        assert np.allclose(g_chunked, g_whole, rtol=1e-10, atol=1e-12), (
+            f"chunk={chunk} gradient differs from the unchunked whole-grid "
+            f"gradient beyond round-off")
+
+        eps = 1e-5
+        i, j = 3, 2
+        xb_p = Xb.at[i, j].add(eps)
+        xb_m = Xb.at[i, j].add(-eps)
+        g_fd = (float(_loss(chunk, xb_p)) - float(_loss(chunk, xb_m))) / (2 * eps)
+        rel_err = abs(float(g_chunked[i, j]) - g_fd) / max(abs(g_fd), 1e-8)
+        assert rel_err < 1e-4, (
+            f"chunk={chunk}: grad={float(g_chunked[i, j])} vs "
+            f"finite-diff={g_fd} (rel_err={rel_err})")
+
+
 # ── Regime-A local-patch gather (§14.3) ────────────────────────────────────
 def test_build_patch_geometry_exact_and_truncated():
     """``build_patch_geometry`` must recover, per grid point, the SAME nearest
