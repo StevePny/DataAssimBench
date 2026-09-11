@@ -1,5 +1,7 @@
 """Utils for data assimilation cyclers"""
 
+import os
+
 import jax.numpy as jnp
 import jax
 import numpy as np
@@ -10,6 +12,14 @@ from dabench import _xarray_jax as xj
 # For typing
 ArrayLike = list | np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
+
+# opus5_plan_091126.md sec 5: segfault localization. A non-finite value
+# reaching native eigh/Cholesky can segfault instead of propagating as NaN
+# (cache-race, JAX_DISABLE_JIT=1 and JAX_ENABLE_X64=1 have all been ruled
+# out -- the crash reproduces identically at the same computational step
+# under all three). This env-gated probe is a no-op unless
+# MLTLM_DEBUG_EIGH=1 is set -- zero behavior/perf change otherwise.
+_DEBUG_EIGH = bool(os.environ.get("MLTLM_DEBUG_EIGH"))
 
 def _get_all_times(
         start_time: float,
@@ -360,6 +370,13 @@ def _solve_pa_wa(A: ArrayLike, eigh_impl: str | None, ns_iters: int
     dtype = A.dtype
     K = A.shape[-1]
     I = jnp.eye(K, dtype=dtype)
+    if _DEBUG_EIGH:
+        jax.debug.print(
+            "[_solve_pa_wa] A shape={s} dtype={d} all_finite={f} "
+            "any_nan={n} any_inf={i} min={mn:.6e} max={mx:.6e}",
+            s=A.shape, d=A.dtype, f=jnp.all(jnp.isfinite(A)),
+            n=jnp.any(jnp.isnan(A)), i=jnp.any(jnp.isinf(A)),
+            mn=jnp.min(A), mx=jnp.max(A))
     eigh_impl = _resolve_eigh_impl(eigh_impl)
     if eigh_impl == "newton_schulz":
         Z = _spd_inv_sqrt_ns(A, n_iter=int(ns_iters))          # A^{-1/2}
