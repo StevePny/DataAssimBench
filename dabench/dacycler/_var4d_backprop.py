@@ -1,6 +1,7 @@
 """Class for Var 4D Backpropagation Data Assimilation Cycler object"""
 
 import inspect
+import os
 import warnings
 
 import numpy as np
@@ -23,6 +24,13 @@ from dabench.model import Model
 ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
 ScheduleState = Any
+
+# opus5_plan_091226.md sec 2.5.3: the cotrain segfault (epoch1->2 boundary)
+# reproduced with a properly-derived, safe outer-lr and zero instability
+# signature, ruling out "destabilized model -> non-finite -> native solver"
+# as the whole story. Mirrors dabench/dacycler/_utils.py's MLTLM_DEBUG_EIGH
+# probe pattern: env-gated jax.debug.print, no-op unless MLTLM_DEBUG_VAR4D=1.
+_DEBUG_VAR4D = bool(os.environ.get("MLTLM_DEBUG_VAR4D"))
 
 class Var4DBackprop(dacycler.DACycler):
     """Backpropagation 4D-Var DA Cycler
@@ -185,6 +193,14 @@ class Var4DBackprop(dacycler.DACycler):
             # NOTE: [1] selects the full forecast instead of last timestep only
             X = self._step_forecast(
                 x0, n_steps)[1].to_stacked_array('system',['time']).data
+            if _DEBUG_VAR4D:
+                jax.debug.print(
+                    "[var4d_backprop] X (model forecast) shape={s} "
+                    "all_finite={f} any_nan={n} any_inf={i} "
+                    "max_abs={mx:.6e}",
+                    s=X.shape, f=jnp.all(jnp.isfinite(X)),
+                    n=jnp.any(jnp.isnan(X)), i=jnp.any(jnp.isinf(X)),
+                    mx=jnp.max(jnp.abs(X)))
 
             # Calculate observation term of J_0
             obs_term = 0
@@ -231,7 +247,15 @@ class Var4DBackprop(dacycler.DACycler):
             x0_ds = x0_ds.to_xarray()
             loss_val, dx0 = loss_value_grad(x0_ds)
             x0_ar = x0_ds.to_stacked_array('system', [])
-            dx0_hess = hessian_inv @ dx0.to_stacked_array('system',[]).data
+            dx0_arr = dx0.to_stacked_array('system', []).data
+            if _DEBUG_VAR4D:
+                jax.debug.print(
+                    "[var4d_backprop] iter={i} loss={l:.6e} "
+                    "dx0 all_finite={f} any_nan={n} max_abs={mx:.6e}",
+                    i=i, l=loss_val, f=jnp.all(jnp.isfinite(dx0_arr)),
+                    n=jnp.any(jnp.isnan(dx0_arr)),
+                    mx=jnp.max(jnp.abs(dx0_arr)))
+            dx0_hess = hessian_inv @ dx0_arr
             init_loss = jax.lax.cond(
                     i == 0,
                     lambda: loss_val,
@@ -313,6 +337,13 @@ class Var4DBackprop(dacycler.DACycler):
         # Compute Hessian
         hessian_inv = jscipy.linalg.inv(
                 Binv + Hs.at[0].get().T @ Rinv @ Hs.at[0].get())
+        if _DEBUG_VAR4D:
+            jax.debug.print(
+                "[var4d_backprop] Rinv all_finite={rf} Binv all_finite={bf} "
+                "hessian_inv all_finite={hf} R any_nan={rn} B any_nan={bn}",
+                rf=jnp.all(jnp.isfinite(Rinv)), bf=jnp.all(jnp.isfinite(Binv)),
+                hf=jnp.all(jnp.isfinite(hessian_inv)),
+                rn=jnp.any(jnp.isnan(R)), bn=jnp.any(jnp.isnan(B)))
 
         loss_func = self._make_loss(
                 xb0_ds,
