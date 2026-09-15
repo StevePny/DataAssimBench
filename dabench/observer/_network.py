@@ -74,6 +74,7 @@ def build_hybrid_network(
     location_coord: str = "index",
     time_coord: str = "time",
     random_seed: int = 99,
+    network_seed: int | None = None,
     store_as_jax: bool = False,
     fixed_pool: bool = False,
     swath_thin_deg: float = 0.0,
@@ -107,7 +108,25 @@ def build_hybrid_network(
         times: Observation times (defaults to all of ``state_vec``'s).
         location_coord: Name of the flattened nodal coordinate.
         time_coord: Name of the time coordinate.
-        random_seed: Seed for the in-situ draw and the noise.
+        random_seed: Seed for the in-situ draw and the noise. Also drives
+            the in-situ draw when ``network_seed`` is not given (the
+            historical, byte-identical single-seed behavior).
+        network_seed: Optional separate seed for JUST the in-situ station
+            draw (``jet_concentrated_indices``), decoupled from
+            ``random_seed`` (used only for observation noise when this is
+            given). Needed because with ``fixed_pool=True`` the returned
+            pool size is ``n_insitu + |swath candidates not already an
+            in-situ station|`` -- the in-situ/swath de-duplication means
+            the TOTAL POOL SIZE is itself a (weak) function of the in-situ
+            random draw, i.e. of the seed. A caller that must vary
+            ``random_seed`` per anchor/realization for noise decorrelation
+            (e.g. MLTLM's multi-anchor cotraining, one obs draw per
+            training anchor) while an ensemble cycler assumes one FIXED
+            observation dimension across anchors should pin
+            ``network_seed`` to a single constant value shared by every
+            anchor, varying only ``random_seed``. Defaults to
+            ``random_seed`` (no behavior change for existing callers that
+            don't pass it).
         store_as_jax: Store observation values as jax arrays.
         fixed_pool: Representation of the moving swath.  ``False``
             (default) emits the general non-stationary schema where the
@@ -160,7 +179,8 @@ def build_hybrid_network(
         times = np.asarray(times)
     t_steps = int(times.shape[0])
 
-    rng = np.random.default_rng(random_seed)
+    rng = np.random.default_rng(
+        random_seed if network_seed is None else network_seed)
     worker = _assemble_fixed_pool if fixed_pool else _assemble
     return worker(
         state_vec, lon_1d, lat_1d, times, t_steps, grid_dim, system_dim,

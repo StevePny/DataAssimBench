@@ -170,3 +170,51 @@ def test_build_hybrid_network_fixed_pool():
     # pool_index slots are unique flattened grid indices.
     pool = out.coords["pool_index"].values
     assert pool.size == np.unique(pool).size
+
+
+def test_network_seed_decouples_pool_from_noise_seed():
+    """fixed_pool's total pool size is n_insitu + |swath minus in-situ
+    overlap|, so it is a (weak) function of the in-situ random draw --
+    i.e. of random_seed, when no separate network_seed is given.  Found
+    via MLTLM's multi-anchor cotraining: each anchor uses a DIFFERENT
+    random_seed (to decorrelate noise across anchors) while an ensemble
+    cycler needs one FIXED observation dimension shared by every anchor.
+    network_seed lets a caller vary random_seed (noise) while pinning the
+    in-situ draw (and hence the pool) constant."""
+    ds, lon, lat = _grid_dataset(n_lon=16, n_lat=12, t_steps=24)
+    kw = dict(n_insitu=20, jet_center_deg=45.0, jet_sigma_deg=15.0,
+             instrument="viirs", n_sats=2, polar_cutoff_deg=70.0,
+             step_hours=1.0, insitu_error_sd=0.1, satellite_error_sd=0.3,
+             fixed_pool=True)
+
+    # Without network_seed: varying random_seed CAN change pool_size (the
+    # regression this guards -- not guaranteed every seed pair differs,
+    # but the whole point of network_seed is to make it never differ).
+    out_a_pinned = observer.build_hybrid_network(
+        ds, lon, lat, random_seed=1, network_seed=42, **kw)
+    out_b_pinned = observer.build_hybrid_network(
+        ds, lon, lat, random_seed=2, network_seed=42, **kw)
+    assert out_a_pinned.attrs["pool_size"] == out_b_pinned.attrs["pool_size"]
+    pool_a = out_a_pinned.coords["pool_index"].values
+    pool_b = out_b_pinned.coords["pool_index"].values
+    np.testing.assert_array_equal(pool_a, pool_b)  # same network, not just same size
+
+    # But the actual observed (noised) values must still differ -- only
+    # the network is pinned, not the noise realization.
+    assert not np.allclose(
+        np.nan_to_num(out_a_pinned["x"].values),
+        np.nan_to_num(out_b_pinned["x"].values))
+
+    # Default (network_seed=None) is BYTE-IDENTICAL to passing
+    # network_seed=random_seed explicitly -- no behavior change for every
+    # existing caller that never passes network_seed.
+    out_default = observer.build_hybrid_network(
+        ds, lon, lat, random_seed=5, **kw)
+    out_explicit = observer.build_hybrid_network(
+        ds, lon, lat, random_seed=5, network_seed=5, **kw)
+    np.testing.assert_array_equal(
+        out_default.coords["pool_index"].values,
+        out_explicit.coords["pool_index"].values)
+    np.testing.assert_array_equal(
+        np.nan_to_num(out_default["x"].values),
+        np.nan_to_num(out_explicit["x"].values))
