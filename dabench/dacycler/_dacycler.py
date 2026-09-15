@@ -359,7 +359,7 @@ class DACycler():
             self._obs_loc_masks = jnp.ones(
                 obs_vector[self._observed_vars].to_array().shape, dtype=bool)
         else:
-            self._obs_loc_masks = ~np.isnan(
+            self._obs_loc_masks = ~jnp.isnan(
                 obs_vector[self._observed_vars].to_array().data)
             self._obs_vector=self._obs_vector.fillna(0)
 
