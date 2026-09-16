@@ -382,7 +382,8 @@ class DACycler():
               return_metrics: bool = False,
               metrics_mode: str = "default",
               detach_metrics: bool = False,
-              return_final_state: bool = False
+              return_final_state: bool = False,
+              return_background: bool = False
               ) -> XarrayDatasetLike:
         """Perform DA cycle repeatedly, including analysis and forecast
 
@@ -430,6 +431,21 @@ class DACycler():
                 batches (byte-identical to a single monolithic call) instead of
                 re-deriving it with an extra model step.  Default False (return
                 shape unchanged).
+            return_background: If True, additionally returns (as the LAST
+                element of the return tuple, after ``metrics``/``final_state``
+                when those are also requested) a per-cycle ``background_ds``:
+                the window-boundary state EACH cycle hands to the next one
+                (cycle ``c``'s value is the background entering cycle
+                ``c + 1``; cycle 0's own incoming background is the caller's
+                ``input_state``, not part of this array). This is the exact
+                frame ``return_forecast=True`` already drops from every cycle
+                (not just the final one, which ``return_final_state`` alone
+                exposes) -- no extra model evaluation, since it was already
+                computed by the scan. Kept as a live JAX array (not detached),
+                so it can be used as a differentiable training signal (e.g. a
+                background-RMSE-vs-truth loss term) as readily as it can be
+                detached/np.asarray'd for cheap eval -- the caller decides.
+                Default False (return shape unchanged).
         """
 
         if metrics_mode not in ("default", "debug"):
@@ -496,17 +512,34 @@ class DACycler():
         if return_final_state:
             final_state = cur_state.to_xarray().drop_vars(
                     '_cur_time', errors='ignore')
-        if not self._return_metrics:
-            if return_final_state:
-                return analysis_ds, final_state
-            return analysis_ds
-        metrics = self._assemble_metrics_ds(all_metrics)
-        # Store on the instance for after-run access (see CyclerMetrics); also
-        # return it (backward-compatible tuple contract).
-        self.metrics = metrics
+        # PER-CYCLE background (return_background=True): the SAME dropped
+        # cycle_timestep=-1 frame as final_state above, but for every cycle, not
+        # just the last -- i.e. background_ds.isel(cycle=c) is the window-
+        # boundary state cycle c+1 would consume as its OWN incoming background
+        # (cycle 0's actual incoming background is the driver's own input_state,
+        # not part of this array -- callers prepend/shift as needed). Sliced
+        # straight from all_vals_ds (no extra model evaluation: this frame was
+        # already computed by the scan and would otherwise be discarded), and
+        # NOT numpy-converted here, so it stays a differentiable JAX array
+        # through the scan by construction -- exactly like ``analysis_ds``
+        # already is. A caller wanting a training signal (e.g. a background-
+        # RMSE-vs-truth loss term) keeps it on the tape; a caller that only
+        # wants cheap scoring detaches/np.asarray's it themselves, the same way
+        # every other differentiable-by-default state output here is handled.
+        background_ds = all_vals_ds.isel(cycle_timestep=-1) if return_background else None
+        result = [analysis_ds]
+        if self._return_metrics:
+            metrics = self._assemble_metrics_ds(all_metrics)
+            # Store on the instance for after-run access (see CyclerMetrics).
+            self.metrics = metrics
+            result.append(metrics)
         if return_final_state:
-            return analysis_ds, metrics, final_state
-        return analysis_ds, metrics
+            result.append(final_state)
+        if return_background:
+            result.append(background_ds)
+        if len(result) == 1:
+            return result[0]
+        return tuple(result)
 
     def clear_metrics(self) -> None:
         """Release the retained metrics container (frees host memory)."""
