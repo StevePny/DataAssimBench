@@ -218,3 +218,20 @@ def test_network_seed_decouples_pool_from_noise_seed():
     np.testing.assert_array_equal(
         np.nan_to_num(out_default["x"].values),
         np.nan_to_num(out_explicit["x"].values))
+
+
+def test_build_hybrid_network_satellite_only():
+    """n_insitu=0: a satellite-only network (no stations), both schemas."""
+    lon, lat = _grid()
+    assert observer.jet_concentrated_indices(
+        lon, lat, 0, jet_center_deg=45.0, jet_sigma_deg=15.0).size == 0
+    ds, lon, lat = _grid_dataset(n_lon=16, n_lat=12, t_steps=24)
+    for fixed in (True, False):
+        out = observer.build_hybrid_network(
+            ds, lon, lat, n_insitu=0, jet_center_deg=45.0,
+            jet_sigma_deg=15.0, instrument="viirs", n_sats=1,
+            polar_cutoff_deg=70.0, step_hours=1.0, random_seed=7,
+            fixed_pool=fixed)
+        ty = np.asarray(out["obs_type"].values)
+        assert not np.any(ty == 1)
+        assert np.any(ty == 2)

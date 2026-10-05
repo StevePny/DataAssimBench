@@ -66,7 +66,7 @@ def jet_concentrated_indices(
         (longitude-major).
 
     Raises:
-        ValueError: if ``n_obs`` exceeds the number of grid cells,
+        ValueError: if ``n_obs`` is negative or exceeds the number of grid cells,
             ``jet_sigma_deg <= 0`` or ``uniform_floor`` is out of range.
     """
     if not 0.0 <= uniform_floor <= 1.0:
@@ -79,9 +79,13 @@ def jet_concentrated_indices(
     n_lon = int(np.asarray(lon_deg).shape[0])
     n_lat = int(lat_1d.shape[0])
     grid_dim = n_lon * n_lat
-    if not 1 <= int(n_obs) <= grid_dim:
+    if not 0 <= int(n_obs) <= grid_dim:
         raise ValueError(
             f"n_obs={n_obs} out of range for grid_dim={grid_dim}.")
+    if int(n_obs) == 0:
+        # No stations (e.g. a satellite-only network).  Return before any
+        # rng draw so callers' downstream noise streams are unaffected.
+        return np.zeros(0, dtype=np.int64)
 
     if not isinstance(rng, np.random.Generator):
         rng = np.random.default_rng(rng)
