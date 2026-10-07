@@ -248,7 +248,7 @@ def quadratic_cost(
         + 0.5 sum_i (H_i dx_{j(i)} - d_i)^T R^{-1} (H_i dx_{j(i)} - d_i)``
     where ``j(i) = obs_window_indices[i]`` maps each obs to its
     trajectory step, ``dx_{j(i)}`` is the TLM-propagated increment at
-    that step starting from ``dx_0 = B^(1/2) (v_total + delta_v)``,
+    that step starting from ``dx_0 = B^(1/2) delta_v``,
     and ``d_i = y_obs_i - H_i x_b_traj_{j(i)}`` are precomputed
     innovations against the current outer's nonlinear trajectory.
 
@@ -256,6 +256,16 @@ def quadratic_cost(
     each obs row in ``Hs`` / ``innovations`` is associated with a
     trajectory step via ``obs_window_indices``, not with a timestep
     directly.
+
+    Only ``delta_v`` is propagated: ``x_b_traj`` is the nonlinear
+    trajectory from the CURRENT linearisation point
+    ``x_b + B^(1/2) v_total``, so the increment relative to it is
+    ``dx_0 = B^(1/2) delta_v``. (Propagating ``B^(1/2)(v_total +
+    delta_v)``, as before 2026-10-07, counted ``v_total`` twice in the
+    observation term from the second outer loop on: the analysis
+    alternated between good after an odd number of outers and badly
+    overshot after an even number.) The background term keeps the
+    full ``v_total + delta_v``.
 
     Args:
         delta_v: Inner-loop increment in control variable space,
@@ -285,7 +295,7 @@ def quadratic_cost(
     """
     v_full = v_total + delta_v
     J_b = 0.5 * jnp.sum(v_full * v_full)
-    dx0 = apply_B_half(v_full)
+    dx0 = apply_B_half(delta_v)
     dx_traj = window_tlm_rollout(tlm_op, x_b_traj, dx0)
 
     def obs_term(i: ArrayLike) -> jax.Array:

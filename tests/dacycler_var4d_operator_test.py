@@ -143,12 +143,16 @@ def test_window_tlm_rollout_matches_explicit_matmul():
 
 
 def test_quadratic_cost_zero_gradient_at_known_optimum():
-    """At ``dx0 = analytic increment``, ``grad J(delta_v=0)`` vanishes."""
+    """At ``v_total = analytic optimum``, ``grad J(delta_v=0)`` vanishes.
+
+    As inside :class:`Var4DOperator`, the outer's trajectory and
+    innovations are taken at the CURRENT linearisation point
+    ``x_b + B^(1/2) v_total``, and only ``delta_v`` is propagated.
+    """
     D = 5
     H = jnp.eye(D, dtype=jnp.float64)
     R_inv_diag = jnp.ones(D, dtype=jnp.float64)
-    x_b_traj = jnp.zeros((2, D), dtype=jnp.float64)
-    innovations = jrand.normal(jrand.PRNGKey(41), (1, D), dtype=jnp.float64)
+    y = jrand.normal(jrand.PRNGKey(41), (1, D), dtype=jnp.float64)
     obs_window_indices = jnp.array([0], dtype=jnp.int32)
     obs_time_mask = jnp.array([True])
 
@@ -159,8 +163,11 @@ def test_quadratic_cost_zero_gradient_at_known_optimum():
         return dx_t
 
     # With B=I, H=I, R^-1=I, x_b=0, T=0: optimum is
-    # v_total = 0.5 * innovations (standard 3D-Var ridge).
-    v_opt = 0.5 * innovations[0]
+    # v_total = 0.5 * y (standard 3D-Var ridge).
+    v_opt = 0.5 * y[0]
+    x_lin = jnp.zeros(D, dtype=jnp.float64) + apply_B_half(v_opt)
+    x_b_traj = jnp.stack([x_lin, x_lin])
+    innovations = y - x_lin[None, :]
 
     def J(dv):
         return quadratic_cost(
@@ -172,3 +179,24 @@ def test_quadratic_cost_zero_gradient_at_known_optimum():
 
     g = jax.grad(J)(jnp.zeros(D, dtype=jnp.float64))
     assert jnp.allclose(g, jnp.zeros(D), atol=1e-10)
+
+
+def test_outer_loops_do_not_double_count_v_total():
+    """Regression (2026-10-07): from the second outer loop on, the inner
+    cost propagated ``B^(1/2)(v_total + delta_v)`` along a trajectory
+    that already started at ``x_b + B^(1/2) v_total``, counting
+    ``v_total`` twice. On a Lorenz96 twin the analysis alternated with
+    the number of outers (RMSE 0.052 / 0.94 / 0.051 / 1.01 for 1-4
+    outers). Fixed: any outer count gives the same converged analysis."""
+    import importlib
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from dabench.dacycler import Var4DOperator
+    T = importlib.import_module("dacycler_var4d_weak_constraint_test")
+    nat = T.nature.__wrapped__()
+    obs = T.obs.__wrapped__(nat)
+    rm = [T._ana_rmse(T._cycle(T._op(Var4DOperator, T.F_TRUE,
+                                     n_outer_loops=n), nat, obs), nat)
+          for n in (1, 2, 3, 4)]
+    assert max(rm) < 1.05 * min(rm), rm
