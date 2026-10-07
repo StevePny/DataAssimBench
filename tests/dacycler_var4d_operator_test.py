@@ -143,12 +143,16 @@ def test_window_tlm_rollout_matches_explicit_matmul():
 
 
 def test_quadratic_cost_zero_gradient_at_known_optimum():
-    """At ``dx0 = analytic increment``, ``grad J(delta_v=0)`` vanishes."""
+    """At ``v_total = analytic optimum``, ``grad J(delta_v=0)`` vanishes.
+
+    As inside :class:`Var4DOperator`, the outer's trajectory and
+    innovations are taken at the CURRENT linearisation point
+    ``x_b + B^(1/2) v_total``, and only ``delta_v`` is propagated.
+    """
     D = 5
     H = jnp.eye(D, dtype=jnp.float64)
     R_inv_diag = jnp.ones(D, dtype=jnp.float64)
-    x_b_traj = jnp.zeros((2, D), dtype=jnp.float64)
-    innovations = jrand.normal(jrand.PRNGKey(41), (1, D), dtype=jnp.float64)
+    y = jrand.normal(jrand.PRNGKey(41), (1, D), dtype=jnp.float64)
     obs_window_indices = jnp.array([0], dtype=jnp.int32)
     obs_time_mask = jnp.array([True])
 
@@ -159,8 +163,11 @@ def test_quadratic_cost_zero_gradient_at_known_optimum():
         return dx_t
 
     # With B=I, H=I, R^-1=I, x_b=0, T=0: optimum is
-    # v_total = 0.5 * innovations (standard 3D-Var ridge).
-    v_opt = 0.5 * innovations[0]
+    # v_total = 0.5 * y (standard 3D-Var ridge).
+    v_opt = 0.5 * y[0]
+    x_lin = jnp.zeros(D, dtype=jnp.float64) + apply_B_half(v_opt)
+    x_b_traj = jnp.stack([x_lin, x_lin])
+    innovations = y - x_lin[None, :]
 
     def J(dv):
         return quadratic_cost(
@@ -172,3 +179,92 @@ def test_quadratic_cost_zero_gradient_at_known_optimum():
 
     g = jax.grad(J)(jnp.zeros(D, dtype=jnp.float64))
     assert jnp.allclose(g, jnp.zeros(D), atol=1e-10)
+
+
+def test_outer_loops_do_not_double_count_v_total():
+    """Regression (2026-10-07): from the second outer loop on, the inner
+    cost propagated ``B^(1/2)(v_total + delta_v)`` along a trajectory
+    that already started at ``x_b + B^(1/2) v_total``, counting
+    ``v_total`` twice. On a Lorenz96 twin the analysis alternated with
+    the number of outers (RMSE 0.052 / 0.94 / 0.051 / 1.01 for 1-4
+    outers). Fixed: any outer count gives the same converged analysis."""
+    import importlib
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from dabench.dacycler import Var4DOperator
+    T = importlib.import_module("dacycler_var4d_weak_constraint_test")
+    nat = T.nature.__wrapped__()
+    obs = T.obs.__wrapped__(nat)
+    rm = [T._ana_rmse(T._cycle(T._op(Var4DOperator, T.F_TRUE,
+                                     n_outer_loops=n), nat, obs), nat)
+          for n in (1, 2, 3, 4)]
+    assert max(rm) < 1.05 * min(rm), rm
+
+
+def test_gauss_newton_outer_loops_converge_to_full_cost_minimiser():
+    """Strongly nonlinear single window (Lorenz96 RK4, window 0.6,
+    sigma_b 1.5): outer loops built on ``quadratic_cost`` (inner solved
+    exactly) must reduce the FULL nonlinear 4D-Var cost and converge to
+    its true minimiser (BFGS). Before the 2026-10-07 fix they never
+    converged (full cost 2071 -> 20504 -> 8504 ... vs the minimum 42.07)."""
+    from scipy.optimize import minimize
+    jax.config.update("jax_enable_x64", True)
+    D, dt, n, so, sb = 6, 0.01, 61, 0.1, 1.5
+
+    def step(x):
+        f = lambda z: (jnp.roll(z, -1) - jnp.roll(z, 2)) * jnp.roll(z, 1) \
+            - z + 8.0  # noqa: E731
+        k1 = f(x)
+        k2 = f(x + .5 * dt * k1)
+        k3 = f(x + .5 * dt * k2)
+        k4 = f(x + dt * k3)
+        return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+
+    def traj(x0):
+        xs = [x0]
+        for _ in range(n - 1):
+            xs.append(step(xs[-1]))
+        return jnp.stack(xs)
+
+    rng = np.random.default_rng(3)
+    xt = jnp.asarray(8 + rng.normal(size=D))
+    for _ in range(399):
+        xt = step(xt)
+    oi = np.arange(0, n, 5)
+    y = traj(xt)[oi] + so * rng.normal(size=(len(oi), D))
+    xb = xt + sb * rng.normal(size=D)
+
+    def J_full(v):
+        return 0.5 * jnp.sum(v * v) + 0.5 * jnp.sum(
+            (traj(xb + sb * v)[oi] - y) ** 2) / so ** 2
+
+    v_opt = minimize(lambda v: float(J_full(jnp.asarray(v))), np.zeros(D),
+                     jac=lambda v: np.asarray(jax.grad(J_full)(
+                         jnp.asarray(v))),
+                     method="BFGS", options={"gtol": 1e-10}).x
+    Hs = jnp.broadcast_to(jnp.eye(D), (len(oi), D, D))
+
+    def tlm_op(x_t, dx_t):
+        return jax.jvp(step, (x_t,), (dx_t,))[1]
+
+    v_tot = jnp.zeros(D)
+    costs = [float(J_full(v_tot))]
+    for _ in range(5):
+        x_traj = traj(xb + sb * v_tot)
+
+        def Jq(dv, x_traj=x_traj, v_tot=v_tot):
+            return quadratic_cost(
+                dv, v_tot, tlm_op=tlm_op, x_b_traj=x_traj, Hs=Hs,
+                innovations=y - x_traj[oi],
+                obs_window_indices=jnp.asarray(oi),
+                obs_time_mask=jnp.ones(len(oi), bool),
+                R_inv_diag=jnp.full(D, 1 / so ** 2),
+                apply_B_half=lambda v: sb * v)
+        z = jnp.zeros(D)
+        v_tot = v_tot + jnp.linalg.solve(jax.hessian(Jq)(z),
+                                         -jax.grad(Jq)(z))
+        costs.append(float(J_full(v_tot)))
+    assert all(b < a for a, b in zip(costs[:3], costs[1:4])), costs
+    assert abs(costs[-1] - float(J_full(jnp.asarray(v_opt)))) < 1e-6, costs
+    assert float(jnp.linalg.norm(v_tot - v_opt)) < 1e-5
