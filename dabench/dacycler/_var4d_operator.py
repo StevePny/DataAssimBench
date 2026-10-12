@@ -1,5 +1,6 @@
 """Class for matrix-free (operator-based) Var 4D Data Assimilation Cycler"""
 
+import os
 from functools import partial
 from typing import Callable
 
@@ -28,6 +29,25 @@ XarrayDatasetLike = xr.Dataset | xj.XjDataset
 TLMOpFactory = Callable[[Model, ArrayLike], Callable[
         [ArrayLike, ArrayLike], ArrayLike]]
 
+
+
+def _print_lanczos_kappa(alphas, betas, n_iter, outer):
+    """Ritz values of the CG-implied Lanczos tridiagonal:
+    T[k,k] = 1/a_k + b_{k-1}/a_{k-1}, T[k,k+1] = sqrt(b_k)/a_k."""
+    n = int(n_iter)
+    a = np.asarray(alphas, np.float64)[:n]
+    b = np.asarray(betas, np.float64)[:n]
+    if n < 2 or np.any(a <= 0):
+        print(f"[lanczos/outer{outer}] n={n} (no estimate)", flush=True)
+        return
+    diag = 1.0 / a
+    diag[1:] += b[:-1] / a[:-1]
+    off = np.sqrt(np.maximum(b[:-1], 0.0)) / a[:-1]
+    T = np.diag(diag) + np.diag(off, 1) + np.diag(off, -1)
+    ev = np.linalg.eigvalsh(T)
+    print(f"[lanczos/outer{outer}] n={n} ritz_min={ev[0]:.4e} "
+          f"ritz_max={ev[-1]:.4e} kappa_est={ev[-1] / max(ev[0], 1e-300):.4e}",
+          flush=True)
 
 class Var4DOperator(dacycler.DACycler):
     """Matrix-free 4D-Var DA Cycler.
@@ -313,6 +333,13 @@ class Var4DOperator(dacycler.DACycler):
                 max_iter=self.n_inner_loops, tol=self.inner_tol,
                 verbose=self.verbose,
                 verbose_tag=f"pcg/outer{int(outer_idx)}")
+        if os.environ.get("DABENCH_LANCZOS_KAPPA"):
+            # extreme Ritz values of the inner-loop Hessian from the CG
+            # coefficients (Lanczos tridiagonal): an estimate of the
+            # condition number the solver faces. Diagnostic only.
+            jax.debug.callback(_print_lanczos_kappa, info["alphas"],
+                               info["betas"], info["n_iter"],
+                               int(outer_idx))
         if self.verbose:
             J0 = J_of_dv(dv0)
             J_star = J_of_dv(delta_v)
