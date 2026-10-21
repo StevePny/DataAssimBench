@@ -422,6 +422,8 @@ class LETKF(ETKF):
                  localize_units: str = "km",
                  localize_taper: str = "gaspari_cohn",
                  grid_chunk: int | None = 512,
+                 local_gram: str = "auto",
+                 chunk_batch: int = 1,
                  eigh_impl: str | None = None,
                  ns_iters: int = 40,
                  ns_resid_warn: float = 1e-6,
@@ -585,6 +587,26 @@ class LETKF(ETKF):
         # whole-grid ``vmap`` to round-off (same ``_lane``, same order).
         # ``None`` -> single block (legacy whole-grid ``vmap``; small grids/L96).
         self.grid_chunk = None if grid_chunk is None else int(grid_chunk)
+        # Dense-path local-moment formulation.  "direct" (legacy) forms each
+        # lane's ``YtRinv`` (K, n_obs) -> a (chunk, K, n_obs) block
+        # intermediate (~20 GB at chunk 256, K 32, n_obs 300k).  "gram"
+        # precomputes ONCE per analysis the per-obs outer products
+        # ``W = rinv_o vec(Y_o Y_o^T)`` (n_obs, K^2) and ``v = rinv_o d_o Y_o``
+        # (n_obs, K); a block's moments are then two GEMMs
+        # ``A = taper_blk @ W``, ``b = taper_blk @ v`` -- peak
+        # n_obs*K^2 (+ chunk*K^2), independent of chunk x n_obs.  Same sums,
+        # different association -> matches "direct" to round-off.  "auto"
+        # picks "gram" when K <= effective chunk (n_obs*K^2 <= chunk*K*n_obs),
+        # else "direct".  Patch path is unaffected (already O(P)).
+        if local_gram not in ("auto", "gram", "direct"):
+            raise ValueError(
+                f"local_gram must be 'auto'|'gram'|'direct', got {local_gram!r}")
+        self.local_gram = local_gram
+        # Number of grid chunks evaluated per ``lax.map`` step (vmapped
+        # together).  1 == legacy.  ``lax.map`` iterations run sequentially
+        # on XLA:CPU; a larger batch gives the intra-op thread pool bigger
+        # GEMM / batched-eigh work per step (peak memory x chunk_batch).
+        self.chunk_batch = max(1, int(chunk_batch))
         # Per-gridpoint K x K SPD-solver backend for the local ETKF transform.
         # ``None`` -> XLA default eigh (QR on CPU/GPU); byte-identical to every
         # existing caller.  Alternatives (all matching the eigh path to
@@ -736,6 +758,16 @@ class LETKF(ETKF):
         return (not self._use_patch and self._grid_latlon is not None
                 and self.grid_chunk is not None
                 and self.grid_chunk < n_grid)
+
+    def _use_gram(self, n_grid: int, K: int) -> bool:
+        """Dense-path moment formulation (see ``local_gram``).  "auto":
+        Gram iff ``K <= chunk_eff`` (W's n_obs*K^2 no larger than the direct
+        path's chunk_eff*K*n_obs block), chunk_eff = grid when unchunked."""
+        if self.local_gram != "auto":
+            return self.local_gram == "gram"
+        c = n_grid if self.grid_chunk is None else min(
+            self.grid_chunk * self.chunk_batch, n_grid)
+        return K <= c
 
     def _build_taper(self, obs_loc_indices: ArrayLike,
                      dtype, grid_rows: slice | None = None) -> jax.Array:
@@ -1059,6 +1091,9 @@ class LETKF(ETKF):
                 del A_blk
             return out
 
+        # ``chunk_batch`` > 1: each lax.map step processes ``chunk_batch``
+        # chunks as one larger vmapped block (bigger per-step parallel work).
+        chunk = chunk * self.chunk_batch
         n_chunks = -(-G // chunk)                              # ceil div
         pad = n_chunks * chunk - G
 
@@ -1150,6 +1185,26 @@ class LETKF(ETKF):
                 return xa_pert + xb_bar + jnp.dot(xb_pert, wa)
 
             lane_extra = (patch_idx, patch_w)
+        elif self._use_gram(int(Xb_grid.shape[0]), K):
+            # Gram formulation: A_g = sum_o rho_go W_o, b_g = sum_o rho_go v_o.
+            # Under the block vmap ``taper_row @ W`` becomes one
+            # (chunk, n_obs) @ (n_obs, K^2) GEMM -- no (chunk, K, n_obs).
+            W = (rinv[:, None, None] * (Yb_pert[:, :, None]
+                                        * Yb_pert[:, None, :])
+                 ).reshape(n_obs, K * K)                       # (n_obs, K^2)
+            v = (rinv * innov)[:, None] * Yb_pert              # (n_obs, K)
+
+            def _lane(xb_col, taper_row):
+                t = taper_row.astype(dtype)
+                A = (K - 1) / rho * I + (t @ W).reshape(K, K)
+                Pa, Wa, _ = _solve_pa_wa(A, eigh_impl, ns_iters)
+                wa = Pa @ (t @ v)                              # (K,)
+                xb_bar = jnp.mean(xb_col)
+                xb_pert = xb_col - xb_bar                      # (K,)
+                xa_pert = xb_pert @ Wa                         # (K,)
+                return xa_pert + xb_bar + jnp.dot(xb_pert, wa)
+
+            lane_extra = (taper,)
         else:
             def _lane(xb_col, taper_row):
                 rinv_local = rinv * taper_row.astype(dtype)    # (n_obs,)
