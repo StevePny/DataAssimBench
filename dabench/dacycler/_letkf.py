@@ -380,6 +380,20 @@ class PatchGeometryProducer:
         return self._idx, self._gc, diag
 
 
+def _bg_if_unobserved(has_obs, xa_col, xb_col, xb_bar, xb_pert, rho):
+    """Exact background at a grid point with NO obs in the localisation radius.
+
+    There ``A = (K-1)/rho I`` so the solve gives ``wa = 0``, ``Wa = sqrt(rho)
+    I`` -- the analysis equals ``xb_bar + sqrt(rho) xb_pert`` up to round-off.
+    Return that value exactly (``xb_col`` bit-for-bit when ``rho == 1``) so
+    unobserved points are untouched; gradients stay finite since the solve
+    itself is degeneracy-safe (``_solve_pa_wa``) and both branches are finite.
+    """
+    infl = xb_bar + jnp.sqrt(jnp.asarray(rho, xb_col.dtype)) * xb_pert
+    bg = jnp.where(jnp.asarray(rho) == 1, xb_col, infl)
+    return jnp.where(has_obs, xa_col, bg)
+
+
 class LETKF(ETKF):
     """Local Ensemble Transform Kalman Filter DA Cycler (Hunt et al. 2007).
 
@@ -1182,7 +1196,9 @@ class LETKF(ETKF):
                 xb_bar = jnp.mean(xb_col)
                 xb_pert = xb_col - xb_bar                      # (K,)
                 xa_pert = xb_pert @ Wa                         # (K,)
-                return xa_pert + xb_bar + jnp.dot(xb_pert, wa)
+                return _bg_if_unobserved(
+                    jnp.any(w_g > 0), xa_pert + xb_bar + jnp.dot(xb_pert, wa),
+                    xb_col, xb_bar, xb_pert, rho)
 
             lane_extra = (patch_idx, patch_w)
         elif self._use_gram(int(Xb_grid.shape[0]), K):
@@ -1202,7 +1218,9 @@ class LETKF(ETKF):
                 xb_bar = jnp.mean(xb_col)
                 xb_pert = xb_col - xb_bar                      # (K,)
                 xa_pert = xb_pert @ Wa                         # (K,)
-                return xa_pert + xb_bar + jnp.dot(xb_pert, wa)
+                return _bg_if_unobserved(
+                    jnp.any(t > 0), xa_pert + xb_bar + jnp.dot(xb_pert, wa),
+                    xb_col, xb_bar, xb_pert, rho)
 
             lane_extra = (taper,)
         else:
@@ -1215,7 +1233,9 @@ class LETKF(ETKF):
                 xb_bar = jnp.mean(xb_col)
                 xb_pert = xb_col - xb_bar                      # (K,)
                 xa_pert = xb_pert @ Wa                         # (K,)
-                return xa_pert + xb_bar + jnp.dot(xb_pert, wa)
+                return _bg_if_unobserved(
+                    jnp.any(taper_row > 0), xa_pert + xb_bar + jnp.dot(xb_pert, wa),
+                    xb_col, xb_bar, xb_pert, rho)
 
             lane_extra = (taper,)
 
@@ -1353,8 +1373,10 @@ class LETKF(ETKF):
         Xa_pert = self._apply_rtpp(Xb_pert, Xa_pert)
         if key is not None:
             Xa_pert = self._apply_additive(Xb_pert, Xa_pert, key)
-        v = jnp.ones((1, K), dtype=dtype)
-        return Xa_pert + Xa_bar[:, None] @ v
+        # Recombine as background + increments (pert / mean) so a column the
+        # local solve left untouched (no obs in radius, rho == 1) returns the
+        # background EXACTLY; equal to ``Xa_pert + Xa_bar`` to round-off.
+        return Xb + (Xa_pert - Xb_pert) + (Xa_bar - Xb_bar)[:, None]
 
     def _update_diagnostics(self, Xa_grid, Xa_spec, Xb) -> None:
         """Store SHT-truncation power + resolved-energy pre/post (means).

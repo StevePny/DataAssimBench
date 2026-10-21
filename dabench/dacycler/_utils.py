@@ -386,18 +386,77 @@ def _solve_pa_wa(A: ArrayLike, eigh_impl: str | None, ns_iters: int
         resid = (jnp.linalg.norm(Z @ A @ Z - I)
                  / jnp.sqrt(jnp.asarray(K, dtype)))
         return Pa, Wa, resid
+    Pa, Wa = _eigh_pa_wa(A, eigh_impl)
+    return Pa, Wa, jnp.asarray(jnp.nan, dtype)
+
+
+def _eigh_decomp(A, eigh_impl):
     if eigh_impl is None:
-        w_eig, V = jnp.linalg.eigh(A)
-    else:
-        # EighImplementation values are lowercase ("qr"/"jacobi"); the lax API
-        # returns (v, w) -- swap to jnp's (w, v).
-        impl = jax.lax.linalg.EighImplementation(eigh_impl)
-        V, w_eig = jax.lax.linalg.eigh(A, implementation=impl)
+        return jnp.linalg.eigh(A)
+    # EighImplementation values are lowercase ("qr"/"jacobi"); the lax API
+    # returns (v, w) -- swap to jnp's (w, v).
+    impl = jax.lax.linalg.EighImplementation(eigh_impl)
+    V, w_eig = jax.lax.linalg.eigh(A, implementation=impl)
+    return w_eig, V
+
+
+def _eigh_pa_wa_fwd(A, eigh_impl):
+    """Forward ``Pa = pinv(A)``, ``Wa = ((K-1) pinv(A))^{1/2}`` (+ eigs)."""
+    K = A.shape[-1]
+    w_eig, V = _eigh_decomp(A, eigh_impl)
     inv_eig = jnp.where(w_eig > 0, 1.0 / w_eig, 0.0)
     Pa = (V * inv_eig) @ V.T                                   # pinv(A), SPD
     sqrt_eig = jnp.sqrt(jnp.clip((K - 1) * inv_eig, 0.0))
     Wa = (V * sqrt_eig) @ V.T                                  # ((K-1)A^{-1})^½
-    return Pa, Wa, jnp.asarray(jnp.nan, dtype)
+    return Pa, Wa, w_eig, V
+
+
+_EIGH_CODES = (None, "qr", "jacobi")
+
+
+def _eigh_pa_wa_plain(A, eigh_impl_code):
+    Pa, Wa, _, _ = _eigh_pa_wa_fwd(A, _EIGH_CODES[eigh_impl_code])
+    return Pa, Wa
+
+
+_eigh_pa_wa_core = jax.custom_jvp(_eigh_pa_wa_plain, nondiff_argnums=(1,))
+
+
+@_eigh_pa_wa_core.defjvp
+def _eigh_pa_wa_core_jvp(eigh_impl_code, primals, tangents):
+    """Daleckii-Krein JVP: ``dF = V (G o (V^T dA V)) V^T``.
+
+    The divided differences of ``f1(l)=1/l`` and ``f2(l)=sqrt(K-1) l^{-1/2}``
+    are used in CLOSED form, which is exact for ``l_i != l_j`` AND equals
+    ``f'(l)`` at ``l_i == l_j`` -- so degenerate spectra (e.g. ``A=(K-1)/rho I``
+    at a grid point with no obs in the localisation radius) give finite,
+    exact derivatives.  Non-positive eigenvalues (the pinv branch, where
+    f == 0) get G == 0; ``jnp.where`` guards use safe operands (double-where)
+    so no NaN/inf leaks into the cotangent.
+    """
+    (A,), (dA,) = primals, tangents
+    K = A.shape[-1]
+    Pa, Wa, w, V = _eigh_pa_wa_fwd(A, _EIGH_CODES[eigh_impl_code])
+    pos = w > 0
+    ws = jnp.where(pos, w, jnp.ones_like(w))                   # safe eigs
+    s = jnp.sqrt(ws)
+    both = pos[:, None] & pos[None, :]
+    # f1 = 1/l:       (f1(li)-f1(lj))/(li-lj) = -1/(li lj)
+    G1 = jnp.where(both, -1.0 / (ws[:, None] * ws[None, :]), 0.0)
+    # f2 = c l^{-1/2}: divided difference = -c / (si sj (si + sj))
+    c = jnp.sqrt(jnp.asarray(K - 1, A.dtype))
+    G2 = jnp.where(both, -c / (s[:, None] * s[None, :]
+                               * (s[:, None] + s[None, :])), 0.0)
+    dA = 0.5 * (dA + jnp.swapaxes(dA, -1, -2))
+    dAh = V.T @ dA @ V
+    dPa = V @ (G1 * dAh) @ V.T
+    dWa = V @ (G2 * dAh) @ V.T
+    return (Pa, Wa), (dPa, dWa)
+
+
+def _eigh_pa_wa(A, eigh_impl):
+    """eigh-based ``(Pa, Wa)`` with a degeneracy-safe Daleckii-Krein JVP."""
+    return _eigh_pa_wa_core(A, _EIGH_CODES.index(eigh_impl))
 
 
 # ── Shared observation-space DA metrics reduction ─────────────────────────

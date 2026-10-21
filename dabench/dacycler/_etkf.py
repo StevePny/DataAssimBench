@@ -434,7 +434,9 @@ class ETKF(dacycler.DACycler):
             The relaxed analysis perturbations, same shape as ``Xa_pert``.
         """
         alpha = self.rtpp_relaxation
-        return (1.0 - alpha) * Xa_pert + alpha * Xb_pert
+        # ``Xa + alpha (Xb - Xa)`` (== the blend to round-off) is EXACTLY
+        # ``Xb`` when ``Xa == Xb`` (unobserved LETKF points).
+        return Xa_pert + alpha * (Xb_pert - Xa_pert)
 
     def _apply_additive(self,
                         Xb_pert: ArrayLike,
