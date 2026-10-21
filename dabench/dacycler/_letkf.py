@@ -684,6 +684,59 @@ class LETKF(ETKF):
         d = jnp.abs(grid_pos - obs_pos)
         return jnp.minimum(d, n - d)
 
+    def _taper_rows(self, rows: ArrayLike, obs_loc_indices: ArrayLike,
+                    dtype) -> jax.Array:
+        """Gaspari-Cohn taper rows ``(len(rows), n_obs)`` for an INTEGER
+        (possibly traced) grid-row index array.
+
+        Elementwise identical to the corresponding rows of
+        :meth:`_build_taper` (same metric, same obs order), but traced-safe so
+        it can be evaluated inside the ``lax.map`` grid-chunk loop: only one
+        block of taper rows ever lives at a time.  When the obs axis is the
+        window-stacked tiling of a single ``obs_latlon`` slice, the distances
+        are computed once on the slice and tiled (same values).
+        """
+        obs_idx = jnp.asarray(obs_loc_indices).reshape(-1).astype(jnp.int32)
+        n_obs = int(obs_idx.shape[0])
+        rows = jnp.asarray(rows).astype(jnp.int32)
+        c = self._radius_km()
+        if self._grid_latlon is not None:
+            grid_ll = self._grid_latlon[rows]
+            if self._obs_latlon is not None:
+                obs_ll = self._obs_latlon
+                n_slice = int(obs_ll.shape[0])
+                if n_obs != n_slice and (n_slice == 0 or n_obs % n_slice != 0):
+                    raise ValueError(
+                        f"obs axis ({n_obs}) is not an integer multiple of "
+                        f"the injected obs_latlon slice ({n_slice}); cannot "
+                        "align the localization taper to the window-stacked "
+                        "observations.")
+                reps = n_obs // n_slice
+            else:
+                obs_ll = self._grid_latlon[obs_idx]
+                reps = 1
+            dist = _great_circle_km(
+                grid_ll[:, 0][:, None], grid_ll[:, 1][:, None],
+                obs_ll[:, 0][None, :], obs_ll[:, 1][None, :])
+            taper = _gaspari_cohn(dist, c)
+            if reps > 1:
+                taper = jnp.tile(taper, (1, reps))
+            return taper.astype(dtype)
+        n = int(self.system_dim)
+        grid_pos = rows.astype(jnp.float32)[:, None]
+        obs_pos = obs_idx.astype(jnp.float32)[None, :]
+        d = jnp.abs(grid_pos - obs_pos)
+        return _gaspari_cohn(jnp.minimum(d, n - d), c).astype(dtype)
+
+    def _streams_dense_taper(self, n_grid: int) -> bool:
+        """Dense lat/lon path with a finite grid chunk: build taper rows per
+        block.  (The 1-D index ring keeps the legacy whole-taper build: it is
+        float32 and small, and in-loop XLA fusion would perturb it at fp32
+        round-off.)"""
+        return (not self._use_patch and self._grid_latlon is not None
+                and self.grid_chunk is not None
+                and self.grid_chunk < n_grid)
+
     def _build_taper(self, obs_loc_indices: ArrayLike,
                      dtype, grid_rows: slice | None = None) -> jax.Array:
         """Dense ``(grid_dim, n_obs)`` Gaspari-Cohn taper matrix.
@@ -1026,7 +1079,8 @@ class LETKF(ETKF):
                        taper: ArrayLike,
                        rho: float,
                        cycle_idx=None,
-                       obs_latlon_t=None) -> jax.Array:
+                       obs_latlon_t=None,
+                       obs_loc_indices=None) -> jax.Array:
         """Fused per-gridpoint local ETKF: returns the analysis grid columns.
 
         vmaps over grid points; each lane tapers the FULL window-stacked
@@ -1113,7 +1167,27 @@ class LETKF(ETKF):
         G = Xb_grid.shape[0]
         chunk = self.grid_chunk
         if chunk is None or chunk >= G:
+            if not self._use_patch and taper is None:
+                lane_extra = (self._build_taper(obs_loc_indices, dtype),)
             return jax.vmap(_lane)(Xb_grid, *lane_extra)       # (grid_dim, K)
+        if (not self._use_patch and taper is None
+                and not self._streams_dense_taper(G)):
+            lane_extra = (self._build_taper(obs_loc_indices, dtype),)
+        if not self._use_patch and taper is None and self._streams_dense_taper(G):
+            # Stream the dense taper: carry only grid-row indices through the
+            # chunk loop and build each block's (chunk, n_obs) taper rows
+            # inside it, so the whole (grid_dim, n_obs) taper (tens of GB for
+            # a multi-field state x window-stacked dense pool) never exists.
+            # Padding rows index row 0 and are sliced off below.
+            rows_all = jnp.arange(G, dtype=jnp.int32)
+            lane_extra = (rows_all,)
+            _lane_taper = _lane
+
+            def _lane_rows_block(xb_blk, rows_blk):
+                taper_blk = self._taper_rows(rows_blk, obs_loc_indices, dtype)
+                return jax.vmap(_lane_taper)(xb_blk, taper_blk)
+        else:
+            _lane_rows_block = None
 
         # Pad the grid up to a whole number of chunks, reshape to
         # (n_chunks, chunk, ...), map vmap(_lane) over the chunk axis (peak =
@@ -1131,6 +1205,8 @@ class LETKF(ETKF):
 
         def _block(args):
             xb_blk, extra_blk = args
+            if _lane_rows_block is not None:
+                return _lane_rows_block(xb_blk, *extra_blk)    # (chunk, K)
             return jax.vmap(_lane)(xb_blk, *extra_blk)         # (chunk, K)
 
         # jax.lax.map is scan-based: chunking alone only bounds the FORWARD
@@ -1184,13 +1260,16 @@ class LETKF(ETKF):
         Xb_grid = jax.vmap(self.to_grid, in_axes=1, out_axes=1)(Xb)
         # Patch mode gathers per-lane inside ``_local_columns`` (no dense taper);
         # only build the dense ``(grid_dim, n_obs)`` taper on the dense path.
-        taper = None if self._use_patch else self._build_taper(
-            obs_loc_indices, dtype)
+        # On the chunked dense path the taper is streamed per grid block
+        # inside ``_local_columns`` (never the full (grid_dim, n_obs) matrix).
+        taper = (None if (self._use_patch or self._streams_dense_taper(
+            int(Xb_grid.shape[0]))) else self._build_taper(
+            obs_loc_indices, dtype))
 
         # 2. Fused per-gridpoint local ETKF -> analysis grid columns.
         Xa_grid = self._local_columns(
             Xb_grid, Yb, Y, rinv_diag, taper, rho, cycle_idx,
-            obs_latlon_t)                                      # (grid_dim, K)
+            obs_latlon_t, obs_loc_indices=obs_loc_indices)     # (grid_dim, K)
 
         # 3. SHT project back to spectral; split mean + perturbations so the
         #    relaxation/inflation acts on the SPECTRAL perturbations (RTPS is a

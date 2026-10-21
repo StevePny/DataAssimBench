@@ -998,3 +998,78 @@ def test_letkf_cycler_reusable_no_tracer_leak(l96_nature_run, obs_vec_l96,
         out2 = _run_cycle(cycler, init_state, obs_vec_l96)   # was: tracer leak
         assert np.allclose(np.asarray(out1['x'].data),
                            np.asarray(out2['x'].data))
+
+
+@pytest.mark.parametrize("stationary", [True, False])
+def test_letkf_streamed_dense_taper_matches_full_taper(stationary):
+    """Chunked dense LETKF builds taper rows PER GRID BLOCK (never the full
+    ``(grid_dim, n_obs)`` taper -- tens of GB for a multi-field state x a
+    window-stacked dense pool).  Must match the pre-computed full-taper path
+    to round-off on a multi-field-style problem: grid tiled per field, obs
+    pool window-stacked over T times with a per-time NaN-style mask (zeroed
+    ``rinv``); ``stationary=False`` changes the mask per time."""
+    rng = np.random.default_rng(11)
+    n_pts, n_fields, pool, T, ens = 9, 3, 6, 4, 5
+    ll1 = np.stack([rng.uniform(-80, 80, n_pts),
+                    rng.uniform(0, 360, n_pts)], axis=1)
+    grid_latlon = jnp.asarray(np.tile(ll1, (n_fields, 1)))
+    G = n_fields * n_pts
+    loc = rng.integers(0, n_pts, pool)
+    obs_latlon = jnp.asarray(ll1[loc])
+    n_obs = T * pool
+    obs_idx = jnp.asarray(np.tile(loc, T))
+    mask = (rng.uniform(size=(T, pool)) > 0.4) if not stationary else \
+        np.tile(rng.uniform(size=pool) > 0.4, (T, 1))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs) * mask.reshape(-1))
+    Xb = jnp.asarray(rng.standard_normal((G, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+
+    def _mk(chunk):
+        return LETKF(system_dim=G, delta_t=0.01, ensemble_dim=ens,
+                     model_obj=None, grid_latlon=grid_latlon,
+                     obs_latlon=obs_latlon, localize_radius=4000.0,
+                     grid_chunk=chunk)
+
+    ref = _mk(None)
+    taper = ref._build_taper(obs_idx, jnp.float64)
+    whole = np.asarray(ref._local_columns(Xb, Yb, Y, rinv, taper, rho=1.05))
+    for chunk in (1, 4, 8, 27):
+        c = _mk(chunk)
+        assert np.array_equal(
+            np.asarray(c._taper_rows(jnp.arange(G), obs_idx, jnp.float64)),
+            np.asarray(taper))
+        old = np.asarray(c._local_columns(Xb, Yb, Y, rinv, taper, rho=1.05))
+        new = np.asarray(c._local_columns(Xb, Yb, Y, rinv, None, rho=1.05,
+                                          obs_loc_indices=obs_idx))
+        scale = np.max(np.abs(whole))
+        assert np.max(np.abs(new - old)) <= 1e-10 * scale
+        assert np.max(np.abs(new - whole)) <= 1e-10 * scale
+        assert c._taper_cache is None or chunk >= G
+
+    # gradient through the streamed path matches the full-taper path
+    c = _mk(4)
+    g_new = jax.grad(lambda xb: jnp.sum(c._local_columns(
+        xb, Yb, Y, rinv, None, rho=1.05, obs_loc_indices=obs_idx) ** 2))(Xb)
+    g_old = jax.grad(lambda xb: jnp.sum(c._local_columns(
+        xb, Yb, Y, rinv, taper, rho=1.05) ** 2))(Xb)
+    assert np.allclose(g_new, g_old, rtol=1e-10, atol=1e-12)
+
+
+def test_letkf_streamed_dense_taper_ring_matches():
+    """1-D periodic index ring (no geometry): taper=None falls back to the
+    legacy whole-taper build and matches exactly."""
+    rng = np.random.default_rng(3)
+    n, n_obs, ens = 11, 7, 4
+    obs_idx = jnp.asarray(rng.integers(0, n, n_obs))
+    Xb = jnp.asarray(rng.standard_normal((n, ens)))
+    Yb = jnp.asarray(rng.standard_normal((n_obs, ens)))
+    Y = jnp.asarray(rng.standard_normal(n_obs))
+    rinv = jnp.asarray(rng.uniform(0.5, 2.0, n_obs))
+    c = LETKF(system_dim=n, delta_t=0.01, ensemble_dim=ens, model_obj=None,
+              localize_radius=3.0, grid_chunk=4)
+    taper = c._build_taper(obs_idx, jnp.float64)
+    old = np.asarray(c._local_columns(Xb, Yb, Y, rinv, taper, rho=1.0))
+    new = np.asarray(c._local_columns(Xb, Yb, Y, rinv, None, rho=1.0,
+                                      obs_loc_indices=obs_idx))
+    assert np.max(np.abs(new - old)) <= 1e-12
