@@ -13,7 +13,9 @@ from dabench import _xarray_jax as xj
 
 from dabench import dacycler
 import dabench.dacycler._utils as dac_utils
-from dabench.dacycler._per_time_h import make_per_time_H, as_dtype
+from dabench.dacycler._per_time_h import (make_per_time_H, as_dtype,
+                                          is_function_operator,
+                                          r_inv_diagonal)
 from dabench.model import Model
 from dabench.dacycler._var4d_operator_utils import (
     BFactors,
@@ -178,7 +180,7 @@ class Var4DOperator(dacycler.DACycler):
         self.lm_power_iters = int(lm_power_iters)
         self.verbose = bool(verbose)
 
-        if H is not None:
+        if H is not None and not is_function_operator(H):
             H = jnp.array(H)
 
         super().__init__(system_dim=system_dim,
@@ -425,12 +427,9 @@ class Var4DOperator(dacycler.DACycler):
                         self.H, obs_values.shape[0], obs_loc_mask,
                         self._obs_vector.stationary_observers)
 
-        if R is None:
-            if self.R is None:
-                R = self._calc_default_R(obs_values, self.obs_error_sd)
-            else:
-                R = self.R
-        R_inv_diag = jnp.diag(jscipy.linalg.inv(R))
+        # diagonal R stays a vector (a dense (N, N) R OOMs real networks)
+        R_inv_diag = r_inv_diagonal(R if R is not None else self.R,
+                                    obs_values.shape[-1], self.obs_error_sd)
 
         # Cache the original coords / template so we can reattach them
         # to the analysis state at the end.

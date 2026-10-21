@@ -15,6 +15,7 @@ from ._letkf4d import LETKF4D
 from ._var4d_backprop import Var4DBackprop
 from ._var4d import Var4D
 from ._var4d_operator import Var4DOperator
+from ._per_time_h import LinearObsOperator, PerTimeH
 from ._var4d_operator_wc import Var4DOperatorWC
 from ._var4d_backprop_wc import Var4DBackpropWC
 from ._var4d_weak_utils import build_Q_half, quadratic_cost_wc
@@ -53,6 +54,8 @@ __all__ = [
     'Var4DBackprop',
     'Var4D',
     'Var4DOperator',
+    'LinearObsOperator',
+    'PerTimeH',
     'Var4DOperatorWC',
     'Var4DBackpropWC',
     'build_Q_half',

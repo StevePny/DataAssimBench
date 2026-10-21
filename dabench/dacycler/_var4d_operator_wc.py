@@ -10,7 +10,8 @@ import xarray as xr
 from dabench import _xarray_jax as xj
 
 import dabench.dacycler._utils as dac_utils
-from dabench.dacycler._per_time_h import make_per_time_H, as_dtype
+from dabench.dacycler._per_time_h import (make_per_time_H, as_dtype,
+                                          r_inv_diagonal)
 from dabench.dacycler._var4d_operator import Var4DOperator
 from dabench.dacycler._var4d_operator_utils import pcg_lanczos_solve
 from dabench.dacycler._var4d_weak_utils import (
@@ -106,8 +107,7 @@ class Var4DOperatorWC(Var4DOperator):
                         self.H, obs_values.shape[0], obs_loc_mask,
                         self._obs_vector.stationary_observers)
         if R is None:
-            R = (self._calc_default_R(obs_values, self.obs_error_sd)
-                 if self.R is None else self.R)
+            R = self.R          # None -> diagonal from obs_error_sd (vector)
         return Hs, R
 
     def _make_step_fn(self, template: xr.Dataset
@@ -173,7 +173,8 @@ class Var4DOperatorWC(Var4DOperator):
 
         Hs, R = self._resolve_Hs_R(obs_values, obs_loc_indices,
                                    obs_loc_mask, H, h, R)
-        R_inv_diag = jnp.diag(jscipy.linalg.inv(R))
+        R_inv_diag = r_inv_diagonal(R, obs_values.shape[-1],
+                                    self.obs_error_sd)
         owi = jnp.asarray(obs_window_indices)
 
         xb0_xr = (xb0_ds.to_xarray()
