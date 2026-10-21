@@ -10,6 +10,7 @@ from typing import Callable
 from dabench.dacycler import ETKF4D
 from dabench.dacycler._letkf import LETKF
 import dabench.dacycler._utils as dac_utils
+from dabench.dacycler._per_time_h import PerTimeH
 
 
 # For typing
@@ -140,8 +141,7 @@ class LETKF4D(LETKF, ETKF4D):
             if self.H is None:
                 Hs = self._calc_default_H(cur_obs_loc_indices)
             else:
-                Hs = jnp.repeat(jnp.asarray(self.H)[jnp.newaxis],
-                                cur_obs_vals.shape[0], axis=0)
+                Hs = PerTimeH(self.H, cur_obs_vals.shape[0])
 
             # Localized analysis-at-time closure; the shared scorer selects the
             # causal (tau) vs time-matched (window-start) placement per

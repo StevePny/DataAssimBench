@@ -13,6 +13,7 @@ from dabench import _xarray_jax as xj
 
 from dabench import dacycler
 import dabench.dacycler._utils as dac_utils
+from dabench.dacycler._per_time_h import make_per_time_H, as_dtype
 from dabench.model import Model
 from dabench.dacycler._var4d_operator_utils import (
     BFactors,
@@ -418,11 +419,11 @@ class Var4DOperator(dacycler.DACycler):
                     raise ValueError(
                             "Var4DOperator only supports linear H (matrix).")
             else:
-                H = self.H[jnp.newaxis]
-                Hs = jax.lax.cond(
-                        self._obs_vector.stationary_observers,
-                        lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
-                        lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+                # Single H (obs_dim, system_dim); per-time mask applied to the
+                # product, never materialised as (T, obs_dim, system_dim).
+                Hs = make_per_time_H(
+                        self.H, obs_values.shape[0], obs_loc_mask,
+                        self._obs_vector.stationary_observers)
 
         if R is None:
             if self.R is None:
@@ -493,7 +494,7 @@ class Var4DOperator(dacycler.DACycler):
             return xa_ds
         dtype = x_a.dtype
         xa_traj = self._rollout_background(xa_ds, n_steps=self.steps_per_window)
-        Hs_m = jnp.asarray(Hs, dtype)
+        Hs_m = as_dtype(Hs, dtype)
         owi = jnp.asarray(obs_window_indices)
         Hxb = jax.vmap(lambda i: Hs_m[i] @ xb_traj0[owi[i]])(
                 jnp.arange(Hs_m.shape[0]))

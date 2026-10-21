@@ -10,6 +10,7 @@ import xarray as xr
 from dabench import _xarray_jax as xj
 
 import dabench.dacycler._utils as dac_utils
+from dabench.dacycler._per_time_h import make_per_time_H, as_dtype
 from dabench.dacycler._var4d_operator import Var4DOperator
 from dabench.dacycler._var4d_operator_utils import pcg_lanczos_solve
 from dabench.dacycler._var4d_weak_utils import (
@@ -99,11 +100,11 @@ class Var4DOperatorWC(Var4DOperator):
                     raise ValueError(
                             "Var4DOperatorWC only supports linear H.")
             else:
-                H = self.H[jnp.newaxis]
-                Hs = jax.lax.cond(
-                        self._obs_vector.stationary_observers,
-                        lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
-                        lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+                # Single H (obs_dim, system_dim); per-time mask applied to the
+                # product, never materialised as (T, obs_dim, system_dim).
+                Hs = make_per_time_H(
+                        self.H, obs_values.shape[0], obs_loc_mask,
+                        self._obs_vector.stationary_observers)
         if R is None:
             R = (self._calc_default_R(obs_values, self.obs_error_sd)
                  if self.R is None else self.R)
@@ -218,7 +219,7 @@ class Var4DOperatorWC(Var4DOperator):
         xa_traj = forced_rollout(step_fn, x_a, eta_seq(chi_total))
         xa_free = self._rollout_background(xa_ds,
                                            n_steps=self.steps_per_window)
-        Hs_m = jnp.asarray(Hs, dtype)
+        Hs_m = as_dtype(Hs, dtype)
         idx = jnp.arange(Hs_m.shape[0])
         Hxb = jax.vmap(lambda i: Hs_m[i] @ xb_traj0[owi[i]])(idx)
         Hxa = jax.vmap(lambda i: Hs_m[i] @ xa_traj[owi[i]])(idx)

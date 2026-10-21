@@ -9,6 +9,7 @@ from typing import Callable
 
 from dabench.dacycler import ETKF
 import dabench.dacycler._utils as dac_utils
+from dabench.dacycler._per_time_h import PerTimeH
 
 
 # For typing
@@ -117,8 +118,7 @@ class ETKF4D(ETKF):
         if self.H is None:
             Hs = self._calc_default_H(obs_loc_indices)
         else:
-            Hs = jnp.repeat(jnp.asarray(self.H)[jnp.newaxis],
-                            obs_values.shape[0], axis=0)
+            Hs = PerTimeH(self.H, obs_values.shape[0])
         n_times, obs_dim = Hs.shape[0], Hs.shape[1]
 
         # Masked diagonal R^{-1} (obs-time mask x obs-location mask).
@@ -294,8 +294,7 @@ class ETKF4D(ETKF):
         if self.H is None:
             Hs = self._calc_default_H(cur_obs_loc_indices)
         else:
-            Hs = jnp.repeat(jnp.asarray(self.H)[jnp.newaxis],
-                            cur_obs_vals.shape[0], axis=0)
+            Hs = PerTimeH(self.H, cur_obs_vals.shape[0])
 
         # Analysis-at-time closure (no additive key for a clean diagnostic);
         # the shared scorer selects tau vs window-start per oa_score_mode.

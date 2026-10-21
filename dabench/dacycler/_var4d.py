@@ -18,6 +18,7 @@ from dabench import _xarray_jax as xj
 from dabench import dacycler
 from dabench.model import Model
 import dabench.dacycler._utils as dac_utils
+from dabench.dacycler._per_time_h import make_per_time_H, as_dtype
 
 
 # For typing
@@ -145,7 +146,7 @@ class Var4D(dacycler.DACycler):
             Jb, Jo = jax.lax.cond(
                     obs_time_mask.at[i].get(mode='fill', fill_value=0),
                     lambda: self._calc_J_term(
-                        Hs.at[i].get(mode='clip'),
+                        Hs[min(i, Hs.shape[0] - 1)],
                         M.data[j],
                         Rinv, obs_vals[i], X_ar.data[j]),
                     lambda: (jnp.zeros_like(SumMtHtRinvHM),
@@ -259,11 +260,11 @@ class Var4D(dacycler.DACycler):
                     h = self.h
             else:
                 # Assumes self.H is for a single timestep
-                H = self.H[jnp.newaxis]
-                Hs = jax.lax.cond(
-                    self._obs_vector.stationary_observers,
-                    lambda: jnp.repeat(H, obs_values.shape[0], axis=0),
-                    lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+                # Single H (obs_dim, system_dim); per-time mask applied to the
+                # product, never materialised as (T, obs_dim, system_dim).
+                Hs = make_per_time_H(
+                        self.H, obs_values.shape[0], obs_loc_mask,
+                        self._obs_vector.stationary_observers)
 
         if R is None:
             if self.R is None:
@@ -299,7 +300,7 @@ class Var4D(dacycler.DACycler):
         Xb_ar = jnp.asarray(Xb_ds.to_stacked_array('system', ['time']).data)
         Xa_ar = jnp.asarray(Xa_ds.to_stacked_array('system', ['time']).data)
         owi = jnp.asarray(obs_window_indices)
-        Hs_m = jnp.asarray(Hs, dtype)
+        Hs_m = as_dtype(Hs, dtype)
         Hxb = jax.vmap(lambda i: Hs_m[i] @ Xb_ar[owi[i]])(
                 jnp.arange(Hs_m.shape[0]))
         Hxa = jax.vmap(lambda i: Hs_m[i] @ Xa_ar[owi[i]])(
@@ -338,7 +339,8 @@ class Var4D(dacycler.DACycler):
         A0 = jnp.linalg.inv(jnp.linalg.inv(B) + info)
         M_end = M_ar[end_idx]
         A_end = M_end @ A0 @ M_end.T
-        H_flat = Hs_m.reshape(Hs_m.shape[0] * obs_dim, self.system_dim)
+        # Dense Var4D diagnostic (B, M already D x D here).
+        H_flat = (Hs_m.dense() if hasattr(Hs_m, "dense") else Hs_m).reshape(Hs_m.shape[0] * obs_dim, self.system_dim)
         spread_bg = dac_utils._b_derived_obs_spread(
                 H_flat, B, active, dtype=dtype)
         spread_ana = dac_utils._b_derived_obs_spread(
