@@ -245,6 +245,43 @@ def test_backprop_wc_beats_strong_with_biased_model(nature, obs, eta_mode,
     assert bool(np.all(np.isfinite(np.asarray(metrics["o_minus_a_rms"]))))
 
 
+@pytest.mark.parametrize("eta_mode,sigma_q", [("constant", 0.02),
+                                              ("per_step", 0.05)])
+def test_operator_wc_forecast_with_eta_beats_unforced(nature, obs, eta_mode,
+                                                      sigma_q):
+    """Carrying the estimated eta into the forecast (the exact fitted model)
+    must cut the background (O-F) error with a biased model; the
+    window-start analysis is about equal either way (+-5%)."""
+    res = {}
+    for carry in (False, True):
+        out, m = _cycle(_op(dab.dacycler.Var4DOperatorWC, F_BIASED,
+                            Q_half=sigma_q, eta_mode=eta_mode,
+                            forecast_with_eta=carry),
+                        nature, obs, return_metrics=True)
+        res[carry] = (float(np.asarray(m["o_minus_f_rms"].data)[5:].mean()),
+                      _ana_rmse(out, nature))
+    assert res[True][0] < 0.8 * res[False][0], res
+    assert res[True][1] < 1.05 * res[False][1], res
+
+
+def test_operator_wc_step_forecast_is_forced_rollout(nature):
+    """_step_forecast with a carried eta equals forced_rollout of the
+    model step, eta_k over the window and the window mean beyond it."""
+    dc = _op(dab.dacycler.Var4DOperatorWC, F_BIASED, Q_half=0.02,
+             eta_mode="per_step")
+    x0 = nature.isel(time=0)
+    T = 4
+    eta = 0.01 * jrand.normal(key, (T, D))
+    xa = x0.assign_attrs({"_wc_eta_seq": eta})
+    last, traj = dc._step_forecast(xa, n_steps=7)
+    step = dc._make_step_fn(x0)
+    seq = jnp.concatenate([eta, jnp.broadcast_to(eta.mean(0), (2, D))])
+    ref = forced_rollout(step, jnp.asarray(x0['x'].data), seq)
+    np.testing.assert_allclose(np.asarray(traj['x'].data), np.asarray(ref),
+                               rtol=1e-10, atol=1e-12)
+    assert "_wc_eta_seq" not in traj.attrs
+
+
 def test_operator_wc_metrics(nature, obs):
     out, m = _cycle(_op(dab.dacycler.Var4DOperatorWC, F_BIASED, Q_half=0.02,
                         n_outer_loops=2), nature, obs, return_metrics=True)

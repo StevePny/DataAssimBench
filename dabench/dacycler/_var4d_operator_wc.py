@@ -25,6 +25,8 @@ from dabench.dacycler._var4d_weak_utils import (
     )
 
 
+_ETA_ATTR = "_wc_eta_seq"
+
 # For typing
 ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
@@ -55,8 +57,13 @@ class Var4DOperatorWC(Var4DOperator):
     propagated relative to the linearisation trajectory).
 
     The returned analysis is the window-start state
-    ``x_a = x_b + B^(1/2) v_total`` (as in :class:`Var4DOperator`); the
-    cycler's subsequent forecast uses the unforced model.
+    ``x_a = x_b + B^(1/2) v_total`` (as in :class:`Var4DOperator`).  With
+    ``forecast_with_eta=True`` (default) the cycler's subsequent forecast
+    (and so the next window's background) is the *forced* model that the
+    analysis was fitted with: the estimated ``eta_k`` over the window, and
+    beyond the window the window-mean ``eta`` held constant.  With
+    ``forecast_with_eta=False`` the forecast uses the unforced model (the
+    previous behaviour).
 
     Args:
         Q_half: Optional model-error covariance square root ``Q^(1/2)``.
@@ -79,9 +86,11 @@ class Var4DOperatorWC(Var4DOperator):
                  *args,
                  Q_half: QHalfLike = None,
                  eta_mode: str = "constant",
+                 forecast_with_eta: bool = True,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.eta_mode = check_eta_mode(eta_mode)
+        self.forecast_with_eta = bool(forecast_with_eta)
         self.Q_half = Q_half
         self._apply_Q_half = build_Q_half(Q_half, int(self.system_dim))
 
@@ -210,16 +219,21 @@ class Var4DOperatorWC(Var4DOperator):
 
         x_a = x_b0 + apply_B_half(v_total)
         xa_ds = self._array_to_dataset_like(x_a, xb0_xr)
+        if self.forecast_with_eta:
+            # carried to _step_forecast in the same trace (not part of any
+            # scan carry); stripped there before the model sees the state
+            xa_ds = xa_ds.assign_attrs({_ETA_ATTR: eta_seq(chi_total)})
         if not self._return_metrics:
             return xa_ds
 
         # Metrics: O-A uses the forced analysis trajectory (what the
-        # analysis fits); the end-of-window O-A uses the UNFORCED re-forecast
-        # (what the next cycle starts from).
+        # analysis fits); the end-of-window O-A uses the trajectory the next
+        # cycle starts from (forced unless forecast_with_eta=False).
         dtype = x_a.dtype
         xa_traj = forced_rollout(step_fn, x_a, eta_seq(chi_total))
-        xa_free = self._rollout_background(xa_ds,
-                                           n_steps=self.steps_per_window)
+        xa_free = (xa_traj if self.forecast_with_eta
+                   else self._rollout_background(
+                       xa_ds, n_steps=self.steps_per_window))
         Hs_m = as_dtype(Hs, dtype)
         idx = jnp.arange(Hs_m.shape[0])
         Hxb = jax.vmap(lambda i: Hs_m[i] @ xb_traj0[owi[i]])(idx)
@@ -246,3 +260,40 @@ class Var4DOperatorWC(Var4DOperator):
                 Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
                 end_active_mask=end_active)
         return xa_ds, metrics
+
+    def _step_forecast(self,
+                       xa: XarrayDatasetLike,
+                       n_steps: int = 1):
+        """Forecast with the model the analysis was fitted with.
+
+        Without a carried ``eta`` (strong constraint, or
+        ``forecast_with_eta=False``) this is the parent's unforced
+        ``model_obj.forecast``.  Otherwise the trajectory is
+        ``x_{k+1} = M(x_k) + eta_k`` with the window's ``eta_k`` and, past
+        the window, their mean.  Returns ``(last frame, all frames)`` as
+        Datasets with a ``time`` dimension, like ``model_obj.forecast``.
+        """
+        xa_xr = xa.to_xarray() if isinstance(xa, xj.XjDataset) else xa
+        eta = xa_xr.attrs.get(_ETA_ATTR, None)
+        if eta is None:
+            return super()._step_forecast(xa, n_steps=n_steps)
+        attrs = {k: v for k, v in xa_xr.attrs.items() if k != _ETA_ATTR}
+        xa_clean = xa_xr.assign_attrs(attrs)
+        xa_clean.attrs = attrs
+        x0 = jnp.asarray(xa_clean.to_stacked_array('system', []).data).ravel()
+        n = int(n_steps) - 1
+        T = eta.shape[0]
+        if n <= T:
+            seq = eta[:n]
+        else:
+            seq = jnp.concatenate(
+                [eta, jnp.broadcast_to(eta.mean(axis=0), (n - T,) + eta.shape[1:])],
+                axis=0)
+        traj = forced_rollout(self._make_step_fn(xa_clean), x0, seq)
+        st = xa_clean.to_stacked_array('system', [])
+        dt = float(getattr(self.model_obj, 'delta_t', 1.0))
+        da = xr.DataArray(traj, dims=('time', 'system'),
+                          coords={'system': st['system'],
+                                  'time': np.arange(int(n_steps)) * dt})
+        ds = da.to_unstacked_dataset('system').assign_attrs(attrs)
+        return ds.isel(time=-1), ds
