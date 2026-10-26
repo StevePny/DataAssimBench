@@ -19,6 +19,14 @@ metadata.  It supports ``H @ x`` (1-D state or ``(system_dim, k)`` column
 batch, vmapped) and ``H.T @ r`` (``jax.vjp`` at 0), so every cycler
 that only does ``Hs[i] @ x`` (Var4DOperator, ETKF4D, LETKF4D, metrics) works
 unchanged and no ``(obs_dim, system_dim)`` array is ever formed.
+
+Time-indexed operators: a :class:`LinearObsOperator` built with
+``takes_inputs=True`` has ``fn(x, o)``, where ``o`` are per-observation-time
+coefficients (a pytree, e.g. a satellite pass index and an along-track
+coordinate per observation location).  :class:`PerTimeH` given
+``obs_inputs`` (leaves with a leading axis of obs times) binds ``o_i`` to row
+``i``, so ``Hs[i] @ x == fn(x, o_i)`` (masked as above).  ``fn`` must be
+linear in ``x`` for each fixed ``o``; ``o`` is data, not a control.
 """
 
 from typing import Any, Callable
@@ -45,14 +53,26 @@ class LinearObsOperator:
     through ``jit`` / ``scan`` closures like a constant.
     """
 
-    def __init__(self, fn: Callable, shape: tuple, dtype: Any = jnp.float64):
+    def __init__(self, fn: Callable, shape: tuple, dtype: Any = jnp.float64,
+                 takes_inputs: bool = False):
         self.fn = fn
         self.shape = (int(shape[0]), int(shape[1]))
         self.dtype = jnp.dtype(dtype)
         self.ndim = 2
+        self.takes_inputs = bool(takes_inputs)
 
     def _apply1(self, x: jax.Array) -> jax.Array:
+        if self.takes_inputs:
+            raise ValueError(
+                "this LinearObsOperator takes per-time inputs (fn(x, o)); "
+                "bind them first with .bind(o) (PerTimeH does this when "
+                "given obs_inputs)")
         return jnp.asarray(self.fn(x))
+
+    def bind(self, o: Any) -> "LinearObsOperator":
+        """The single-time operator ``x -> fn(x, o)`` at fixed inputs ``o``."""
+        fn = self.fn
+        return LinearObsOperator(lambda x: fn(x, o), self.shape, self.dtype)
 
     def __matmul__(self, x: Any) -> jax.Array:
         x = jnp.asarray(x)
@@ -85,7 +105,8 @@ class LinearObsOperator:
         return _AdjointObsOperator(self)
 
     def astype(self, dtype: Any) -> "LinearObsOperator":
-        return LinearObsOperator(self.fn, self.shape, dtype)
+        return LinearObsOperator(self.fn, self.shape, dtype,
+                                 takes_inputs=self.takes_inputs)
 
     def dense(self) -> jax.Array:
         """Materialise the ``(obs_dim, system_dim)`` matrix (tests / small
@@ -93,12 +114,12 @@ class LinearObsOperator:
         return self @ jnp.eye(self.shape[1], dtype=self.dtype)
 
     def tree_flatten(self):
-        return (), (self.fn, self.shape, self.dtype)
+        return (), (self.fn, self.shape, self.dtype, self.takes_inputs)
 
     @classmethod
     def tree_unflatten(cls, aux, children):
-        fn, shape, dtype = aux
-        return cls(fn, shape, dtype)
+        fn, shape, dtype, takes_inputs = aux
+        return cls(fn, shape, dtype, takes_inputs=takes_inputs)
 
 
 class _AdjointObsOperator:
@@ -145,10 +166,14 @@ class PerTimeH:
             ``None`` means every row is active (plain ``repeat``).
     """
 
-    def __init__(self, H: Any, n_times: int, mask: Any | None = None):
+    def __init__(self, H: Any, n_times: int, mask: Any | None = None,
+                 obs_inputs: Any | None = None):
         self.H = H if is_function_operator(H) else jnp.asarray(H)
         self.n_times = int(n_times)
         self.mask = None if mask is None else jnp.asarray(mask)
+        self.obs_inputs = obs_inputs
+        if is_function_operator(self.H) and self.H.takes_inputs and obs_inputs is None:
+            raise ValueError("H takes per-time inputs but no obs_inputs were given")
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -160,11 +185,17 @@ class PerTimeH:
 
     def __getitem__(self, i: Any) -> _PerTimeHRow:
         mask_t = None if self.mask is None else self.mask[i]
+        if self.obs_inputs is not None and is_function_operator(self.H) and self.H.takes_inputs:
+            o_i = jax.tree_util.tree_map(lambda a: a[i], self.obs_inputs)
+            return _PerTimeHRow(self.H.bind(o_i), mask_t)
         return _PerTimeHRow(self.H, mask_t)
 
     def dense(self) -> jax.Array:
         """Materialise ``(n_times, obs_dim, system_dim)`` (small problems /
         dense diagnostics only)."""
+        if self.obs_inputs is not None and is_function_operator(self.H) and self.H.takes_inputs:
+            Hs = jnp.stack([self[i].H.dense() for i in range(self.n_times)])
+            return Hs if self.mask is None else self.mask[:, :, None] * Hs
         H = (self.H.dense() if is_function_operator(self.H) else self.H)
         Hs = jnp.broadcast_to(H[None], self.shape)
         if self.mask is None:
@@ -172,24 +203,27 @@ class PerTimeH:
         return self.mask[:, :, None] * Hs
 
     def astype(self, dtype: Any) -> "PerTimeH":
-        return PerTimeH(self.H.astype(dtype), self.n_times, self.mask)
+        return PerTimeH(self.H.astype(dtype), self.n_times, self.mask,
+                        obs_inputs=self.obs_inputs)
 
     def tree_flatten(self):
-        return (self.H, self.mask), self.n_times
+        return (self.H, self.mask, self.obs_inputs), self.n_times
 
     @classmethod
     def tree_unflatten(cls, n_times, children):
         obj = object.__new__(cls)
-        obj.H, obj.mask = children
+        obj.H, obj.mask, obj.obs_inputs = children
         obj.n_times = n_times
         return obj
 
 
 def make_per_time_H(H: Any, n_times: int, obs_loc_mask: Any,
-                    stationary: Any) -> PerTimeH:
+                    stationary: Any, obs_inputs: Any | None = None) -> PerTimeH:
     """``PerTimeH`` for a user-supplied single-time ``H``.
 
     Stationary networks skip the mask (it is all-ones there anyway).
+    ``obs_inputs`` (per obs time) are bound to each row when ``H`` takes
+    inputs.
     """
     is_stat = isinstance(stationary, bool) or hasattr(stationary, "item")
     if is_stat:
@@ -197,7 +231,10 @@ def make_per_time_H(H: Any, n_times: int, obs_loc_mask: Any,
             is_stat = bool(stationary)
         except Exception:  # traced value: fall back to masking
             is_stat = False
-    return PerTimeH(H, n_times, None if is_stat else obs_loc_mask)
+    if obs_inputs is None:
+        return PerTimeH(H, n_times, None if is_stat else obs_loc_mask)
+    return PerTimeH(H, n_times, None if is_stat else obs_loc_mask,
+                    obs_inputs=obs_inputs)
 
 
 def as_dtype(Hs: Any, dtype: Any) -> Any:

@@ -204,6 +204,7 @@ def window_tlm_rollout(
         tlm_op: Callable[[ArrayLike, ArrayLike], ArrayLike],
         x_traj: ArrayLike,
         dx0: ArrayLike,
+        aux: tuple | None = None,
         ) -> jax.Array:
     """Propagate an increment along a fixed background trajectory.
 
@@ -217,8 +218,21 @@ def window_tlm_rollout(
         Increment trajectory of shape ``(T + 1, system_dim)`` with
         ``dx_traj[0] = dx0`` and
         ``dx_traj[t + 1] = tlm_op(x_traj[t], dx_traj[t])``.
+        aux: Optional ``(times, inputs)`` with a leading axis of ``T``
+            model steps (time and per-step model inputs, see
+            :meth:`Var4DOperator.cycle` ``model_inputs``); the TLM is then
+            called as ``tlm_op(x_t, dx_t, t_k, u_k)``.  ``None`` (default):
+            the two-argument form, unchanged.
     """
     T = x_traj.shape[0] - 1
+    if aux is not None:
+        def step_aux(dx_t, inp):
+            x_t, (t_k, u_k) = inp
+            dx_next = tlm_op(x_t, dx_t, t_k, u_k)
+            return dx_next, dx_next
+
+        _, dx_tail = jax.lax.scan(step_aux, dx0, (x_traj[:T], aux))
+        return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
     def step(dx_t: ArrayLike, x_t: ArrayLike
              ) -> tuple[jax.Array, jax.Array]:
@@ -240,6 +254,7 @@ def quadratic_cost(
         obs_time_mask: ArrayLike,
         R_inv_diag: ArrayLike,
         apply_B_half: Callable[[ArrayLike], ArrayLike],
+        aux: tuple | None = None,
         ) -> jax.Array:
     """Incremental 4D-Var cost in CVT v-space.
 
@@ -287,6 +302,8 @@ def quadratic_cost(
             observation vector.
         apply_B_half: ``B^(1/2)`` preconditioner from
             :func:`build_B_half`.
+        aux: Optional ``(times, inputs)`` per model step, passed to the
+            TLM (see :func:`window_tlm_rollout`).
 
     Returns:
         Scalar cost ``J(delta_v)``. Gradient w.r.t. ``delta_v`` is
@@ -296,7 +313,8 @@ def quadratic_cost(
     v_full = v_total + delta_v
     J_b = 0.5 * jnp.sum(v_full * v_full)
     dx0 = apply_B_half(delta_v)
-    dx_traj = window_tlm_rollout(tlm_op, x_b_traj, dx0)
+    dx_traj = (window_tlm_rollout(tlm_op, x_b_traj, dx0) if aux is None
+               else window_tlm_rollout(tlm_op, x_b_traj, dx0, aux=aux))
 
     def obs_term(i: ArrayLike) -> jax.Array:
         j = obs_window_indices[i]

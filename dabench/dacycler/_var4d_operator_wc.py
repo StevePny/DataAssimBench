@@ -20,6 +20,7 @@ from dabench.dacycler._var4d_weak_utils import (
     check_eta_mode,
     expand_eta,
     forced_rollout,
+    model_rollout,
     n_eta,
     quadratic_cost_wc,
     )
@@ -129,13 +130,14 @@ class Var4DOperatorWC(Var4DOperator):
 
     def _innerloop_4d_wc(self, x_l_traj, v_total, chi_total, tlm_op,
                          apply_B_half, Hs, obs_vals, obs_window_indices,
-                         obs_time_mask, R_inv_diag, outer_idx=0):
+                         obs_time_mask, R_inv_diag, outer_idx=0, aux=None):
         """Joint PCG-Lanczos inner solve over ``(delta_v, delta_chi)``."""
         innovations = jax.vmap(
                 lambda i: obs_vals[i] - Hs[i] @ x_l_traj[obs_window_indices[i]]
                 )(jnp.arange(Hs.shape[0]))
         D = v_total.shape[0]
         chi_shape = chi_total.shape
+        kw_aux = {} if aux is None else dict(aux=aux)
 
         def J_of(z: ArrayLike) -> jax.Array:
             return quadratic_cost_wc(
@@ -145,7 +147,7 @@ class Var4DOperatorWC(Var4DOperator):
                     obs_window_indices=obs_window_indices,
                     obs_time_mask=obs_time_mask, R_inv_diag=R_inv_diag,
                     apply_B_half=apply_B_half,
-                    apply_Q_half=self._apply_Q_half)
+                    apply_Q_half=self._apply_Q_half, **kw_aux)
 
         grad_J = jax.grad(J_of)
         z0 = jnp.zeros(D + chi_total.size, dtype=v_total.dtype)
@@ -260,6 +262,62 @@ class Var4DOperatorWC(Var4DOperator):
                 Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
                 end_active_mask=end_active)
         return xa_ds, metrics
+
+    def _window_inputs(self, x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
+                       obs_time_mask, obs_times, obs_error_sd, cur_time, u,
+                       o):
+        """Compiled-window path, weak constraint: the forced window (as
+        :meth:`_cycle_obsop`) with the model time and inputs threaded through
+        the rollouts and the TLM; the returned trajectory is the forecast over
+        the window from ``x_a``, forced with the fitted ``eta_k`` when
+        ``forecast_with_eta`` (as :meth:`_step_forecast`)."""
+        if self._apply_Q_half is None:
+            return super()._window_inputs(
+                    x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
+                    obs_time_mask, obs_times, obs_error_sd, cur_time, u, o)
+        S = int(self.steps_per_window)
+        T = S - 1
+        times = cur_time + jnp.arange(T) * self.delta_t
+        owi = jnp.argmin(jnp.abs(obs_times[:, None]
+                                 - (cur_time + self._model_timesteps)[None]),
+                         axis=1)
+        Hs = self._resolve_Hs_inputs(obs_vals, obs_loc_indices,
+                                     obs_loc_mask, o)
+        R_inv_diag = r_inv_diagonal(self.R, obs_vals.shape[-1], obs_error_sd)
+        F = self._model_step_inputs()
+        aux = (times, u)
+        u0 = jax.tree_util.tree_map(lambda a: a[0], u)
+        D = x_b0.shape[0]
+        v_total = jnp.zeros_like(x_b0)
+        chi_total = jnp.zeros((n_eta(self.eta_mode, T + 1), D),
+                              dtype=x_b0.dtype)
+        apply_B_half = None
+
+        def eta_seq(chi):
+            return expand_eta(jax.vmap(self._apply_Q_half)(chi), T)
+
+        for outer in range(self.n_outer_loops):
+            x_l0 = (x_b0 if apply_B_half is None
+                    else x_b0 + apply_B_half(v_total))
+            x_l_traj = forced_rollout(F, x_l0, eta_seq(chi_total),
+                                      times=times, inputs=u)
+            tlm_op = self._tlm_op_inputs(x_l_traj[0])
+            apply_B_half = self._ensure_B_half(
+                    x_l_traj[0],
+                    lambda x, dx: tlm_op(x, dx, times[0], u0), outer)
+            dv, dchi, info = self._innerloop_4d_wc(
+                    x_l_traj, v_total, chi_total, tlm_op, apply_B_half,
+                    Hs, obs_vals, owi, obs_time_mask, R_inv_diag,
+                    outer_idx=outer, aux=aux)
+            v_total = v_total + dv
+            chi_total = chi_total + dchi
+        x_a = x_b0 + apply_B_half(v_total)
+        if self.forecast_with_eta:
+            traj = forced_rollout(F, x_a, eta_seq(chi_total), times=times,
+                                  inputs=u)
+        else:
+            traj = model_rollout(F, x_a, times, u)
+        return x_a, traj
 
     def _step_forecast(self,
                        xa: XarrayDatasetLike,

@@ -1,5 +1,6 @@
 """Class for matrix-free (operator-based) Var 4D Data Assimilation Cycler"""
 
+import inspect
 import os
 from functools import partial
 from typing import Callable
@@ -24,6 +25,7 @@ from dabench.dacycler._var4d_operator_utils import (
     pcg_lanczos_solve,
     quadratic_cost,
     )
+from dabench.dacycler._var4d_weak_utils import model_rollout
 
 
 # For typing
@@ -232,6 +234,7 @@ class Var4DOperator(dacycler.DACycler):
                       obs_time_mask: ArrayLike,
                       R_inv_diag: ArrayLike,
                       outer_idx: int = 0,
+                      aux: tuple | None = None,
                       ) -> tuple[jax.Array, dict]:
         """PCG-Lanczos inner solve in CVT v-space.
 
@@ -239,6 +242,9 @@ class Var4DOperator(dacycler.DACycler):
         background trajectory, builds the matrix-free Gauss-Newton
         HVP via ``jax.jvp(jax.grad(J), ...)``, and runs PCG-Lanczos
         to refine ``v_total`` by ``delta_v``.
+
+        ``aux = (times, inputs)`` (compiled-window path) is passed to the
+        four-argument TLM ``tlm_op(x_t, dx_t, t_k, u_k)``.
 
         Returns:
             Tuple ``(delta_v, info)`` where ``info`` is the PCG
@@ -259,6 +265,8 @@ class Var4DOperator(dacycler.DACycler):
                     "  [innov/outer{o}] per-obs ||y - H x_b||={n}",
                     o=outer_idx, n=innov_norms)
 
+        kw_aux = {} if aux is None else dict(aux=aux)
+
         def J_of_dv(dv: ArrayLike) -> jax.Array:
             return quadratic_cost(
                     dv, v_total,
@@ -270,6 +278,7 @@ class Var4DOperator(dacycler.DACycler):
                     obs_time_mask=obs_time_mask,
                     R_inv_diag=R_inv_diag,
                     apply_B_half=apply_B_half,
+                    **kw_aux,
                     )
 
         grad_J = jax.grad(J_of_dv)
@@ -535,6 +544,219 @@ class Var4DOperator(dacycler.DACycler):
                 end_active_mask=end_active)
         return xa_ds, metrics
 
+    # ------------------------------------------------------------------
+    # Compiled-window path (``cycle(model_inputs=..., obs_inputs=...,
+    # compile_once=True)``): the window is one jax.jit-ed function of the
+    # per-cycle data, built once per cycler instance and configuration.
+    # ------------------------------------------------------------------
+    _supports_inputs: bool = True
+
+    def _model_step_inputs(self) -> Callable:
+        """The model step as ``F(x, t, u)`` on a flat state, detected once.
+
+        ``model_obj.step_fn()`` may return ``F(x)`` (time-independent model,
+        wrapped) or ``F(x, t, u)`` (``t`` the model time of the step, ``u``
+        its row of ``model_inputs``, None when there are none).
+        """
+        F3 = getattr(self, "_step3", None)
+        if F3 is None:
+            if not callable(getattr(self.model_obj, "step_fn", None)):
+                raise NotImplementedError(
+                    "the compiled-window path needs model_obj.step_fn() "
+                    "returning F(x) or F(x, t, u) on a flat state")
+            F = self.model_obj.step_fn()
+            F3 = F if _n_positional(F) >= 3 else (lambda x, t, u: F(x))
+            self._step3 = F3
+        return F3
+
+    def _tlm_op_inputs(self, x_linear: ArrayLike) -> Callable:
+        """Four-argument TLM ``tlm_op(x_t, dx_t, t_k, u_k)``.
+
+        A user ``tlm_op_factory`` whose op takes four arguments is used as
+        is; one whose op takes two (time-independent) is wrapped; with no
+        factory the TLM is ``jax.jvp`` of the model step at ``(t_k, u_k)``.
+        """
+        if self.tlm_op_factory is not None:
+            op = self.tlm_op_factory(self.model_obj, x_linear)
+            if _n_positional(op) >= 4:
+                return op
+            return lambda x_t, dx_t, t_k, u_k: op(x_t, dx_t)
+        F = self._model_step_inputs()
+        return lambda x_t, dx_t, t_k, u_k: jax.jvp(
+                lambda x: F(x, t_k, u_k), (x_t,), (dx_t,))[1]
+
+    def _check_B_compiled(self) -> None:
+        if (self.B_half_op is None and self.B_half_factory is None
+                and self.B_factors is None):
+            raise NotImplementedError(
+                "the compiled-window path needs B_half_op, B_half_factory or "
+                "B_factors (the RSVD-built B is stored on the instance inside "
+                "the trace and cannot be reused by later calls)")
+
+    def _resolve_Hs_inputs(self, obs_values, obs_loc_indices, obs_loc_mask,
+                           obs_inputs):
+        """``Hs`` as in :meth:`_cycle_obsop`, with ``obs_inputs`` bound per
+        time when ``H`` takes them."""
+        if self.H is None:
+            if self.h is not None:
+                raise ValueError(
+                    "Var4DOperator only supports linear H (matrix).")
+            if obs_inputs is not None:
+                raise ValueError(
+                    "obs_inputs need a LinearObsOperator H with "
+                    "takes_inputs=True")
+            H = self._calc_default_H(obs_loc_indices)
+            return jax.lax.cond(
+                    self._obs_vector.stationary_observers,
+                    lambda: H,
+                    lambda: (obs_loc_mask[:, :, jnp.newaxis] * H))
+        return make_per_time_H(
+                self.H, obs_values.shape[0], obs_loc_mask,
+                self._obs_vector.stationary_observers, obs_inputs=obs_inputs)
+
+    def _window_inputs(self, x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
+                       obs_time_mask, obs_times, obs_error_sd, cur_time, u,
+                       o):
+        """One window on flat arrays: ``(x_a, trajectory (S, D))``, the
+        trajectory being the forecast from ``x_a`` over the window (its last
+        frame is the next background).  Strong constraint; see
+        :class:`Var4DOperatorWC` for the forced version."""
+        S = int(self.steps_per_window)
+        times = cur_time + jnp.arange(S - 1) * self.delta_t
+        owi = jnp.argmin(jnp.abs(obs_times[:, None]
+                                 - (cur_time + self._model_timesteps)[None]),
+                         axis=1)
+        Hs = self._resolve_Hs_inputs(obs_vals, obs_loc_indices,
+                                     obs_loc_mask, o)
+        R_inv_diag = r_inv_diagonal(self.R, obs_vals.shape[-1], obs_error_sd)
+        F = self._model_step_inputs()
+        aux = (times, u)
+        u0 = jax.tree_util.tree_map(lambda a: a[0], u)
+        v_total = jnp.zeros_like(x_b0)
+        apply_B_half = None
+        for outer in range(self.n_outer_loops):
+            x_l = (x_b0 if apply_B_half is None
+                   else x_b0 + apply_B_half(v_total))
+            x_b_traj = model_rollout(F, x_l, times, u)
+            tlm_op = self._tlm_op_inputs(x_b_traj[0])
+            apply_B_half = self._ensure_B_half(
+                    x_b_traj[0],
+                    lambda x, dx: tlm_op(x, dx, times[0], u0), outer)
+            delta_v, info = self._innerloop_4d(
+                    x_b_traj, v_total, tlm_op, apply_B_half, Hs, obs_vals,
+                    owi, obs_time_mask, R_inv_diag, outer_idx=outer, aux=aux)
+            v_total = v_total + delta_v
+        x_a = x_b0 + apply_B_half(v_total)
+        return x_a, model_rollout(F, x_a, times, u)
+
+    def _compiled_window(self) -> Callable:
+        """The jitted window, rebuilt only if the window configuration
+        changes (the per-cycle data are its arguments)."""
+        key = (int(self.steps_per_window), float(self.delta_t),
+               bool(self._obs_vector.stationary_observers))
+        if getattr(self, "_window_key", None) != key:
+            self._window_key = key
+            self._window_jit = jax.jit(self._window_inputs)
+        return self._window_jit
+
+    def reset_compiled(self) -> None:
+        """Forget the cached model step and compiled window (call after
+        changing the model or the cycler's operators in place)."""
+        self._step3 = None
+        self._window_key = None
+        self._window_jit = None
+
+    def _cycle_with_inputs(self, input_state, start_time, obs_vector,
+                           n_cycles, obs_error_sd, analysis_window,
+                           analysis_time_in_window, return_forecast,
+                           return_final_state, return_background,
+                           model_inputs, obs_inputs, obs_times_per_window):
+        """``cycle()`` on the compiled-window path: host-side gathers of each
+        cycle's observations and inputs (fixed shapes), one jitted window per
+        cycle, the same return structure as the original path."""
+        self._check_B_compiled()
+        self._return_metrics = False
+        self.metrics = None
+        input_state, all_filtered_padded = self._prepare_cycle(
+            input_state, start_time, obs_vector, obs_error_sd, n_cycles,
+            analysis_window, analysis_time_in_window)
+        S = int(self.steps_per_window)
+        n_win_steps = S - 1
+        template = input_state.drop_vars('_cur_time')
+        st = template.to_stacked_array('system', [])
+        x_b = jnp.asarray(st.data).ravel()
+
+        obs_all = np.asarray(self._obs_vector[self._observed_vars]
+                             .to_stacked_array('system', ['time']).data)
+        times_all = np.asarray(self._obs_vector.time.data, dtype=float)
+        loc_all = np.asarray(self._obs_vector.system_index.data)
+        mask_all = np.asarray(self._obs_loc_masks)
+        fp = np.asarray(all_filtered_padded)
+        n_win = fp.shape[1]
+        if obs_times_per_window is not None:
+            if obs_times_per_window < n_win:
+                raise ValueError(
+                    f"obs_times_per_window={obs_times_per_window} < "
+                    f"{n_win} observation times in a window")
+            fp = np.concatenate(
+                [fp, np.zeros((fp.shape[0], obs_times_per_window - n_win),
+                              fp.dtype)], axis=1)
+            n_win = obs_times_per_window
+        if model_inputs is not None:
+            need = int(n_cycles) * n_win_steps
+            for leaf in jax.tree_util.tree_leaves(model_inputs):
+                if leaf.shape[0] < need:
+                    raise ValueError(
+                        f"model_inputs leaves need >= {need} rows "
+                        f"(n_cycles * (steps_per_window - 1)), got "
+                        f"{leaf.shape[0]}")
+
+        window = self._compiled_window()
+        sd = jnp.asarray(self.obs_error_sd, dtype=x_b.dtype)
+        trajs = []
+        for c in range(int(n_cycles)):
+            fi = fp[c] - 1          # -1 on padding (masked), as the scan path
+            u = (None if model_inputs is None else jax.tree_util.tree_map(
+                    lambda a: jnp.asarray(
+                        np.asarray(a)[c * n_win_steps:(c + 1) * n_win_steps]),
+                    model_inputs))
+            o = (None if obs_inputs is None else jax.tree_util.tree_map(
+                    lambda a: jnp.asarray(np.asarray(a)[fi]), obs_inputs))
+            cur_time = jnp.asarray(float(start_time) + c * float(analysis_window),
+                                   dtype=x_b.dtype)
+            x_a, traj = window(
+                    x_b, jnp.asarray(obs_all[fi]),
+                    jnp.asarray(loc_all[:, fi].reshape(n_win, -1)),
+                    jnp.asarray(mask_all[:, fi].astype(bool).reshape(n_win, -1)),
+                    jnp.asarray(fp[c] > 0),
+                    jnp.asarray(times_all[fi], dtype=x_b.dtype), sd, cur_time,
+                    u, o)
+            trajs.append(traj)
+            x_b = traj[-1]
+
+        def to_ds(traj):
+            return xr.DataArray(
+                np.asarray(traj), dims=('time', 'system'),
+                coords={'system': st['system']}).to_unstacked_dataset('system')
+
+        frames = [to_ds(t) for t in trajs]
+        all_vals_ds = xr.Dataset(
+            {var: (('cycle',) + tuple(frames[0][var].dims),
+                   np.stack([f[var].data for f in frames]))
+             for var in frames[0].data_vars}
+        ).rename_dims({'time': 'cycle_timestep'})
+        analysis_ds = (all_vals_ds.drop_isel(cycle_timestep=-1)
+                       if return_forecast
+                       else all_vals_ds.isel(cycle_timestep=0))
+        result = [analysis_ds]
+        if return_final_state:
+            result.append(frames[-1].isel(time=-1, drop=True))
+        if return_background:
+            result.append(all_vals_ds.isel(cycle_timestep=-1))
+        if len(result) == 1:
+            return result[0]
+        return tuple(result)
+
     @staticmethod
     def _array_to_dataset_like(arr: ArrayLike,
                                template: xr.Dataset
@@ -551,3 +773,19 @@ class Var4DOperator(dacycler.DACycler):
         return stacked.to_unstacked_dataset('system').assign_attrs(
                 template.attrs)
 
+
+def _n_positional(fn: Callable) -> int:
+    """Number of positional parameters of ``fn`` (a large number for
+    ``*args``); used to tell ``F(x)`` from ``F(x, t, u)`` and two- from
+    four-argument TLM callables."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return 1
+    n = 0
+    for p in params:
+        if p.kind == p.VAR_POSITIONAL:
+            return 99
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            n += 1
+    return n

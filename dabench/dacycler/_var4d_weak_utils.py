@@ -100,6 +100,8 @@ def expand_eta(eta: ArrayLike, n_steps: int) -> jax.Array:
 def forced_rollout(step_fn: Callable[[ArrayLike], ArrayLike],
                    x0: ArrayLike,
                    eta_seq: ArrayLike,
+                   times: ArrayLike | None = None,
+                   inputs=None,
                    ) -> jax.Array:
     """Nonlinear forced trajectory ``x_{k+1} = step_fn(x_k) + eta_k``.
 
@@ -107,10 +109,24 @@ def forced_rollout(step_fn: Callable[[ArrayLike], ArrayLike],
         step_fn: One model step on a flat ``(D,)`` state.
         x0: Initial state ``(D,)``.
         eta_seq: Per-step forcing ``(T, D)``.
+        times, inputs: Optional model time of each step ``(T,)`` and
+            per-step model inputs (a pytree with leading axis ``T``, or
+            None).  When ``times`` is given the step is called as
+            ``step_fn(x_k, t_k, u_k)``; otherwise as ``step_fn(x_k)``
+            (unchanged).
 
     Returns:
         Trajectory ``(T + 1, D)`` with ``traj[0] = x0``.
     """
+    if times is not None:
+        def body_t(x, inp):
+            eta_k, t_k, u_k = inp
+            x_next = step_fn(x, t_k, u_k) + eta_k
+            return x_next, x_next
+
+        _, tail = jax.lax.scan(body_t, x0, (eta_seq, times, inputs))
+        return jnp.concatenate([x0[None, :], tail], axis=0)
+
     def body(x, eta_k):
         x_next = step_fn(x) + eta_k
         return x_next, x_next
@@ -119,18 +135,41 @@ def forced_rollout(step_fn: Callable[[ArrayLike], ArrayLike],
     return jnp.concatenate([x0[None, :], tail], axis=0)
 
 
+def model_rollout(step_fn: Callable, x0: ArrayLike, times: ArrayLike,
+                  inputs=None) -> jax.Array:
+    """Unforced trajectory ``x_{k+1} = step_fn(x_k, t_k, u_k)`` over the
+    ``T = len(times)`` steps; ``(T + 1, D)`` with ``traj[0] = x0``."""
+    def body(x, inp):
+        t_k, u_k = inp
+        x_next = step_fn(x, t_k, u_k)
+        return x_next, x_next
+
+    _, tail = jax.lax.scan(body, x0, (times, inputs))
+    return jnp.concatenate([x0[None, :], tail], axis=0)
+
+
 def window_tlm_rollout_forced(
         tlm_op: Callable[[ArrayLike, ArrayLike], ArrayLike],
         x_traj: ArrayLike,
         dx0: ArrayLike,
         deta_seq: ArrayLike,
+        aux: tuple | None = None,
         ) -> jax.Array:
     """Forced TLM rollout ``dx_{k+1} = M_k dx_k + deta_k``.
 
     Same conventions as :func:`window_tlm_rollout`; ``deta_seq`` has
-    shape ``(T, D)`` with ``T = x_traj.shape[0] - 1``.
+    shape ``(T, D)`` with ``T = x_traj.shape[0] - 1``.  With ``aux =
+    (times, inputs)`` the TLM is called as ``tlm_op(x_t, dx_t, t_k, u_k)``.
     """
     T = x_traj.shape[0] - 1
+    if aux is not None:
+        def step_aux(dx_t, inp):
+            x_t, deta_t, (t_k, u_k) = inp
+            dx_next = tlm_op(x_t, dx_t, t_k, u_k) + deta_t
+            return dx_next, dx_next
+
+        _, dx_tail = jax.lax.scan(step_aux, dx0, (x_traj[:T], deta_seq, aux))
+        return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
     def step(dx_t, inp):
         x_t, deta_t = inp
@@ -155,6 +194,7 @@ def quadratic_cost_wc(
         R_inv_diag: ArrayLike,
         apply_B_half: Callable[[ArrayLike], ArrayLike],
         apply_Q_half: Callable[[ArrayLike], ArrayLike],
+        aux: tuple | None = None,
         ) -> jax.Array:
     """Incremental weak-constraint 4D-Var cost in CVT space.
 
@@ -178,7 +218,9 @@ def quadratic_cost_wc(
     T = x_l_traj.shape[0] - 1
     dx0 = apply_B_half(delta_v)
     deta = expand_eta(jax.vmap(apply_Q_half)(delta_chi), T)
-    dx_traj = window_tlm_rollout_forced(tlm_op, x_l_traj, dx0, deta)
+    dx_traj = (window_tlm_rollout_forced(tlm_op, x_l_traj, dx0, deta)
+               if aux is None else
+               window_tlm_rollout_forced(tlm_op, x_l_traj, dx0, deta, aux=aux))
 
     def obs_term(i: ArrayLike) -> jax.Array:
         j = obs_window_indices[i]

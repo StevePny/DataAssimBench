@@ -383,7 +383,11 @@ class DACycler():
               metrics_mode: str = "default",
               detach_metrics: bool = False,
               return_final_state: bool = False,
-              return_background: bool = False
+              return_background: bool = False,
+              model_inputs=None,
+              obs_inputs=None,
+              compile_once: bool = False,
+              obs_times_per_window: int | None = None,
               ) -> XarrayDatasetLike:
         """Perform DA cycle repeatedly, including analysis and forecast
 
@@ -446,7 +450,48 @@ class DACycler():
                 background-RMSE-vs-truth loss term) as readily as it can be
                 detached/np.asarray'd for cheap eval -- the caller decides.
                 Default False (return shape unchanged).
+            model_inputs: Optional time-varying model inputs (a pytree whose
+                leaves have a leading axis of model steps from
+                ``start_time``, at least ``n_cycles * (steps_per_window - 1)``
+                rows; e.g. forcing or boundary frames).  Step ``k`` of cycle
+                ``c`` receives row ``c * (steps_per_window - 1) + k`` as data
+                through the model step ``F(x, t, u)`` (``model_obj.step_fn()``),
+                so the frames are never compile-time constants.
+                Var4DOperator / Var4DOperatorWC only.
+            obs_inputs: Optional per-observation-time coefficients of a
+                time-indexed observation operator (a pytree whose leaves have
+                a leading axis matching ``obs_vector.time``), bound row by row
+                to ``LinearObsOperator(fn(x, o), ..., takes_inputs=True)``.
+                Var4DOperator / Var4DOperatorWC only.
+            compile_once: Use the compiled-window path (implied by
+                ``model_inputs`` / ``obs_inputs``): one ``jax.jit``-ed window
+                per cycler configuration, with all per-cycle data (background,
+                observations, inputs, window start time) passed as arguments,
+                so later cycles and later ``cycle()`` calls with the same
+                shapes reuse the executable, and JAX's persistent compilation
+                cache reuses it across processes.  Default False: the
+                original path, unchanged.
+            obs_times_per_window: Compiled-window path only: pad the number
+                of observation times per window to this fixed count, so calls
+                with different observation vectors keep one shape.
         """
+
+        if (model_inputs is not None or obs_inputs is not None
+                or compile_once):
+            if not getattr(self, "_supports_inputs", False):
+                raise NotImplementedError(
+                    f"{type(self).__name__} does not support model_inputs / "
+                    "obs_inputs / compile_once (Var4DOperator and "
+                    "Var4DOperatorWC do)")
+            if return_metrics:
+                raise NotImplementedError(
+                    "return_metrics is not available on the compiled-window "
+                    "path (model_inputs / obs_inputs / compile_once)")
+            return self._cycle_with_inputs(
+                input_state, start_time, obs_vector, n_cycles, obs_error_sd,
+                analysis_window, analysis_time_in_window, return_forecast,
+                return_final_state, return_background, model_inputs,
+                obs_inputs, obs_times_per_window)
 
         if metrics_mode not in ("default", "debug"):
             raise ValueError(

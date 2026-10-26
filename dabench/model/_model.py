@@ -2,6 +2,18 @@
 
 Wrapper around user-specified model. The user must define a sub-class that
     inherits from dabench.model.Model, with an forecast() method.
+
+Optional, for the compiled-window path of the matrix-free 4D-Var cyclers
+(``Var4DOperator`` / ``Var4DOperatorWC`` ``cycle(model_inputs=...,
+compile_once=True)``): a ``step_fn()`` method returning the one-step map on a
+flat state, either ``F(x)`` (time-independent) or ``F(x, t, u)`` with ``t`` the
+model time of the step and ``u`` that step's row of the ``model_inputs``
+pytree (None when none are given).  Time-varying data (forcing, boundary
+frames) then reach the step as data rather than as attributes of the model,
+so the compiled window does not depend on them and is reused from cycle to
+cycle.  ``forecast(state_vec, n_steps)`` keeps its contract; a model may
+additionally accept ``forecast(state_vec, n_steps, t0=None, inputs=None)``
+for its own use (the cyclers' original path never passes them).
 """
 
 from typing import Any
