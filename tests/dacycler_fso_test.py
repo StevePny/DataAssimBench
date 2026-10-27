@@ -109,3 +109,47 @@ def test_zero_weight_observations_have_no_impact_and_per_observation_errors_are_
     np.testing.assert_allclose(float(r['total']), float(r['total_linear']), rtol=1e-6)
     r0 = run_fso(xb, y)
     assert abs(float(r['sensitivity'][1, 1])) < 0.5 * abs(float(r0['sensitivity'][1, 1]))  # the observation with the larger error carries less weight
+
+
+# --- weak constraint: controls (v, chi), the forecast carries the fitted model-error forcing ---
+
+def wc_cycler(eta_mode):
+    return dab.dacycler.Var4DOperatorWC(system_dim=N, delta_t=DT, model_obj=LinModel(), tlm_op_factory=None, B_half_op=lambda v: 0.3 * v, Q_half=0.05, eta_mode=eta_mode, n_outer_loops=1, n_inner_loops=400, inner_tol=1e-13, steps_per_window=S)
+
+
+def j_e_wc(x_a, eta):
+    x = x_a
+    for k in range(S - 1):
+        x = step(x, 0.0, U[k]) + (0.0 if eta is None else eta[k])
+    return 0.5 * jnp.sum((x - TRUTH_END) ** 2)
+
+
+def run_wc(xb, y, eta_mode):
+    return wc_cycler(eta_mode).fso(state(xb), 0.0, make(y), 0.05, float(S - 1), j_e_wc, model_inputs=U)
+
+
+import pytest
+
+
+@pytest.mark.parametrize("eta_mode", ["constant", "per_step"])
+def test_weak_constraint_impacts_sum_to_the_first_order_change(eta_mode):
+    xb, y = setup()
+    r = run_wc(xb, y, eta_mode)
+    assert r['impact'].shape == (S, len(LOCS))
+    np.testing.assert_allclose(float(r['total']), float(r['total_linear']), rtol=1e-5)
+    assert abs(float(r['total'])) > 1e-6
+
+
+@pytest.mark.parametrize("eta_mode", ["constant", "per_step"])
+def test_weak_constraint_sensitivity_is_the_derivative_with_respect_to_the_observation(eta_mode):
+    xb, y = setup(1)
+    r = run_wc(xb, y, eta_mode)
+    s = np.asarray(r['sensitivity'])
+    for (k, l) in ((2, 3), (4, 1)):
+        eps = 1e-5
+        yp, ym = y.copy(), y.copy()
+        yp[k, l] += eps
+        ym[k, l] -= eps
+        a, b = run_wc(xb, yp, eta_mode), run_wc(xb, ym, eta_mode)
+        fd = (float(j_e_wc(a['x_a'], a['eta_seq'])) - float(j_e_wc(b['x_a'], b['eta_seq']))) / (2 * eps)
+        np.testing.assert_allclose(s[k, l], fd, rtol=5e-4, atol=1e-8)

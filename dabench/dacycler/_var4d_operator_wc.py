@@ -23,6 +23,7 @@ from dabench.dacycler._var4d_weak_utils import (
     model_rollout,
     n_eta,
     quadratic_cost_wc,
+    window_tlm_rollout_forced,
     )
 
 
@@ -267,6 +268,119 @@ class Var4DOperatorWC(Var4DOperator):
                 Hxa_end_mean=Hxa_end.reshape(-1).astype(dtype),
                 end_active_mask=end_active)
         return xa_ds, metrics
+
+    def fso(self, input_state, start_time, obs_vector, obs_error_sd,
+            analysis_window, forecast_error, model_inputs=None,
+            obs_inputs=None, obs_times_per_window=None,
+            analysis_time_in_window=None, cycle=0, n_cg=500):
+        """Forecast sensitivity to observations of one window with the
+        weak-constraint controls ``(v, chi)`` (see
+        :mod:`dabench.dacycler._fso`).  ``forecast_error(x_a, eta_seq)`` is
+        a scalar function of the analysis state at the window start and of
+        the model-error forcing sequence ``eta_seq`` (``(steps, system_dim)``,
+        the estimated forcing the forecast carries), e.g. the misfit of a
+        forecast made with them.  The control vector is the stacked ``v`` and
+        ``chi``; the sensitivities and impacts have the window's observation
+        shape ``(obs_times, obs_dim)`` and the impacts add up to
+        ``grad(J_e) . (z_a)`` mapped to the state and forcing
+        (``total_linear``).  Without ``Q_half`` this is the strong-constraint
+        :meth:`Var4DOperator.fso`.  Compiled-window path."""
+        if self._apply_Q_half is None:
+            return super().fso(
+                    input_state, start_time, obs_vector, obs_error_sd,
+                    analysis_window, lambda x_a: forecast_error(x_a, None),
+                    model_inputs, obs_inputs, obs_times_per_window,
+                    analysis_time_in_window, cycle, n_cg)
+        from dabench.dacycler._fso import fso_impacts
+        self._check_B_compiled()
+        self._return_metrics = False
+        setup = self._compiled_setup(
+            input_state, start_time, obs_vector, int(cycle) + 1, obs_error_sd,
+            analysis_window, analysis_time_in_window, model_inputs,
+            obs_times_per_window)
+        window = self._compiled_window()
+        x_b = setup['x_b']
+        for c in range(int(cycle)):
+            args = self._window_args(setup, c, start_time, analysis_window,
+                                     model_inputs, obs_inputs)
+            _, traj = window(x_b, *args)
+            x_b = traj[-1]
+        (obs_vals, loc_idx, loc_mask, time_mask, obs_times, sd, cur_time, u,
+         o) = self._window_args(setup, int(cycle), start_time,
+                                analysis_window, model_inputs, obs_inputs)
+        S = int(self.steps_per_window)
+        T = S - 1
+        times = cur_time + jnp.arange(T) * self.delta_t
+        owi = jnp.argmin(jnp.abs(obs_times[:, None]
+                                 - (cur_time + self._model_timesteps)[None]),
+                         axis=1)
+        Hs = self._resolve_Hs_inputs(obs_vals, loc_idx, loc_mask, o)
+        Rinv = r_inv_diagonal(self.R, obs_vals.shape[-1], sd)
+        F = self._model_step_inputs()
+        aux = (times, u)
+        u0 = jax.tree_util.tree_map(lambda a: a[0], u)
+        D = x_b.shape[0]
+        v_total = jnp.zeros_like(x_b)
+        chi_total = jnp.zeros((n_eta(self.eta_mode, T + 1), D),
+                              dtype=x_b.dtype)
+        apply_B_half = None
+
+        def eta_seq(chi):
+            return expand_eta(jax.vmap(self._apply_Q_half)(chi), T)
+
+        for outer in range(self.n_outer_loops):    # the analysis, as the window
+            x_l0 = (x_b if apply_B_half is None
+                    else x_b + apply_B_half(v_total))
+            x_l_traj = forced_rollout(F, x_l0, eta_seq(chi_total),
+                                      times=times, inputs=u)
+            tlm_op = self._tlm_op_inputs(x_l_traj[0])
+            apply_B_half = self._ensure_B_half(
+                    x_l_traj[0],
+                    lambda x, dx: tlm_op(x, dx, times[0], u0), outer)
+            dv, dchi, _ = self._innerloop_4d_wc(
+                    x_l_traj, v_total, chi_total, tlm_op, apply_B_half,
+                    Hs, obs_vals, owi, time_mask,
+                    r_inv_diagonal(self.R, obs_vals.shape[-1], sd),
+                    outer_idx=outer, aux=aux)
+            v_total = v_total + dv
+            chi_total = chi_total + dchi
+        x_a = x_b + apply_B_half(v_total)
+        # linearise about the analysis trajectory (forced with the fitted eta)
+        xa_traj = forced_rollout(F, x_a, eta_seq(chi_total), times=times,
+                                 inputs=u)
+        tlm_op = self._tlm_op_inputs(xa_traj[0])
+        n_obs = obs_vals.shape[0]
+        mask = (jnp.asarray(time_mask)[:, None] & jnp.asarray(loc_mask)
+                & jnp.isfinite(obs_vals))
+        zero_eta = jnp.zeros((T, D), dtype=x_b.dtype)
+        xb_traj = forced_rollout(F, x_b, zero_eta, times=times, inputs=u)
+        Hxb = jax.vmap(lambda i: Hs[i] @ xb_traj[owi[i]])(jnp.arange(n_obs))
+        d = jnp.where(mask, obs_vals - Hxb, 0.0)
+        Rinv = jnp.broadcast_to(Rinv, d.shape) * mask
+        chi_shape = chi_total.shape
+        nv = D
+
+        def L(z):
+            dx0 = apply_B_half(z[:nv])
+            deta = expand_eta(jax.vmap(self._apply_Q_half)(
+                    z[nv:].reshape(chi_shape)), T)
+            dxs = window_tlm_rollout_forced(tlm_op, xa_traj, dx0, deta,
+                                            aux=aux)
+            return jax.vmap(lambda i: Hs[i] @ dxs[owi[i]])(jnp.arange(n_obs)) * mask
+
+        eta_a = eta_seq(chi_total)
+        gx, ge = jax.grad(forecast_error, argnums=(0, 1))(x_a, eta_a)
+        _, Bt = jax.vjp(apply_B_half, jnp.zeros_like(x_a))
+        _, Qt = jax.vjp(lambda c: expand_eta(
+                jax.vmap(self._apply_Q_half)(c), T), jnp.zeros(chi_shape,
+                                                               x_b.dtype))
+        g_z = jnp.concatenate([Bt(gx)[0], Qt(ge)[0].ravel()])
+        res = fso_impacts(L, Rinv, d, g_z, n_cg=n_cg)
+        z_a = jnp.concatenate([v_total, chi_total.ravel()])
+        # first-order change of J_e by the analysis increment and the fitted forcing
+        res.update(total_linear=jnp.vdot(gx, x_a - x_b) + jnp.vdot(ge, eta_a),
+                   x_a=x_a, x_b=x_b, eta_seq=eta_a, z_a=z_a)
+        return res
 
     def _window_inputs(self, x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
                        obs_time_mask, obs_times, obs_error_sd, cur_time, u,
