@@ -341,3 +341,15 @@ def test_per_observation_error_needs_the_compiled_path_and_the_right_shape():
         _inputs_cycler(dab.dacycler.Var4DOperator).cycle(
             input_state=state(xb), obs_vector=obs, obs_error_sd=np.full((nt + 1, no), 0.05), start_time=0.0,
             n_cycles=N_CYCLES, analysis_window=float(S - 1), model_inputs=jnp.asarray(f))
+
+
+@pytest.mark.parametrize("eta_mode", ["constant", "per_step"])
+def test_gauss_newton_product_equals_the_forward_over_reverse_product(eta_mode):
+    """hvp_mode 'gn' (one gradient of the pure quadratic part) gives the analysis of 'jvp' (derivative of the gradient)."""
+    f, truth, xb = _setup()
+    obs = obs_vector(truth, LOCS)
+    common = dict(start_time=0.0, obs_vector=obs, obs_error_sd=0.05, n_cycles=2, analysis_window=float(S - 1), return_forecast=True, return_background=True)
+    res = {}
+    for mode in ("gn", "jvp"):
+        res[mode] = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode=eta_mode, hvp_mode=mode).cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
+    np.testing.assert_allclose(np.asarray(res["gn"][0]['x'].data), np.asarray(res["jvp"][0]['x'].data), rtol=1e-8, atol=1e-10)

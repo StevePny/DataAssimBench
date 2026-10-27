@@ -90,6 +90,7 @@ class Var4DOperatorWC(Var4DOperator):
                  eta_mode: str = "constant",
                  forecast_with_eta: bool = True,
                  **kwargs):
+        self.hvp_mode = kwargs.pop('hvp_mode', 'gn')  # 'gn': Hessian-vector product as one gradient of the quadratic part; 'jvp': forward-over-reverse derivative of the gradient (previous behaviour)
         super().__init__(*args, **kwargs)
         self.eta_mode = check_eta_mode(eta_mode)
         self.forecast_with_eta = bool(forecast_with_eta)
@@ -155,8 +156,30 @@ class Var4DOperatorWC(Var4DOperator):
         b_rhs = -grad_J(z0)
         lm = self.lm_lambda
 
-        def hvp_fn(p: ArrayLike) -> jax.Array:
-            return jax.jvp(grad_J, (z0,), (p,))[1] + lm * p
+        if self.hvp_mode == "gn":
+            # The cost is exactly quadratic, so its Hessian is the (Gauss-Newton)
+            # matrix H of the pure quadratic part: grad of the cost without the
+            # linear terms (offsets v_total, chi_total and innovations set to
+            # zero) is H z.  One reverse pass over the tangent-linear window
+            # replaces the forward-over-reverse derivative of the gradient.
+            def J_quad(z: ArrayLike) -> jax.Array:
+                return quadratic_cost_wc(
+                        z[:D], z[D:].reshape(chi_shape),
+                        jnp.zeros_like(v_total), jnp.zeros_like(chi_total),
+                        tlm_op=tlm_op, x_l_traj=x_l_traj, Hs=Hs,
+                        innovations=jnp.zeros_like(innovations),
+                        obs_window_indices=obs_window_indices,
+                        obs_time_mask=obs_time_mask, R_inv_diag=R_inv_diag,
+                        apply_B_half=apply_B_half,
+                        apply_Q_half=self._apply_Q_half, **kw_aux)
+
+            grad_Jq = jax.grad(J_quad)
+
+            def hvp_fn(p: ArrayLike) -> jax.Array:
+                return grad_Jq(p) + lm * p
+        else:
+            def hvp_fn(p: ArrayLike) -> jax.Array:
+                return jax.jvp(grad_J, (z0,), (p,))[1] + lm * p
 
         dz, info = pcg_lanczos_solve(
                 hvp_fn, b_rhs, max_iter=self.n_inner_loops,
