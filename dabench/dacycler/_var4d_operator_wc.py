@@ -182,6 +182,11 @@ class Var4DOperatorWC(Var4DOperator):
                     obs_loc_mask, H=H, h=h, R=R, B=B,
                     obs_window_indices=obs_window_indices)
 
+        if jnp.ndim(self.obs_error_sd) == 2:
+            raise NotImplementedError(
+                "an error per observation (2-D obs_error_sd) needs the "
+                "compiled-window path (model_inputs, obs_inputs or "
+                "compile_once)")
         Hs, R = self._resolve_Hs_R(obs_values, obs_loc_indices,
                                    obs_loc_mask, H, h, R)
         R_inv_diag = r_inv_diagonal(R, obs_values.shape[-1],

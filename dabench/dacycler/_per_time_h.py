@@ -248,11 +248,17 @@ def r_inv_diagonal(R: Any, obs_dim: int, obs_error_sd: Any) -> jax.Array:
     ``(obs_dim, obs_dim)`` matrix for diagonal R.
 
     ``R`` None -> ``1 / obs_error_sd**2`` (scalar or per-obs vector),
-    broadcast; ``R`` 1-D -> per-obs VARIANCE vector, ``1 / R``; ``R`` 2-D ->
+    broadcast; a 2-D ``obs_error_sd`` ``(n_times, obs_dim)`` (an error paired
+    with each observation value, compiled-window path) gives the
+    ``(n_times, obs_dim)`` array, 0 where the error is NaN or not positive; ``R`` 1-D -> per-obs VARIANCE vector, ``1 / R``; ``R`` 2-D ->
     an explicit dense R from the caller, ``diag(inv(R))`` (legacy).
     """
     if R is None:
         sd = jnp.asarray(obs_error_sd)
+        if sd.ndim == 2:
+            # one error per (time, observation): zero weight where there is none (NaN, <= 0)
+            good = jnp.isfinite(sd) & (sd > 0)
+            return jnp.where(good, 1.0 / jnp.where(good, sd, 1.0) ** 2, 0.0)
         return jnp.broadcast_to(1.0 / sd ** 2, (int(obs_dim),))
     R = jnp.asarray(R)
     if R.ndim <= 1:

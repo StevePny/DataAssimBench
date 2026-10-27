@@ -299,7 +299,7 @@ def quadratic_cost(
         obs_time_mask: Boolean mask of shape ``(n_obs,)``; obs at
             masked-out indices contribute zero.
         R_inv_diag: Diagonal of ``R^{-1}``, broadcast against an
-            observation vector.
+            observation vector, or ``(n_obs, obs_dim)`` with an error per observation.
         apply_B_half: ``B^(1/2)`` preconditioner from
             :func:`build_B_half`.
         aux: Optional ``(times, inputs)`` per model step, passed to the
@@ -320,7 +320,8 @@ def quadratic_cost(
         j = obs_window_indices[i]
         H_dx = Hs[i] @ dx_traj[j]
         resid = H_dx - innovations[i]
-        return 0.5 * jnp.sum(R_inv_diag * resid * resid)
+        w = R_inv_diag[i] if R_inv_diag.ndim == 2 else R_inv_diag  # (n_obs, obs_dim): an error per observation
+        return 0.5 * jnp.sum(w * resid * resid)
 
     n_obs = obs_window_indices.shape[0]
     per_i = jax.vmap(obs_term)(jnp.arange(n_obs))

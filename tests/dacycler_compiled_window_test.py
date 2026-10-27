@@ -290,3 +290,54 @@ def test_metrics_refused_on_compiled_path():
         _inputs_cycler(dab.dacycler.Var4DOperator).cycle(
             input_state=state(xb), start_time=0.0, obs_vector=obs_vector(truth, LOCS),
             n_cycles=1, analysis_window=float(S - 1), model_inputs=jnp.asarray(f), return_metrics=True)
+
+
+# --- an observation error paired with each observation value ---
+
+PER_OBS_CASES = [(dab.dacycler.Var4DOperator, {}),
+                 (dab.dacycler.Var4DOperatorWC, dict(Q_half=True, eta_mode="constant"))]
+
+
+def _per_obs_run(cls, kw, sd, **extra):
+    f, truth, xb = _setup()
+    obs = obs_vector(truth, LOCS)
+    return np.asarray(_inputs_cycler(cls, **kw).cycle(
+        input_state=state(xb), obs_vector=obs, obs_error_sd=sd, start_time=0.0, n_cycles=N_CYCLES,
+        analysis_window=float(S - 1), return_forecast=True, model_inputs=jnp.asarray(f), **extra)['x'].data), obs
+
+
+@pytest.mark.parametrize("cls,kw", PER_OBS_CASES)
+def test_per_observation_error_repeating_a_vector_equals_the_vector(cls, kw):
+    vec = np.array([0.03, 0.05, 0.05, 0.08, 0.2, 0.05])
+    a_vec, obs = _per_obs_run(cls, kw, vec)
+    nt = obs['x'].shape[0]
+    a_arr, _ = _per_obs_run(cls, kw, np.tile(vec, (nt, 1)))
+    np.testing.assert_allclose(a_arr, a_vec, rtol=1e-9, atol=1e-11)
+
+
+@pytest.mark.parametrize("cls,kw", PER_OBS_CASES)
+def test_per_observation_error_is_per_time_and_nan_means_no_weight(cls, kw):
+    _, obs = _per_obs_run(cls, kw, 0.05)
+    nt, no = obs['x'].shape
+    sd = np.full((nt, no), 0.05)
+    sd[nt // 2:, :3] = 1.0e6                      # late observations of three elements: practically no weight
+    a_big, _ = _per_obs_run(cls, kw, sd)
+    sd_nan = np.where(sd > 1.0e5, np.nan, sd)
+    a_nan, _ = _per_obs_run(cls, kw, sd_nan)
+    np.testing.assert_allclose(a_nan, a_big, rtol=1e-6, atol=1e-8)
+    a_uniform, _ = _per_obs_run(cls, kw, 0.05)
+    assert np.abs(a_nan - a_uniform).max() > 1e-4                      # the per-time errors matter
+
+
+def test_per_observation_error_needs_the_compiled_path_and_the_right_shape():
+    f, truth, xb = _setup()
+    obs = obs_vector(truth, LOCS)
+    nt, no = obs['x'].shape
+    with pytest.raises(NotImplementedError):
+        _clock_cycler(dab.dacycler.Var4DOperator, f).cycle(
+            input_state=state(np.concatenate([xb, [0.0]])), obs_vector=obs, obs_error_sd=np.full((nt, no), 0.05),
+            start_time=0.0, n_cycles=N_CYCLES, analysis_window=float(S - 1))
+    with pytest.raises(ValueError):
+        _inputs_cycler(dab.dacycler.Var4DOperator).cycle(
+            input_state=state(xb), obs_vector=obs, obs_error_sd=np.full((nt + 1, no), 0.05), start_time=0.0,
+            n_cycles=N_CYCLES, analysis_window=float(S - 1), model_inputs=jnp.asarray(f))

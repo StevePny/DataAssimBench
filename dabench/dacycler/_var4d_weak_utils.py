@@ -225,7 +225,8 @@ def quadratic_cost_wc(
     def obs_term(i: ArrayLike) -> jax.Array:
         j = obs_window_indices[i]
         resid = Hs[i] @ dx_traj[j] - innovations[i]
-        return 0.5 * jnp.sum(R_inv_diag * resid * resid)
+        w = R_inv_diag[i] if R_inv_diag.ndim == 2 else R_inv_diag  # (n_obs, obs_dim): an error per observation
+        return 0.5 * jnp.sum(w * resid * resid)
 
     per_i = jax.vmap(obs_term)(jnp.arange(obs_window_indices.shape[0]))
     J_o = jnp.sum(jnp.where(obs_time_mask, per_i, 0.0))

@@ -436,6 +436,11 @@ class Var4DOperator(dacycler.DACycler):
                         self.H, obs_values.shape[0], obs_loc_mask,
                         self._obs_vector.stationary_observers)
 
+        if jnp.ndim(self.obs_error_sd) == 2:
+            raise NotImplementedError(
+                "an error per observation (2-D obs_error_sd) needs the "
+                "compiled-window path (model_inputs, obs_inputs or "
+                "compile_once)")
         # diagonal R stays a vector (a dense (N, N) R OOMs real networks)
         R_inv_diag = r_inv_diagonal(R if R is not None else self.R,
                                     obs_values.shape[-1], self.obs_error_sd)
@@ -713,6 +718,11 @@ class Var4DOperator(dacycler.DACycler):
 
         window = self._compiled_window()
         sd = jnp.asarray(self.obs_error_sd, dtype=x_b.dtype)
+        sd_all = sd if sd.ndim == 2 else None     # an error per (time, observation)
+        if sd_all is not None and sd_all.shape != obs_all.shape:
+            raise ValueError(
+                f"a 2-D obs_error_sd must have the shape of the observation "
+                f"values {obs_all.shape}, got {sd_all.shape}")
         trajs = []
         for c in range(int(n_cycles)):
             fi = fp[c] - 1          # -1 on padding (masked), as the scan path
@@ -729,7 +739,8 @@ class Var4DOperator(dacycler.DACycler):
                     jnp.asarray(loc_all[:, fi].reshape(n_win, -1)),
                     jnp.asarray(mask_all[:, fi].astype(bool).reshape(n_win, -1)),
                     jnp.asarray(fp[c] > 0),
-                    jnp.asarray(times_all[fi], dtype=x_b.dtype), sd, cur_time,
+                    jnp.asarray(times_all[fi], dtype=x_b.dtype),
+                    sd if sd_all is None else sd_all[fi], cur_time,
                     u, o)
             trajs.append(traj)
             x_b = traj[-1]
