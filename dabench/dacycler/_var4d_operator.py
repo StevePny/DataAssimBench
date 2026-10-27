@@ -24,6 +24,7 @@ from dabench.dacycler._var4d_operator_utils import (
     extract_B_factors,
     pcg_lanczos_solve,
     quadratic_cost,
+    window_tlm_rollout,
     )
 from dabench.dacycler._var4d_weak_utils import model_rollout
 
@@ -654,6 +655,73 @@ class Var4DOperator(dacycler.DACycler):
         x_a = x_b0 + apply_B_half(v_total)
         return x_a, model_rollout(F, x_a, times, u)
 
+    def fso(self, input_state, start_time, obs_vector, obs_error_sd,
+            analysis_window, forecast_error, model_inputs=None,
+            obs_inputs=None, obs_times_per_window=None,
+            analysis_time_in_window=None, cycle=0, n_cg=500):
+        """Forecast sensitivity to observations of one window (see
+        :mod:`dabench.dacycler._fso`).  Cycles before ``cycle`` are run to
+        get its background; then the window ``cycle`` is analysed, the
+        observation-space sensitivities are computed about its analysis
+        trajectory, and the impact of every observation on
+        ``forecast_error(x_a)`` (a scalar function of the analysis state at
+        the window start, e.g. the misfit of a forecast from it) is returned.
+        Strong constraint, compiled-window path (needs ``B_half_op``,
+        ``B_half_factory`` or ``B_factors``).  Returns ``dict(impact,
+        sensitivity, innovation, total, total_linear, x_a, x_b)`` with arrays
+        of the window's shape ``(obs_times, obs_dim)``; ``total_linear =
+        grad(J_e) . (x_a - x_b)``."""
+        from dabench.dacycler._fso import fso_impacts
+        self._check_B_compiled()
+        self._return_metrics = False
+        setup = self._compiled_setup(
+            input_state, start_time, obs_vector, int(cycle) + 1, obs_error_sd,
+            analysis_window, analysis_time_in_window, model_inputs,
+            obs_times_per_window)
+        window = self._compiled_window()
+        x_b = setup['x_b']
+        for c in range(int(cycle)):
+            args = self._window_args(setup, c, start_time, analysis_window,
+                                     model_inputs, obs_inputs)
+            _, traj = window(x_b, *args)
+            x_b = traj[-1]
+        (obs_vals, loc_idx, loc_mask, time_mask, obs_times, sd, cur_time, u,
+         o) = self._window_args(setup, int(cycle), start_time,
+                                analysis_window, model_inputs, obs_inputs)
+        x_a, _ = window(x_b, obs_vals, loc_idx, loc_mask, time_mask,
+                        obs_times, sd, cur_time, u, o)
+        S = int(self.steps_per_window)
+        times = cur_time + jnp.arange(S - 1) * self.delta_t
+        owi = jnp.argmin(jnp.abs(obs_times[:, None]
+                                 - (cur_time + self._model_timesteps)[None]),
+                         axis=1)
+        Hs = self._resolve_Hs_inputs(obs_vals, loc_idx, loc_mask, o)
+        Rinv = r_inv_diagonal(self.R, obs_vals.shape[-1], sd)
+        F = self._model_step_inputs()
+        aux = (times, u)
+        u0 = jax.tree_util.tree_map(lambda a: a[0], u)
+        xb_traj = model_rollout(F, x_b, times, u)
+        xa_traj = model_rollout(F, x_a, times, u)
+        tlm_op = self._tlm_op_inputs(xa_traj[0])
+        apply_B_half = self._ensure_B_half(
+                xa_traj[0], lambda x, dx: tlm_op(x, dx, times[0], u0), 0)
+        n_obs = obs_vals.shape[0]
+        mask = (jnp.asarray(time_mask)[:, None] & jnp.asarray(loc_mask)
+                & jnp.isfinite(obs_vals))
+        Hxb = jax.vmap(lambda i: Hs[i] @ xb_traj[owi[i]])(jnp.arange(n_obs))
+        d = jnp.where(mask, obs_vals - Hxb, 0.0)
+        Rinv = jnp.broadcast_to(Rinv, d.shape) * mask
+
+        def L(v):
+            dxs = window_tlm_rollout(tlm_op, xa_traj, apply_B_half(v), aux=aux)
+            return jax.vmap(lambda i: Hs[i] @ dxs[owi[i]])(jnp.arange(n_obs)) * mask
+
+        g = jax.grad(forecast_error)(x_a)
+        _, Bt = jax.vjp(apply_B_half, jnp.zeros_like(x_a))
+        res = fso_impacts(L, Rinv, d, Bt(g)[0], n_cg=n_cg)
+        res.update(total_linear=jnp.vdot(g, x_a - x_b), x_a=x_a, x_b=x_b)
+        return res
+
     def _compiled_window(self) -> Callable:
         """The jitted window, rebuilt only if the window configuration
         changes (the per-cycle data are its arguments)."""
@@ -671,17 +739,12 @@ class Var4DOperator(dacycler.DACycler):
         self._window_key = None
         self._window_jit = None
 
-    def _cycle_with_inputs(self, input_state, start_time, obs_vector,
-                           n_cycles, obs_error_sd, analysis_window,
-                           analysis_time_in_window, return_forecast,
-                           return_final_state, return_background,
-                           model_inputs, obs_inputs, obs_times_per_window):
-        """``cycle()`` on the compiled-window path: host-side gathers of each
-        cycle's observations and inputs (fixed shapes), one jitted window per
-        cycle, the same return structure as the original path."""
-        self._check_B_compiled()
-        self._return_metrics = False
-        self.metrics = None
+    def _compiled_setup(self, input_state, start_time, obs_vector, n_cycles,
+                        obs_error_sd, analysis_window, analysis_time_in_window,
+                        model_inputs, obs_times_per_window):
+        """Host-side set-up shared by the compiled cycle and :meth:`fso`: the
+        prepared cycler, the stacked background, and the arrays that each
+        window gathers its observations from."""
         input_state, all_filtered_padded = self._prepare_cycle(
             input_state, start_time, obs_vector, obs_error_sd, n_cycles,
             analysis_window, analysis_time_in_window)
@@ -715,33 +778,64 @@ class Var4DOperator(dacycler.DACycler):
                         f"model_inputs leaves need >= {need} rows "
                         f"(n_cycles * (steps_per_window - 1)), got "
                         f"{leaf.shape[0]}")
-
-        window = self._compiled_window()
         sd = jnp.asarray(self.obs_error_sd, dtype=x_b.dtype)
         sd_all = sd if sd.ndim == 2 else None     # an error per (time, observation)
         if sd_all is not None and sd_all.shape != obs_all.shape:
             raise ValueError(
                 f"a 2-D obs_error_sd must have the shape of the observation "
                 f"values {obs_all.shape}, got {sd_all.shape}")
+        return dict(st=st, x_b=x_b, obs_all=obs_all, times_all=times_all,
+                    loc_all=loc_all, mask_all=mask_all, fp=fp, n_win=n_win,
+                    n_win_steps=n_win_steps, sd=sd, sd_all=sd_all)
+
+    def _window_args(self, setup, c, start_time, analysis_window,
+                     model_inputs, obs_inputs):
+        """Arguments of the compiled window of cycle ``c`` after the
+        background: observations, locations, masks, times, error, window
+        start time, model inputs and observation-operator inputs."""
+        fp, n_win, n_win_steps = (setup['fp'], setup['n_win'],
+                                  setup['n_win_steps'])
+        dtype = setup['x_b'].dtype
+        fi = fp[c] - 1          # -1 on padding (masked), as the scan path
+        u = (None if model_inputs is None else jax.tree_util.tree_map(
+                lambda a: jnp.asarray(
+                    np.asarray(a)[c * n_win_steps:(c + 1) * n_win_steps]),
+                model_inputs))
+        o = (None if obs_inputs is None else jax.tree_util.tree_map(
+                lambda a: jnp.asarray(np.asarray(a)[fi]), obs_inputs))
+        cur_time = jnp.asarray(float(start_time) + c * float(analysis_window),
+                               dtype=dtype)
+        sd_all = setup['sd_all']
+        return (jnp.asarray(setup['obs_all'][fi]),
+                jnp.asarray(setup['loc_all'][:, fi].reshape(n_win, -1)),
+                jnp.asarray(setup['mask_all'][:, fi].astype(bool)
+                            .reshape(n_win, -1)),
+                jnp.asarray(fp[c] > 0),
+                jnp.asarray(setup['times_all'][fi], dtype=dtype),
+                setup['sd'] if sd_all is None else sd_all[fi], cur_time, u, o)
+
+    def _cycle_with_inputs(self, input_state, start_time, obs_vector,
+                           n_cycles, obs_error_sd, analysis_window,
+                           analysis_time_in_window, return_forecast,
+                           return_final_state, return_background,
+                           model_inputs, obs_inputs, obs_times_per_window):
+        """``cycle()`` on the compiled-window path: host-side gathers of each
+        cycle's observations and inputs (fixed shapes), one jitted window per
+        cycle, the same return structure as the original path."""
+        self._check_B_compiled()
+        self._return_metrics = False
+        self.metrics = None
+        setup = self._compiled_setup(
+            input_state, start_time, obs_vector, n_cycles, obs_error_sd,
+            analysis_window, analysis_time_in_window, model_inputs,
+            obs_times_per_window)
+        st, x_b = setup['st'], setup['x_b']
+        window = self._compiled_window()
         trajs = []
         for c in range(int(n_cycles)):
-            fi = fp[c] - 1          # -1 on padding (masked), as the scan path
-            u = (None if model_inputs is None else jax.tree_util.tree_map(
-                    lambda a: jnp.asarray(
-                        np.asarray(a)[c * n_win_steps:(c + 1) * n_win_steps]),
-                    model_inputs))
-            o = (None if obs_inputs is None else jax.tree_util.tree_map(
-                    lambda a: jnp.asarray(np.asarray(a)[fi]), obs_inputs))
-            cur_time = jnp.asarray(float(start_time) + c * float(analysis_window),
-                                   dtype=x_b.dtype)
-            x_a, traj = window(
-                    x_b, jnp.asarray(obs_all[fi]),
-                    jnp.asarray(loc_all[:, fi].reshape(n_win, -1)),
-                    jnp.asarray(mask_all[:, fi].astype(bool).reshape(n_win, -1)),
-                    jnp.asarray(fp[c] > 0),
-                    jnp.asarray(times_all[fi], dtype=x_b.dtype),
-                    sd if sd_all is None else sd_all[fi], cur_time,
-                    u, o)
+            args = self._window_args(setup, c, start_time, analysis_window,
+                                     model_inputs, obs_inputs)
+            x_a, traj = window(x_b, *args)
             trajs.append(traj)
             x_b = traj[-1]
 
