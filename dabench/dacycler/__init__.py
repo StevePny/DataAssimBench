@@ -18,6 +18,7 @@ from ._var4d_operator import Var4DOperator
 from ._per_time_h import LinearObsOperator, PerTimeH
 from ._var4d_operator_wc import Var4DOperatorWC
 from ._var4d_backprop_wc import Var4DBackpropWC
+from ._var4d_backprop_mf import Var4DBackpropMF
 from ._var4d_weak_utils import build_Q_half, quadratic_cost_wc
 from ._var4d_operator_utils import (
     BFactors,
@@ -58,6 +59,7 @@ __all__ = [
     'PerTimeH',
     'Var4DOperatorWC',
     'Var4DBackpropWC',
+    'Var4DBackpropMF',
     'build_Q_half',
     'quadratic_cost_wc',
     'BFactors',
