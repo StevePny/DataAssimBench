@@ -161,6 +161,7 @@ class Var4DOperator(dacycler.DACycler):
                  lm_relative: bool = False,
                  lm_power_iters: int = 3,
                  verbose: bool = False,
+                 health: bool = False,
                  **kwargs
                  ):
         self.steps_per_window = steps_per_window
@@ -182,6 +183,9 @@ class Var4DOperator(dacycler.DACycler):
         self.lm_relative = bool(lm_relative)
         self.lm_power_iters = int(lm_power_iters)
         self.verbose = bool(verbose)
+        # one line per outer loop (cost terms, PCG iterations, gradient norm) through jax.debug.print: a static flag, so the compiled
+        # window is built once either way and is unchanged when it is off
+        self.health = bool(health)
 
         if H is not None and not is_function_operator(H):
             H = jnp.array(H)

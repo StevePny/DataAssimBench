@@ -185,6 +185,25 @@ class Var4DOperatorWC(Var4DOperator):
                 hvp_fn, b_rhs, max_iter=self.n_inner_loops,
                 tol=self.inner_tol, verbose=self.verbose,
                 verbose_tag=f"pcg-wc/outer{int(outer_idx)}")
+        if self.health:
+            # nonlinear cost at this outer's iterate (its trajectory x_l_traj) and the quadratic model's value after the inner solve
+            w = jnp.broadcast_to(R_inv_diag, innovations.shape)
+            act = obs_time_mask[:, None] & (w > 0)
+            J_o = 0.5 * jnp.sum(jnp.where(act, w * innovations * innovations, 0.0))
+            n_o = jnp.sum(act)
+            J_b = 0.5 * jnp.sum(v_total * v_total)
+            J_q = 0.5 * jnp.sum(chi_total * chi_total)
+            J0 = J_b + J_q + J_o
+            J1 = J_of(dz)
+            jax.debug.print(
+                    "[4dvar-health] outer {o}: J {J:.4e} = Jb {Jb:.3e} + Jq {Jq:.3e} + Jo {Jo:.3e} "
+                    "(2Jo/p {chi:.3f}, p {p}) | after inner: J {J1:.4e} (ratio {r:.3f}) | "
+                    "|grad| {g:.3e} | PCG {n} it, converged {c}",
+                    o=int(outer_idx), J=J0, Jb=J_b, Jq=J_q, Jo=J_o,
+                    chi=2 * J_o / jnp.maximum(n_o, 1), p=n_o, J1=J1,
+                    r=J1 / jnp.where(J0 > 0, J0, 1.0),
+                    g=jnp.linalg.norm(b_rhs), n=info["n_iter"],
+                    c=info["converged"])
         return dz[:D], dz[D:].reshape(chi_shape), info
 
     def _cycle_obsop(self,
