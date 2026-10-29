@@ -188,7 +188,7 @@ class Var4DOperatorWC(Var4DOperator):
         if self.health:
             # nonlinear cost at this outer's iterate (its trajectory x_l_traj) and the quadratic model's value after the inner solve
             w = jnp.broadcast_to(R_inv_diag, innovations.shape)
-            act = obs_time_mask[:, None] & (w > 0)
+            act = obs_time_mask[:, None] & (w > 0) & (innovations != 0)  # dense observation vectors: unobserved elements carry a zero innovation, they are not observations
             J_o = 0.5 * jnp.sum(jnp.where(act, w * innovations * innovations, 0.0))
             n_o = jnp.sum(act)
             J_b = 0.5 * jnp.sum(v_total * v_total)
