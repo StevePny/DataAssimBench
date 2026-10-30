@@ -64,3 +64,19 @@ def test_preconditioner_speeds_up_convergence():
     a_0, _, _ = _run(dab.dacycler.Var4DBackpropMF, num_iters=3, learning_rate=0.1, lr_decay=1.0, n_lanczos=0)
     d = lambda a: np.abs(a[0, 0] - a_op[0, 0]).mean()  # noqa: E731
     assert d(a_p) < 0.5 * d(a_0)
+
+
+def test_weak_constraint_reaches_the_incremental_weak_minimum():
+    """Var4DBackpropMFWC (controls: initial state and a constant model error) against Var4DOperatorWC on the same window, Q and data."""
+    q = 0.02
+    a_op, truth, xb = _run(dab.dacycler.Var4DOperatorWC, Q_half=q, eta_mode='constant', n_outer_loops=8, n_inner_loops=200, inner_tol=1e-14)
+    a_bp, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, Q_half=q, eta_mode='constant', num_iters=300, learning_rate=1.0, lr_decay=0.97, n_lanczos=2 * N)
+    assert np.all(np.isfinite(a_bp))
+    assert np.abs(a_bp[0, 0] - truth[0]).mean() < np.abs(xb - truth[0]).mean()
+    assert np.abs(a_bp[0, 0] - a_op[0, 0]).max() < 1e-3
+
+
+def test_weak_constraint_without_q_is_the_strong_backprop():
+    a_wc, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, num_iters=50, learning_rate=1.0, lr_decay=0.95, n_lanczos=N)
+    a_sc, _, _ = _run(dab.dacycler.Var4DBackpropMF, num_iters=50, learning_rate=1.0, lr_decay=0.95, n_lanczos=N)
+    np.testing.assert_allclose(a_wc, a_sc, rtol=1e-10, atol=1e-12)
