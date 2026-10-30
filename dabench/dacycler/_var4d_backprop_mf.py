@@ -125,6 +125,13 @@ class Var4DBackpropMF(Var4DOperator):
         n_lanczos: Lanczos steps (Ritz pairs) of the preconditioner per
             window; 0 switches it off (plain gradient in control space).
             Default 20.
+        precond: ``"gn"`` (default): the Lanczos pairs of the Gauss-Newton
+            Hessian through the tangent-linear window (each pair one
+            tangent-linear and one adjoint pass); ``"obs"``: the approximate
+            Hessian ``I + B^(T/2) H^T R^-1 H B^(1/2)`` without the model (the
+            observations of every time applied to the initial-state increment,
+            as if the model were the identity): each pair costs only B^(1/2)
+            and H, so many more pairs are affordable.
         line_search: Maximum number of step halvings of an Armijo
             backtracking line search on each optimizer step (the step is
             halved until the nonlinear cost is finite and decreases enough;
@@ -135,8 +142,11 @@ class Var4DBackpropMF(Var4DOperator):
 
     def __init__(self, *args, num_iters: int = 10, learning_rate: float = 1.0,
                  lr_decay: float = 0.9, optimizer: str = "sgd",
-                 n_lanczos: int = 20, line_search: int = 0, **kwargs):
+                 n_lanczos: int = 20, line_search: int = 0, precond: str = "gn", **kwargs):
         super().__init__(*args, **kwargs)
+        if precond not in ("gn", "obs"):
+            raise ValueError(f"precond {precond!r}: 'gn' or 'obs'")
+        self.precond = precond
         if optimizer not in OPTIMIZERS:
             raise ValueError(f"optimizer {optimizer!r}: {sorted(OPTIMIZERS)}")
         self.num_iters = int(num_iters)
@@ -184,7 +194,9 @@ class Var4DBackpropMF(Var4DOperator):
         grad_J = jax.grad(cost)
         g0 = grad_J(v)
         if self.n_lanczos > 0:
-            def G(vv):  # observation-space image of the control, nonlinear
+            def G(vv):  # observation-space image of the control, nonlinear (precond "obs": linear, no model)
+                if self.precond == "obs":
+                    return hx(jnp.broadcast_to(x_b0 + apply_B_half(vv), (S,) + x_b0.shape))
                 traj = model_rollout(F, x_b0 + apply_B_half(vv), times, u)
                 return hx(traj)
 

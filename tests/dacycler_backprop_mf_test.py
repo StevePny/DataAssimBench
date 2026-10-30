@@ -102,3 +102,13 @@ def test_line_search_converges_with_a_constant_rate():
     a_wc, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, Q_half=0.02, eta_mode='constant', num_iters=300, learning_rate=1.0, lr_decay=1.0, n_lanczos=2 * N, line_search=8)
     a_iwc, _, _ = _run(dab.dacycler.Var4DOperatorWC, Q_half=0.02, eta_mode='constant', n_outer_loops=8, n_inner_loops=200, inner_tol=1e-14)
     assert np.abs(a_wc[0, 0] - a_iwc[0, 0]).max() < 1e-3
+
+
+def test_obs_preconditioner_reaches_the_incremental_minimum():
+    """precond="obs": the approximate Hessian without the model (cheap), with the line search, strong and weak constraint."""
+    a_op, _, _ = _run(dab.dacycler.Var4DOperator, n_outer_loops=8, n_inner_loops=100, inner_tol=1e-14)
+    a_bp, _, _ = _run(dab.dacycler.Var4DBackpropMF, num_iters=300, learning_rate=1.0, lr_decay=1.0, n_lanczos=N, line_search=8, precond="obs")
+    assert np.all(np.isfinite(a_bp)) and np.abs(a_bp[0, 0] - a_op[0, 0]).max() < 1e-3
+    a_iwc, _, _ = _run(dab.dacycler.Var4DOperatorWC, Q_half=0.02, eta_mode='constant', n_outer_loops=8, n_inner_loops=200, inner_tol=1e-14)
+    a_wc, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, Q_half=0.02, eta_mode='constant', num_iters=400, learning_rate=1.0, lr_decay=1.0, n_lanczos=2 * N, line_search=8, precond="obs")
+    assert np.all(np.isfinite(a_wc)) and np.abs(a_wc[0, 0] - a_iwc[0, 0]).max() < 1e-3

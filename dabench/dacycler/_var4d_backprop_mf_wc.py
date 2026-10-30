@@ -35,7 +35,7 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
     """Weak-constraint matrix-free backpropagation 4D-Var (see the module docstring).
 
     Args:
-        num_iters, learning_rate, lr_decay, optimizer, n_lanczos, line_search: as
+        num_iters, learning_rate, lr_decay, optimizer, n_lanczos, line_search, precond: as
             :class:`Var4DBackpropMF`.
         **kwargs: As :class:`Var4DOperatorWC` (``Q_half``, ``eta_mode``,
             ``B_half_op`` etc.; ``n_outer_loops`` / ``n_inner_loops`` are not
@@ -44,8 +44,11 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
 
     def __init__(self, *args, num_iters: int = 10, learning_rate: float = 1.0,
                  lr_decay: float = 0.9, optimizer: str = "sgd",
-                 n_lanczos: int = 20, line_search: int = 0, **kwargs):
+                 n_lanczos: int = 20, line_search: int = 0, precond: str = "gn", **kwargs):
         super().__init__(*args, **kwargs)
+        if precond not in ("gn", "obs"):
+            raise ValueError(f"precond {precond!r}: 'gn' or 'obs'")
+        self.precond = precond
         if optimizer not in OPTIMIZERS:
             raise ValueError(f"optimizer {optimizer!r}: {sorted(OPTIMIZERS)}")
         self.num_iters = int(num_iters)
@@ -108,7 +111,12 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
         z = jnp.zeros(D * (1 + ne), x_b0.dtype)
         g0 = jax.grad(cost)(z)
         if self.n_lanczos > 0:
-            def G(zz):  # observation-space image of the control, nonlinear
+            def G(zz):  # observation-space image of the control, nonlinear (precond "obs": linear, no model: x_k = x_0 + k eta)
+                if self.precond == "obs":
+                    v_, chi_ = split(zz)
+                    et = eta_seq(chi_)
+                    acc = jnp.concatenate([jnp.zeros((1, D), x_b0.dtype), jnp.cumsum(et, axis=0)], axis=0)
+                    return hx(x_b0 + apply_B_half(v_) + acc)
                 return hx(window(zz))
 
             def gn_hvp(p):  # (I + J^T W J) p at the background, J = dG/dz
