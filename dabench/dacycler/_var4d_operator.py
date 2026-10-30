@@ -162,6 +162,7 @@ class Var4DOperator(dacycler.DACycler):
                  lm_power_iters: int = 3,
                  verbose: bool = False,
                  health: bool = False,
+                 obs_groups=None,
                  **kwargs
                  ):
         self.steps_per_window = steps_per_window
@@ -186,6 +187,8 @@ class Var4DOperator(dacycler.DACycler):
         # one line per outer loop (cost terms, PCG iterations, gradient norm) through jax.debug.print: a static flag, so the compiled
         # window is built once either way and is unchanged when it is off
         self.health = bool(health)
+        # (name, first, stop) column ranges of the observation vector: with health, Jo and the observation count of each group on a second line
+        self.obs_groups = tuple((str(n), int(a), int(b)) for n, a, b in (obs_groups or ()))
 
         if H is not None and not is_function_operator(H):
             H = jnp.array(H)

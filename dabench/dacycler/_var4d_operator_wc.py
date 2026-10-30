@@ -204,6 +204,14 @@ class Var4DOperatorWC(Var4DOperator):
                     r=J1 / jnp.where(J0 > 0, J0, 1.0),
                     g=jnp.linalg.norm(b_rhs), n=info["n_iter"],
                     c=info["converged"])
+            if self.obs_groups:  # Jo by observation type (column ranges of the observation vector)
+                parts, vals = [], {}
+                for k, (nm, a0, a1) in enumerate(self.obs_groups):
+                    m_ = act[:, a0:a1]
+                    vals[f"j{k}"] = 0.5 * jnp.sum(jnp.where(m_, (w * innovations * innovations)[:, a0:a1], 0.0))
+                    vals[f"n{k}"] = jnp.sum(m_)
+                    parts.append(f"{nm} {{j{k}:.3e}} (p {{n{k}}})")
+                jax.debug.print("[4dvar-health] outer {o}: Jo by type: " + ", ".join(parts), o=int(outer_idx), **vals)
         return dz[:D], dz[D:].reshape(chi_shape), info
 
     def _cycle_obsop(self,
