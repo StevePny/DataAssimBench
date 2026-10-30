@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import optax
 
 from dabench.dacycler._per_time_h import r_inv_diagonal
-from dabench.dacycler._var4d_backprop_mf import OPTIMIZERS, Var4DBackpropMF, lanczos_eigs, lm_inverse
+from dabench.dacycler._var4d_backprop_mf import OPTIMIZERS, Var4DBackpropMF, backtrack, lanczos_eigs, lm_inverse
 from dabench.dacycler._var4d_operator_wc import Var4DOperatorWC
 from dabench.dacycler._var4d_weak_utils import expand_eta, forced_rollout, model_rollout, n_eta
 
@@ -35,7 +35,7 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
     """Weak-constraint matrix-free backpropagation 4D-Var (see the module docstring).
 
     Args:
-        num_iters, learning_rate, lr_decay, optimizer, n_lanczos: as
+        num_iters, learning_rate, lr_decay, optimizer, n_lanczos, line_search: as
             :class:`Var4DBackpropMF`.
         **kwargs: As :class:`Var4DOperatorWC` (``Q_half``, ``eta_mode``,
             ``B_half_op`` etc.; ``n_outer_loops`` / ``n_inner_loops`` are not
@@ -44,7 +44,7 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
 
     def __init__(self, *args, num_iters: int = 10, learning_rate: float = 1.0,
                  lr_decay: float = 0.9, optimizer: str = "sgd",
-                 n_lanczos: int = 20, **kwargs):
+                 n_lanczos: int = 20, line_search: int = 0, **kwargs):
         super().__init__(*args, **kwargs)
         if optimizer not in OPTIMIZERS:
             raise ValueError(f"optimizer {optimizer!r}: {sorted(OPTIMIZERS)}")
@@ -53,6 +53,7 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
         self.lr_decay = float(lr_decay)
         self.optimizer = optimizer
         self.n_lanczos = int(n_lanczos)
+        self.line_search = int(line_search)
 
     def _window_inputs(self, x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
                        obs_time_mask, obs_times, obs_error_sd, cur_time, u,
@@ -129,6 +130,8 @@ class Var4DBackpropMFWC(Var4DOperatorWC):
             z, state = carry
             J, g = jax.value_and_grad(cost)(z)
             upd, state = opt.update(P(g), state)
+            if self.line_search:
+                return (backtrack(cost, z, upd, J, g, self.line_search), state), J
             return (optax.apply_updates(z, upd), state), J
 
         (z, _), Js = jax.lax.scan(step, (z, state), None, length=self.num_iters)

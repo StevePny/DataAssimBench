@@ -80,3 +80,25 @@ def test_weak_constraint_without_q_is_the_strong_backprop():
     a_wc, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, num_iters=50, learning_rate=1.0, lr_decay=0.95, n_lanczos=N)
     a_sc, _, _ = _run(dab.dacycler.Var4DBackpropMF, num_iters=50, learning_rate=1.0, lr_decay=0.95, n_lanczos=N)
     np.testing.assert_allclose(a_wc, a_sc, rtol=1e-10, atol=1e-12)
+
+
+def test_backtrack_refuses_bad_steps():
+    from dabench.dacycler._var4d_backprop_mf import backtrack
+    cost = lambda x: jnp.where(jnp.abs(x[0]) > 1.0, jnp.nan, jnp.sum(x ** 2))  # noqa: E731
+    x = jnp.asarray([0.5, 0.0])
+    J, g = jax.value_and_grad(cost)(x)
+    # a step to 4.5 is NaN, to 2.5 NaN, to 1.5 NaN, to 1.0 (t = 1/8) is 1.0 > 0.25: worse; at most 2 halvings -> no move
+    np.testing.assert_allclose(np.asarray(backtrack(cost, x, jnp.asarray([4.0, 0.0]), J, g, 2)), np.asarray(x))
+    # a step towards 0 is found after a few halvings and decreases the cost
+    x2 = backtrack(cost, x, jnp.asarray([-4.0, 0.0]), J, g, 6)
+    assert float(cost(x2)) < float(J)
+
+
+def test_line_search_converges_with_a_constant_rate():
+    a_op, truth, xb = _run(dab.dacycler.Var4DOperator, n_outer_loops=8, n_inner_loops=100, inner_tol=1e-14)
+    a_ls, _, _ = _run(dab.dacycler.Var4DBackpropMF, num_iters=200, learning_rate=1.0, lr_decay=1.0, n_lanczos=N, line_search=8)
+    assert np.all(np.isfinite(a_ls))
+    assert np.abs(a_ls[0, 0] - a_op[0, 0]).max() < 1e-3  # a constant rate of 1 alone stays 0.065 away (oscillates)
+    a_wc, _, _ = _run(dab.dacycler.Var4DBackpropMFWC, Q_half=0.02, eta_mode='constant', num_iters=300, learning_rate=1.0, lr_decay=1.0, n_lanczos=2 * N, line_search=8)
+    a_iwc, _, _ = _run(dab.dacycler.Var4DOperatorWC, Q_half=0.02, eta_mode='constant', n_outer_loops=8, n_inner_loops=200, inner_tol=1e-14)
+    assert np.abs(a_wc[0, 0] - a_iwc[0, 0]).max() < 1e-3

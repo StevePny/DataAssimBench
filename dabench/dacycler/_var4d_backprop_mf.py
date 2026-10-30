@@ -73,6 +73,32 @@ def lanczos_eigs(matvec: Callable, q0: jax.Array, k: int):
     return lam, S.T @ Q
 
 
+def backtrack(cost: Callable, x: jax.Array, upd: jax.Array, J: jax.Array,
+              g: jax.Array, max_halvings: int, c: float = 1e-4):
+    """Armijo backtracking along the optimizer update ``upd`` from ``x``:
+    the step ``t upd`` with ``t = 1, 1/2, ...`` (at most ``max_halvings``
+    halvings) whose cost is finite and below ``J + c t g.upd``; ``0`` (no
+    move) if none is. Returns the new point."""
+    slope = jnp.vdot(g, upd)
+
+    def ok(t):
+        Jt = cost(x + t * upd)
+        return jnp.isfinite(Jt) & (Jt <= J + c * t * jnp.minimum(slope, 0.0))
+
+    def cond(carry):
+        t, k, good = carry
+        return (~good) & (k < max_halvings)
+
+    def body(carry):
+        t, k, _ = carry
+        t = 0.5 * t
+        return t, k + 1, ok(t)
+
+    t0 = jnp.asarray(1.0, x.dtype)
+    t, _, good = jax.lax.while_loop(cond, body, (t0, 0, ok(t0)))
+    return x + jnp.where(good, t, 0.0) * upd
+
+
 def lm_inverse(lam: jax.Array, U: jax.Array) -> Callable:
     """``P = I + sum_i (1 / lam_i - 1) u_i u_i^T`` (eigenvalues below 1 are
     clipped to 1: the Gauss-Newton Hessian in control space has none)."""
@@ -99,13 +125,17 @@ class Var4DBackpropMF(Var4DOperator):
         n_lanczos: Lanczos steps (Ritz pairs) of the preconditioner per
             window; 0 switches it off (plain gradient in control space).
             Default 20.
+        line_search: Maximum number of step halvings of an Armijo
+            backtracking line search on each optimizer step (the step is
+            halved until the nonlinear cost is finite and decreases enough;
+            no move if it never does). 0 (default): the plain optimizer step.
         **kwargs: As :class:`Var4DOperator` (``B_half_op`` etc.;
             ``n_outer_loops`` / ``n_inner_loops`` are not used).
     """
 
     def __init__(self, *args, num_iters: int = 10, learning_rate: float = 1.0,
                  lr_decay: float = 0.9, optimizer: str = "sgd",
-                 n_lanczos: int = 20, **kwargs):
+                 n_lanczos: int = 20, line_search: int = 0, **kwargs):
         super().__init__(*args, **kwargs)
         if optimizer not in OPTIMIZERS:
             raise ValueError(f"optimizer {optimizer!r}: {sorted(OPTIMIZERS)}")
@@ -114,6 +144,7 @@ class Var4DBackpropMF(Var4DOperator):
         self.lr_decay = float(lr_decay)
         self.optimizer = optimizer
         self.n_lanczos = int(n_lanczos)
+        self.line_search = int(line_search)
 
     def _window_inputs(self, x_b0, obs_vals, obs_loc_indices, obs_loc_mask,
                        obs_time_mask, obs_times, obs_error_sd, cur_time, u,
@@ -176,6 +207,8 @@ class Var4DBackpropMF(Var4DOperator):
             v, state = carry
             J, g = jax.value_and_grad(cost)(v)
             upd, state = opt.update(P(g), state)
+            if self.line_search:
+                return (backtrack(cost, v, upd, J, g, self.line_search), state), J
             return (optax.apply_updates(v, upd), state), J
 
         (v, _), Js = jax.lax.scan(step, (v, state), None, length=self.num_iters)
