@@ -737,6 +737,9 @@ class Var4DOperator(dacycler.DACycler):
         if getattr(self, "_window_key", None) != key:
             self._window_key = key
             self._window_jit = jax.jit(self._window_inputs)
+            if os.environ.get("DABENCH_REPORT_CONSTS"):
+                self._window_jit = _report_consts(self._window_inputs,
+                                                  self._window_jit)
         return self._window_jit
 
     def reset_compiled(self) -> None:
@@ -901,3 +904,28 @@ def _n_positional(fn: Callable) -> int:
         if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
             n += 1
     return n
+
+
+def _report_consts(fn: Callable, jitted: Callable, top: int = 15) -> Callable:
+    """``jitted`` that, on its first call, prints the arrays the window
+    captures as constants (``DABENCH_REPORT_CONSTS=1``): anything the window
+    reaches through ``self`` or a closure instead of its arguments is built
+    into the compiled program and its persistent-cache entry."""
+    done = []
+
+    def call(*args):
+        if not done:
+            done.append(1)
+            consts = jax.make_jaxpr(fn)(*args).consts
+            sizes = sorted(((int(np.asarray(c).nbytes), np.shape(c),
+                             str(np.asarray(c).dtype)) for c in consts),
+                           reverse=True)
+            print(f"[window-consts] {len(sizes)} captured arrays, "
+                  f"{sum(s for s, _, _ in sizes) / 1e6:.1f} MB in all; "
+                  f"largest:", flush=True)
+            for s, sh, dt in sizes[:top]:
+                print(f"[window-consts]   {s / 1e6:9.2f} MB  {dt}  {sh}",
+                      flush=True)
+        return jitted(*args)
+
+    return call
