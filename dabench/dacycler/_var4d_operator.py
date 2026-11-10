@@ -120,7 +120,7 @@ class Var4DOperator(dacycler.DACycler):
         h: Callable observation operator (currently unused: only
             linear ``H`` paths are supported, matching :class:`Var4D`).
         n_outer_loops: Outer Gauss-Newton iterations. Default 3.
-        n_inner_loops: Inner PCG-Lanczos iterations per outer.
+        n_inner_loops: Inner PCG-Lanczos iterations per outer (an int, or a list: one per outer loop, the last repeating).
             Default 30.
         inner_tol: Relative residual tolerance for inner solve.
         steps_per_window: Number of timesteps per analysis window.
@@ -152,7 +152,7 @@ class Var4DOperator(dacycler.DACycler):
                  H: ArrayLike | None = None,
                  h: Callable | None = None,
                  n_outer_loops: int = 3,
-                 n_inner_loops: int = 30,
+                 n_inner_loops: int | list = 30,
                  inner_tol: float = 1e-6,
                  steps_per_window: int = 1,
                  obs_window_indices: ArrayLike | None = None,
@@ -169,6 +169,7 @@ class Var4DOperator(dacycler.DACycler):
         self.obs_window_indices = obs_window_indices
         self.n_outer_loops = n_outer_loops
         self.n_inner_loops = n_inner_loops
+
         self.inner_tol = inner_tol
         self.tlm_op_factory = tlm_op_factory
         self.tlm_adj_op_factory = tlm_adj_op_factory
@@ -197,6 +198,14 @@ class Var4DOperator(dacycler.DACycler):
                          delta_t=delta_t,
                          model_obj=model_obj,
                          B=None, R=R, H=H, h=h)
+
+    def inner_at(self, outer_idx) -> int:
+        """Inner iterations of outer loop `outer_idx`: `n_inner_loops` an int (every outer) or a schedule (a list, one per outer; the last entry repeats), e.g. few inner
+        iterations while the trajectory is far from the observations and more once the outer loops have brought it close."""
+        n = self.n_inner_loops
+        if isinstance(n, (list, tuple)):
+            return int(n[min(int(outer_idx), len(n) - 1)])
+        return int(n)
 
     def _calc_default_H(self,
                         obs_loc_indices: ArrayLike
@@ -350,7 +359,7 @@ class Var4DOperator(dacycler.DACycler):
 
         delta_v, info = pcg_lanczos_solve(
                 hvp_fn, b_rhs,
-                max_iter=self.n_inner_loops, tol=self.inner_tol,
+                max_iter=self.inner_at(outer_idx), tol=self.inner_tol,
                 verbose=self.verbose,
                 verbose_tag=f"pcg/outer{int(outer_idx)}")
         if os.environ.get("DABENCH_LANCZOS_KAPPA"):
@@ -506,7 +515,7 @@ class Var4DOperator(dacycler.DACycler):
                     "raise --n-inner / --lm-relative -- but note early "
                     "stopping can be benign regularisation at tight "
                     "sigma_obs (more iters are not always better).",
-                    n=_ni, m=self.n_inner_loops, r=_rel, t=self.inner_tol),
+                    n=_ni, m=self.inner_at(self.n_outer_loops - 1), r=_rel, t=self.inner_tol),
                 )
 
         x_a = x_b0 + apply_B_half(v_total)

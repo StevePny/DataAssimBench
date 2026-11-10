@@ -182,7 +182,7 @@ class Var4DOperatorWC(Var4DOperator):
                 return jax.jvp(grad_J, (z0,), (p,))[1] + lm * p
 
         dz, info = pcg_lanczos_solve(
-                hvp_fn, b_rhs, max_iter=self.n_inner_loops,
+                hvp_fn, b_rhs, max_iter=self.inner_at(outer_idx),
                 tol=self.inner_tol, verbose=self.verbose,
                 verbose_tag=f"pcg-wc/outer{int(outer_idx)}")
         if self.health:

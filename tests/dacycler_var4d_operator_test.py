@@ -268,3 +268,13 @@ def test_gauss_newton_outer_loops_converge_to_full_cost_minimiser():
     assert all(b < a for a, b in zip(costs[:3], costs[1:4])), costs
     assert abs(costs[-1] - float(J_full(jnp.asarray(v_opt)))) < 1e-6, costs
     assert float(jnp.linalg.norm(v_tot - v_opt)) < 1e-5
+
+
+def test_inner_loop_schedule():
+    """n_inner_loops as a schedule: one count per outer loop, the last repeating; an int applies to every outer."""
+    from dabench.dacycler._var4d_operator import Var4DOperator
+    c = Var4DOperator.__new__(Var4DOperator)
+    c.n_inner_loops = [5, 10, 30]
+    assert [c.inner_at(o) for o in range(5)] == [5, 10, 30, 30, 30]
+    c.n_inner_loops = 20
+    assert c.inner_at(3) == 20
