@@ -26,7 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dabench.dacycler._var4d_operator_utils import BFactors, build_B_half
+from dabench.dacycler._var4d_operator_utils import BFactors, blocked_scan, build_B_half
 
 
 # For typing
@@ -168,7 +168,7 @@ def window_tlm_rollout_forced(
             dx_next = tlm_op(x_t, dx_t, t_k, u_k) + deta_t
             return dx_next, dx_next
 
-        _, dx_tail = jax.lax.scan(step_aux, dx0, (x_traj[:T], deta_seq, aux))
+        _, dx_tail = blocked_scan(step_aux, dx0, (x_traj[:T], deta_seq, aux), T)
         return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
     def step(dx_t, inp):
@@ -176,7 +176,7 @@ def window_tlm_rollout_forced(
         dx_next = tlm_op(x_t, dx_t) + deta_t
         return dx_next, dx_next
 
-    _, dx_tail = jax.lax.scan(step, dx0, (x_traj[:T], deta_seq))
+    _, dx_tail = blocked_scan(step, dx0, (x_traj[:T], deta_seq), T)
     return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
 

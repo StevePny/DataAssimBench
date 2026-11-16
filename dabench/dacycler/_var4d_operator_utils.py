@@ -200,6 +200,42 @@ def finalize_lowrank_factors(
     return bf, info
 
 
+# Nested checkpointing of the window's tangent-linear scan (OceanCurrentsML, 17 Nov 2026: a 7-day window
+# of a 1/20 deg regional model ran out of GPU memory in the reverse pass, which keeps the linearisation
+# residuals of every step).  ``None`` (default): a plain scan, unchanged.  An integer ``b``: the scan runs as
+# blocks of ``b`` steps with :func:`jax.checkpoint` on each block, so the reverse pass stores the block
+# boundaries and recomputes the steps inside one block at a time (memory ~ T / b + b steps, one more
+# forward pass of the TLM in compute).
+TLM_CHECKPOINT_BLOCK = None
+
+
+def set_tlm_checkpoint_block(block):
+    """Set the block length of the checkpointed TLM scan (``None`` = off)."""
+    global TLM_CHECKPOINT_BLOCK
+    TLM_CHECKPOINT_BLOCK = None if not block else int(block)
+
+
+def blocked_scan(f, carry, xs, length):
+    """``jax.lax.scan(f, carry, xs)`` over ``length`` steps, checkpointed in blocks of
+    :data:`TLM_CHECKPOINT_BLOCK` when set (the largest divisor of ``length`` not above it)."""
+    b = TLM_CHECKPOINT_BLOCK
+    if not b or b >= length:
+        return jax.lax.scan(f, carry, xs)
+    b = max(d for d in range(1, b + 1) if length % d == 0)
+    if b == 1:
+        return jax.lax.scan(f, carry, xs)
+    nb = length // b
+    xs_b = jax.tree_util.tree_map(lambda a: a.reshape((nb, b) + a.shape[1:]), xs)
+
+    @jax.checkpoint
+    def block(c, xb):
+        return jax.lax.scan(f, c, xb)
+
+    carry, ys = jax.lax.scan(block, carry, xs_b)
+    ys = jax.tree_util.tree_map(lambda a: a.reshape((length,) + a.shape[2:]), ys)
+    return carry, ys
+
+
 def window_tlm_rollout(
         tlm_op: Callable[[ArrayLike, ArrayLike], ArrayLike],
         x_traj: ArrayLike,
@@ -231,7 +267,7 @@ def window_tlm_rollout(
             dx_next = tlm_op(x_t, dx_t, t_k, u_k)
             return dx_next, dx_next
 
-        _, dx_tail = jax.lax.scan(step_aux, dx0, (x_traj[:T], aux))
+        _, dx_tail = blocked_scan(step_aux, dx0, (x_traj[:T], aux), T)
         return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
     def step(dx_t: ArrayLike, x_t: ArrayLike
@@ -239,7 +275,7 @@ def window_tlm_rollout(
         dx_next = tlm_op(x_t, dx_t)
         return dx_next, dx_next
 
-    _, dx_tail = jax.lax.scan(step, dx0, x_traj[:T])
+    _, dx_tail = blocked_scan(step, dx0, x_traj[:T], T)
     return jnp.concatenate([dx0[None, :], dx_tail], axis=0)
 
 
