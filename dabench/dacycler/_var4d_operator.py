@@ -935,6 +935,44 @@ def _report_consts(fn: Callable, jitted: Callable, top: int = 15) -> Callable:
             for s, sh, dt in sizes[:top]:
                 print(f"[window-consts]   {s / 1e6:9.2f} MB  {dt}  {sh}",
                       flush=True)
+            _report_memory(jitted, args, top)
         return jitted(*args)
 
     return call
+
+
+def _report_memory(jitted: Callable, args, top: int = 15) -> None:
+    """Print the compiled window's memory analysis (arguments, outputs,
+    temporaries) and its largest buffers, from the optimised HLO
+    (``DABENCH_REPORT_CONSTS=1``): finds which array of the window needs
+    the memory when it does not fit the device."""
+    import re
+    comp = jitted.lower(*args).compile()
+    try:
+        m = comp.memory_analysis()
+        print("[window-memory] arguments %.2f GB, outputs %.2f GB, "
+              "temporaries %.2f GB, generated code %.2f GB" % (
+                  m.argument_size_in_bytes / 1e9, m.output_size_in_bytes / 1e9,
+                  m.temp_size_in_bytes / 1e9,
+                  m.generated_code_size_in_bytes / 1e9), flush=True)
+    except Exception as e:  # noqa: BLE001 (backends without the analysis)
+        print(f"[window-memory] no memory analysis: {e}", flush=True)
+    nb = {"f64": 8, "f32": 4, "s32": 4, "pred": 1, "f16": 2, "bf16": 2,
+          "s64": 8, "u32": 4, "u8": 1}
+    seen = {}
+    for line in comp.as_text().splitlines():
+        mm = re.match(r"\s*(%?[\w.\-]+) = (\w+)\[([\d,]*)\]", line)
+        if not mm or mm.group(2) not in nb or not mm.group(3):
+            continue
+        dims = [int(d) for d in mm.group(3).split(",")]
+        size = int(np.prod(dims)) * nb[mm.group(2)]
+        key = (mm.group(2), tuple(dims))
+        if size > seen.get(key, (0, ""))[0]:
+            op = line.split("=", 1)[1].strip().split("(")[0].split()[-1]
+            seen[key] = (size, f"{mm.group(1)} {op}")
+    big = sorted(((v[0], k, v[1]) for k, v in seen.items()), reverse=True)
+    print("[window-memory] largest buffer shapes of the optimised HLO:",
+          flush=True)
+    for size, (dt, dims), name in big[:top]:
+        print(f"[window-memory]   {size / 1e9:8.3f} GB  {dt}{list(dims)}  {name}",
+              flush=True)
