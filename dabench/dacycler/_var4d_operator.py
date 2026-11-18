@@ -747,9 +747,9 @@ class Var4DOperator(dacycler.DACycler):
             self._window_key = key
             self._window_jit = jax.jit(self._window_inputs)
             from dabench.dacycler import _var4d_operator_utils as _ou
-            if _ou.TLM_CHECKPOINT_AUTO_FRAC:
+            if _ou.TLM_CHECKPOINT_AUTO_FRAC:  # the report (DABENCH_REPORT_CONSTS) needs a jitted function: it runs inside _auto_block after the choice
                 self._window_jit = _auto_block(self._window_inputs, int(self.steps_per_window) - 1, _ou.TLM_CHECKPOINT_AUTO_FRAC)
-            if os.environ.get("DABENCH_REPORT_CONSTS"):
+            elif os.environ.get("DABENCH_REPORT_CONSTS"):
                 self._window_jit = _report_consts(self._window_inputs,
                                                   self._window_jit)
         return self._window_jit
@@ -1015,6 +1015,8 @@ def _auto_block(fn: Callable, T: int, frac: float) -> Callable:
                 print(f"[tlm-block] auto: block {k} of {T} steps (measured {m1 / 1e9:.2f} GB at {k1}, {m2 / 1e9:.2f} GB at {k2}; predicted {(a + c * k) / 1e9:.2f} GB, "
                       f"limit {frac:.0%} of {limit / 1e9:.1f} GB)", flush=True)
             state["jit"] = jax.jit(fn)
+            if os.environ.get("DABENCH_REPORT_CONSTS"):
+                _report_memory(state["jit"], args)
         return state["jit"](*args)
 
     return call

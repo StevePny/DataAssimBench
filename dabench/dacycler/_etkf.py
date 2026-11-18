@@ -16,6 +16,13 @@ from dabench.dacycler._utils import _resolve_eigh_impl, _solve_pa_wa
 from dabench.model import Model
 
 
+# Errors that mean "this model's forecast cannot be traced under jax.vmap"
+# (non-JAX / host-side forecasts); _step_forecast then uses the member loop.
+_VMAP_FALLBACK_ERRORS = (TypeError, jax.errors.TracerArrayConversionError,
+                         jax.errors.ConcretizationTypeError,
+                         jax.errors.TracerIntegerConversionError,
+                         NotImplementedError)
+
 # For typing
 ArrayLike = np.ndarray | jax.Array
 XarrayDatasetLike = xr.Dataset | xj.XjDataset
@@ -184,7 +191,28 @@ class ETKF(dacycler.DACycler):
                        Xa: XarrayDatasetLike,
                        n_steps: int = 1
                        ) -> XarrayDatasetLike:
-        """Ensemble method needs a slightly different _step_forecast method"""
+        """Forecast every ensemble member ``n_steps`` (ensemble-first output).
+
+        Members are rolled with ONE ``jax.vmap`` over the ensemble axis of the
+        model's single-state ``forecast`` (:meth:`_vmap_step_forecast`).  The
+        legacy per-member Python loop emitted ``ensemble_dim`` separate copies
+        of the model into the traced graph -- under the cycle ``lax.scan`` that
+        is O(K) trace/compile time (single-threaded XLA compile, ~2x per window
+        at K=64-128 for the 4D cyclers) and K small sequential forecasts at run
+        time.  The vmapped path traces the model once and runs the members as
+        one batched forecast; it matches the loop to round-off.  Models that
+        cannot be vmapped (non-JAX forecasts) fall back to the loop; set
+        ``self.vmap_ensemble_forecast = False`` to force it.
+        """
+        if getattr(self, "vmap_ensemble_forecast", True):
+            try:
+                return self._vmap_step_forecast(Xa, n_steps)
+            except _VMAP_FALLBACK_ERRORS as e:
+                warnings.warn(
+                    f"vmapped ensemble forecast failed ({type(e).__name__}: "
+                    f"{e}); falling back to the per-member loop",
+                    stacklevel=2)
+                self.vmap_ensemble_forecast = False
         ensemble_forecasts = []
         ensemble_inputs = []
         for i in range(self.ensemble_dim):
@@ -197,6 +225,54 @@ class ETKF(dacycler.DACycler):
 
         return (xr.concat(ensemble_inputs, dim='ensemble'),
                 xr.concat(ensemble_forecasts, dim='ensemble'))
+
+    def _vmap_step_forecast(self,
+                            Xa: XarrayDatasetLike,
+                            n_steps: int
+                            ) -> tuple[xr.Dataset, xr.Dataset]:
+        """``_step_forecast`` as one ``jax.vmap`` over the ensemble axis.
+
+        Builds each member's single-state Dataset from ``Xa.isel(ensemble=0)``
+        (coords/attrs are member-independent), vmaps the model ``forecast`` over
+        the member slices of every ensemble-carrying data variable, and
+        re-assembles the outputs exactly as ``xr.concat(..., dim='ensemble')``
+        of the per-member results would (ensemble-first data variables, the
+        members' shared coords).
+        """
+        if isinstance(Xa, xj.XjDataset):
+            Xa = Xa.to_xarray()
+        template = Xa.isel(ensemble=0)
+        ens_vars = [k for k in Xa.data_vars if 'ensemble' in Xa[k].dims]
+        member_in = {k: jnp.moveaxis(jnp.asarray(Xa[k].data),
+                                     Xa[k].dims.index('ensemble'), 0)
+                     for k in ens_vars}
+        structure = {}
+
+        def _one(x_vars):
+            ds = template.assign(
+                {k: (template[k].dims, v) for k, v in x_vars.items()})
+            nxt, traj = self.model_obj.forecast(ds, n_steps=n_steps)
+            structure['out'] = (nxt, traj)
+            return tuple({k: d[k].data for k in d.data_vars}
+                         for d in (nxt, traj))
+
+        outs = jax.vmap(_one)(member_in)
+        rebuilt = []
+        for proto, data in zip(structure['out'], outs):
+            coords = {}
+            for name, c in proto.coords.items():
+                if isinstance(c.data, jax.core.Tracer):
+                    raise TypeError(f"coordinate {name!r} depends on the "
+                                    "member state")
+                coords[name] = c.variable
+            ds = xr.Dataset(
+                {k: (('ensemble',) + proto[k].dims, data[k])
+                 for k in proto.data_vars},
+                coords=coords, attrs=proto.attrs)
+            if 'ensemble' in Xa.coords:
+                ds = ds.assign_coords(ensemble=Xa['ensemble'].variable)
+            rebuilt.append(ds)
+        return rebuilt[0], rebuilt[1]
 
     def _check_observability(self, all_filtered_idx, input_state) -> None:
         """Warn once when the ensemble / obs network is likely rank-deficient.

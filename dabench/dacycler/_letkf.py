@@ -610,7 +610,8 @@ class LETKF(ETKF):
         # ``A = taper_blk @ W``, ``b = taper_blk @ v`` -- peak
         # n_obs*K^2 (+ chunk*K^2), independent of chunk x n_obs.  Same sums,
         # different association -> matches "direct" to round-off.  "auto"
-        # picks "gram" when K <= effective chunk (n_obs*K^2 <= chunk*K*n_obs),
+        # picks "gram" when K <= effective chunk x 4D window reps (W, folded over
+        # the window, no larger than the direct block),
         # else "direct".  Patch path is unaffected (already O(P)).
         if local_gram not in ("auto", "gram", "direct"):
             raise ValueError(
@@ -721,7 +722,7 @@ class LETKF(ETKF):
         return jnp.minimum(d, n - d)
 
     def _taper_rows(self, rows: ArrayLike, obs_loc_indices: ArrayLike,
-                    dtype) -> jax.Array:
+                    dtype, tile: bool = True) -> jax.Array:
         """Gaspari-Cohn taper rows ``(len(rows), n_obs)`` for an INTEGER
         (possibly traced) grid-row index array.
 
@@ -755,7 +756,7 @@ class LETKF(ETKF):
                 grid_ll[:, 0][:, None], grid_ll[:, 1][:, None],
                 obs_ll[:, 0][None, :], obs_ll[:, 1][None, :])
             taper = _gaspari_cohn(dist, c)
-            if reps > 1:
+            if reps > 1 and tile:
                 taper = jnp.tile(taper, (1, reps))
             return taper.astype(dtype)
         n = int(self.system_dim)
@@ -763,6 +764,17 @@ class LETKF(ETKF):
         obs_pos = obs_idx.astype(jnp.float32)[None, :]
         d = jnp.abs(grid_pos - obs_pos)
         return _gaspari_cohn(jnp.minimum(d, n - d), c).astype(dtype)
+
+    def _taper_reps(self, n_obs: int) -> int:
+        """How many times the injected ``obs_latlon`` slice tiles the
+        (window-stacked) obs axis on the dense lat/lon path; 1 when there is
+        no injected slice (each obs carries its own location)."""
+        if self._grid_latlon is None or self._obs_latlon is None:
+            return 1
+        n_slice = int(self._obs_latlon.shape[0])
+        if n_slice == 0 or n_obs == n_slice or n_obs % n_slice != 0:
+            return 1
+        return n_obs // n_slice
 
     def _streams_dense_taper(self, n_grid: int) -> bool:
         """Dense lat/lon path with a finite grid chunk: build taper rows per
@@ -773,15 +785,22 @@ class LETKF(ETKF):
                 and self.grid_chunk is not None
                 and self.grid_chunk < n_grid)
 
-    def _use_gram(self, n_grid: int, K: int) -> bool:
+    def _use_gram(self, n_grid: int, K: int, n_obs: int | None = None
+                  ) -> bool:
         """Dense-path moment formulation (see ``local_gram``).  "auto":
-        Gram iff ``K <= chunk_eff`` (W's n_obs*K^2 no larger than the direct
-        path's chunk_eff*K*n_obs block), chunk_eff = grid when unchunked."""
+        Gram iff W's ``(n_obs/reps)*K^2`` is no larger than the direct path's
+        ``chunk_eff*K*n_obs`` block, i.e. ``K <= chunk_eff * reps``;
+        chunk_eff = grid when unchunked, ``reps`` = the 4D window tiling the
+        streamed Gram path folds into W (:meth:`_taper_reps`; 1 otherwise or
+        when ``n_obs`` is not given)."""
         if self.local_gram != "auto":
             return self.local_gram == "gram"
         c = n_grid if self.grid_chunk is None else min(
             self.grid_chunk * self.chunk_batch, n_grid)
-        return K <= c
+        reps = (self._taper_reps(n_obs)
+                if (n_obs is not None and not self._use_patch
+                    and self._streams_dense_taper(n_grid)) else 1)
+        return K <= c * reps
 
     def _build_taper(self, obs_loc_indices: ArrayLike,
                      dtype, grid_rows: slice | None = None) -> jax.Array:
@@ -1201,7 +1220,7 @@ class LETKF(ETKF):
                     xb_col, xb_bar, xb_pert, rho)
 
             lane_extra = (patch_idx, patch_w)
-        elif self._use_gram(int(Xb_grid.shape[0]), K):
+        elif self._use_gram(int(Xb_grid.shape[0]), K, n_obs):
             # Gram formulation: A_g = sum_o rho_go W_o, b_g = sum_o rho_go v_o.
             # Under the block vmap ``taper_row @ W`` becomes one
             # (chunk, n_obs) @ (n_obs, K^2) GEMM -- no (chunk, K, n_obs).
@@ -1209,6 +1228,24 @@ class LETKF(ETKF):
                                         * Yb_pert[:, None, :])
                  ).reshape(n_obs, K * K)                       # (n_obs, K^2)
             v = (rinv * innov)[:, None] * Yb_pert              # (n_obs, K)
+            # 4D window stacking tiles ONE obs-location slice ``reps`` times,
+            # so the taper row is the slice row tiled and
+            # ``tile(t) @ W == t @ sum_r W_r``: fold the window into the
+            # moments once and run the (chunk, n_obs) GEMM on the SLICE
+            # (``reps``x fewer flops; equal to round-off).  Only on the
+            # streamed dense path, whose taper rows are built per block.
+            gram_reps = (self._taper_reps(n_obs)
+                         if (taper is None and not self._use_patch
+                             and self._streams_dense_taper(
+                                 int(Xb_grid.shape[0]))) else 1)
+            if gram_reps > 1:
+                W = W.reshape(gram_reps, n_obs // gram_reps, K * K).sum(0)
+                v = v.reshape(gram_reps, n_obs // gram_reps, K).sum(0)
+            # Materialize the moments ONCE: left fusable, XLA:CPU folds the
+            # outer-product producer into the per-block dot inside the
+            # ``lax.map`` loop (recomputing it every block and losing the
+            # GEMM kernel) -- ~3x slower at T42, K=128.
+            W, v = jax.lax.optimization_barrier((W, v))
 
             def _lane(xb_col, taper_row):
                 t = taper_row.astype(dtype)
@@ -1258,8 +1295,16 @@ class LETKF(ETKF):
             lane_extra = (rows_all,)
             _lane_taper = _lane
 
+            _tile = not (self._use_gram(G, K, n_obs)
+                         and self._taper_reps(n_obs) > 1)
+
             def _lane_rows_block(xb_blk, rows_blk):
-                taper_blk = self._taper_rows(rows_blk, obs_loc_indices, dtype)
+                taper_blk = self._taper_rows(rows_blk, obs_loc_indices, dtype,
+                                             tile=_tile)
+                # Materialize the block's taper rows (see W/v above): fused
+                # into the moments dot, the trig distance + Gaspari-Cohn
+                # producer turns the GEMM into a naive loop on XLA:CPU.
+                taper_blk = jax.lax.optimization_barrier(taper_blk)
                 return jax.vmap(_lane_taper)(xb_blk, taper_blk)
         else:
             _lane_rows_block = None
