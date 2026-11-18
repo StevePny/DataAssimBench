@@ -3,6 +3,7 @@
 from typing import Callable
 
 import jax
+import dabench.dacycler._var4d_weak_utils as _wu
 import jax.numpy as jnp
 import jax.scipy as jscipy
 import numpy as np
@@ -463,7 +464,10 @@ class Var4DOperatorWC(Var4DOperator):
         apply_B_half = None
 
         def eta_seq(chi):
-            return expand_eta(jax.vmap(self._apply_Q_half)(chi), T)
+            rows = jax.vmap(self._apply_Q_half)(chi)
+            if _wu.OBS_IN_SCAN and rows.shape[0] == 1:  # a constant forcing enters each step as one row (forced_rollout), not broadcast to T rows
+                return rows
+            return expand_eta(rows, T)
 
         for outer in range(self.n_outer_loops):
             x_l0 = (x_b0 if apply_B_half is None

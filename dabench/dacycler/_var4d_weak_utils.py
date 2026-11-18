@@ -119,6 +119,17 @@ def forced_rollout(step_fn: Callable[[ArrayLike], ArrayLike],
         Trajectory ``(T + 1, D)`` with ``traj[0] = x0``.
     """
     if times is not None:
+        if eta_seq.shape[0] == 1 and len(times) > 1:  # a constant forcing (one row): added at every step, not broadcast to T rows
+            eta_c = eta_seq[0]
+
+            def body_c(x, inp):
+                t_k, u_k = inp
+                x_next = step_fn(x, t_k, u_k) + eta_c
+                return x_next, x_next
+
+            _, tail = jax.lax.scan(body_c, x0, (times, inputs))
+            return jnp.concatenate([x0[None, :], tail], axis=0)
+
         def body_t(x, inp):
             eta_k, t_k, u_k = inp
             x_next = step_fn(x, t_k, u_k) + eta_k
@@ -217,7 +228,14 @@ def quadratic_cost_wc(
     J_q = 0.5 * jnp.sum(chi_full * chi_full)
     T = x_l_traj.shape[0] - 1
     dx0 = apply_B_half(delta_v)
-    deta = expand_eta(jax.vmap(apply_Q_half)(delta_chi), T)
+    deta_rows = jax.vmap(apply_Q_half)(delta_chi)
+    if OBS_IN_SCAN:  # the observed values accumulated inside the TLM scan: no (T + 1, D) increment trajectory, constant forcing not broadcast (same cost)
+        Hdx = window_tlm_obs_forced(tlm_op, x_l_traj, dx0, deta_rows, Hs, obs_window_indices, aux=aux)
+        resid = Hdx - innovations
+        w = jnp.broadcast_to(R_inv_diag, resid.shape)
+        per_i = 0.5 * jnp.sum(w * resid * resid, axis=-1)
+        return J_b + J_q + jnp.sum(jnp.where(obs_time_mask, per_i, 0.0))
+    deta = expand_eta(deta_rows, T)
     dx_traj = (window_tlm_rollout_forced(tlm_op, x_l_traj, dx0, deta)
                if aux is None else
                window_tlm_rollout_forced(tlm_op, x_l_traj, dx0, deta, aux=aux))
@@ -231,3 +249,48 @@ def quadratic_cost_wc(
     per_i = jax.vmap(obs_term)(jnp.arange(obs_window_indices.shape[0]))
     J_o = jnp.sum(jnp.where(obs_time_mask, per_i, 0.0))
     return J_b + J_q + J_o
+
+# OceanCurrentsML (18 Nov 2026): a 1/20 deg window (1.09M state, 168 steps) needed 15.5 GB of temporaries, about 21 arrays of
+# (T, D): the stacked increment trajectories of the TLM scan (forward values and their cotangents) and the constant model-error
+# forcing broadcast to every step. With OBS_IN_SCAN the scan carries the increment and the observed values H_i dx_{j(i)} instead
+# (n_obs x obs_dim), and a single-row forcing enters the step as a constant. Same cost function (summation order aside).
+OBS_IN_SCAN = False
+
+
+def set_obs_in_scan(on):
+    """Accumulate the observed increments inside the TLM scan (``True``) or gather them from the stacked trajectory (``False``, default)."""
+    global OBS_IN_SCAN
+    OBS_IN_SCAN = bool(on)
+
+
+def window_tlm_obs_forced(tlm_op, x_traj, dx0, deta_rows, Hs, obs_window_indices, aux=None):
+    """``H_i dx_{j(i)}`` for every observation ``i`` (shape ``(n_obs, obs_dim)``) of the forced TLM recursion
+    ``dx_{k+1} = M_k dx_k + deta_k`` (:func:`window_tlm_rollout_forced`), accumulated in the scan carry: at step ``k`` every
+    observation with ``j(i) = k`` takes ``H_i dx_k``. ``deta_rows``: ``(1, D)`` (constant, not broadcast) or ``(T, D)``."""
+    T = x_traj.shape[0] - 1
+    n_obs = obs_window_indices.shape[0]
+    idx = jnp.arange(n_obs)
+    const = deta_rows.shape[0] == 1
+
+    def observe(Y, dx, k):
+        hit = (obs_window_indices == k)[:, None]
+        return Y + jnp.where(hit, jax.vmap(lambda i: Hs[i] @ dx)(idx), 0.0)
+
+    Y0 = observe(jnp.zeros((n_obs,) + tuple(jax.eval_shape(lambda: Hs[0] @ dx0).shape), dx0.dtype), dx0, 0)
+
+    def body(carry, inp):
+        dx, Y = carry
+        if aux is not None:
+            k, x_t, d_t, (t_k, u_k) = inp
+            m = tlm_op(x_t, dx, t_k, u_k)
+        else:
+            k, x_t, d_t = inp
+            m = tlm_op(x_t, dx)
+        dx_next = m + (deta_rows[0] if const else d_t)
+        return (dx_next, observe(Y, dx_next, k + 1)), None
+
+    ks = jnp.arange(T)
+    d_xs = jnp.zeros((T, 0), dx0.dtype) if const else deta_rows
+    xs = (ks, x_traj[:T], d_xs) + ((aux,) if aux is not None else ())
+    (_, Y), _ = blocked_scan(body, (dx0, Y0), xs, T)
+    return Y

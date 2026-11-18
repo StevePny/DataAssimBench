@@ -353,3 +353,25 @@ def test_gauss_newton_product_equals_the_forward_over_reverse_product(eta_mode):
     for mode in ("gn", "jvp"):
         res[mode] = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode=eta_mode, hvp_mode=mode).cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
     np.testing.assert_allclose(np.asarray(res["gn"][0]['x'].data), np.asarray(res["jvp"][0]['x'].data), rtol=1e-8, atol=1e-10)
+
+
+@pytest.mark.parametrize("eta_mode", ["constant", "per_step"])
+@pytest.mark.parametrize("block", [None, 2])
+def test_observations_in_the_scan_give_the_same_analysis(eta_mode, block):
+    """OceanCurrentsML, 18 Nov 2026: with set_obs_in_scan(True) the TLM scan carries the observed increments (no stacked (T, D)
+    trajectory, a constant forcing not broadcast) and the analysis is the one of the stacked path."""
+    from dabench.dacycler import _var4d_operator_utils as ou
+    from dabench.dacycler import _var4d_weak_utils as wu
+    f, truth, xb = _setup()
+    obs = obs_vector(truth, LOCS)
+    common = dict(start_time=0.0, obs_vector=obs, obs_error_sd=0.05, n_cycles=2, analysis_window=float(S - 1), return_forecast=True, return_background=True)
+    res = {}
+    try:
+        ou.set_tlm_checkpoint_block(block)
+        for on in (False, True):
+            wu.set_obs_in_scan(on)
+            res[on] = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode=eta_mode).cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
+    finally:
+        wu.set_obs_in_scan(False)
+        ou.set_tlm_checkpoint_block(None)
+    np.testing.assert_allclose(np.asarray(res[True][0]['x'].data), np.asarray(res[False][0]['x'].data), rtol=1e-8, atol=1e-10)
