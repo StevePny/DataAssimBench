@@ -746,6 +746,9 @@ class Var4DOperator(dacycler.DACycler):
         if getattr(self, "_window_key", None) != key:
             self._window_key = key
             self._window_jit = jax.jit(self._window_inputs)
+            from dabench.dacycler import _var4d_operator_utils as _ou
+            if _ou.TLM_CHECKPOINT_AUTO_FRAC:
+                self._window_jit = _auto_block(self._window_inputs, int(self.steps_per_window) - 1, _ou.TLM_CHECKPOINT_AUTO_FRAC)
             if os.environ.get("DABENCH_REPORT_CONSTS"):
                 self._window_jit = _report_consts(self._window_inputs,
                                                   self._window_jit)
@@ -976,3 +979,43 @@ def _report_memory(jitted: Callable, args, top: int = 15) -> None:
     for size, (dt, dims), name in big[:top]:
         print(f"[window-memory]   {size / 1e9:8.3f} GB  {dt}{list(dims)}  {name}",
               flush=True)
+
+
+def _auto_block(fn: Callable, T: int, frac: float) -> Callable:
+    """The jitted window with the TLM checkpoint block chosen on its first call (OceanCurrentsML, 18 Nov 2026): the window is compiled at two block
+    lengths, its memory (arguments + outputs + temporaries, XLA memory analysis) fitted as a + c k, and the largest divisor of T whose predicted memory is
+    within ``frac`` of the device limit is used (a longer block = less recomputation). No device limit (CPU): no checkpointing. Fails if even the
+    smallest block does not fit. The choice is printed and kept in ``_var4d_operator_utils.TLM_CHECKPOINT_BLOCK``."""
+    from dabench.dacycler import _var4d_operator_utils as ou
+    state = {}
+
+    def total(args, b):
+        ou.set_tlm_checkpoint_block(b)
+        m = jax.jit(fn).lower(*args).compile().memory_analysis()
+        return m.argument_size_in_bytes + m.output_size_in_bytes + m.temp_size_in_bytes
+
+    def call(*args):
+        if "jit" not in state:
+            stats = jax.devices()[0].memory_stats() or {}
+            limit = stats.get("bytes_limit")
+            divs = [d for d in range(2, T + 1) if T % d == 0]
+            if not limit:
+                ou.set_tlm_checkpoint_block(None)
+                print("[tlm-block] auto: no device memory limit (CPU): plain scan", flush=True)
+            else:
+                k1, k2 = min(divs, key=lambda d: abs(d - 4)), min(divs, key=lambda d: abs(d - 24))
+                m1, m2 = total(args, k1), total(args, k2)
+                c = (m2 - m1) / max(k2 - k1, 1)
+                a = m1 - c * k1
+                fit = [d for d in divs if a + c * d <= frac * limit]
+                if not fit:
+                    raise MemoryError(f"[tlm-block] auto: even a block of {divs[0]} steps needs {(a + c * divs[0]) / 1e9:.1f} GB, above {frac:.0%} of {limit / 1e9:.1f} GB")
+                k = max(fit)
+                ou.set_tlm_checkpoint_block(None if k == T else k)
+                print(f"[tlm-block] auto: block {k} of {T} steps (measured {m1 / 1e9:.2f} GB at {k1}, {m2 / 1e9:.2f} GB at {k2}; predicted {(a + c * k) / 1e9:.2f} GB, "
+                      f"limit {frac:.0%} of {limit / 1e9:.1f} GB)", flush=True)
+            state["jit"] = jax.jit(fn)
+        return state["jit"](*args)
+
+    return call
+

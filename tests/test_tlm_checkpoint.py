@@ -38,3 +38,21 @@ def test_blocked_scan_matches_plain():
                 np.testing.assert_allclose(a, c, rtol=1e-10, atol=1e-12)
     finally:
         ou.set_tlm_checkpoint_block(None)
+
+
+def test_obs_in_scan_selects_due_observations_and_refuses_overflow():
+    """OceanCurrentsML, 18 Nov 2026: the in-scan observation evaluates only the observations due at each step (a table of OBS_PER_STEP_MAX); it equals the gather from the stacked
+    trajectory, and a step with more observation times than the table gives NaN (never silently drops one)."""
+    from dabench.dacycler import _var4d_weak_utils as wu
+    traj, tlm, dx0, deta = _setup()
+    T, D = deta.shape
+    Hs = jnp.asarray(np.random.default_rng(1).normal(size=(5, 3, D)))
+    owi = jnp.asarray([0, 3, 3, 7, 12])
+    ref = jnp.stack([Hs[i] @ window_tlm_rollout_forced(tlm, traj, dx0, deta)[int(owi[i])] for i in range(5)])
+    try:
+        wu.set_obs_per_step_max(2)
+        np.testing.assert_allclose(wu.window_tlm_obs_forced(tlm, traj, dx0, deta, Hs, owi), ref, rtol=1e-12, atol=1e-12)
+        wu.set_obs_per_step_max(1)
+        assert np.isnan(np.asarray(wu.window_tlm_obs_forced(tlm, traj, dx0, deta, Hs, owi))).all()
+    finally:
+        wu.set_obs_per_step_max(1)

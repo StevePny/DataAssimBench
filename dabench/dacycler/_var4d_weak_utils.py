@@ -257,6 +257,15 @@ def quadratic_cost_wc(
 OBS_IN_SCAN = False
 
 
+OBS_PER_STEP_MAX = 1
+
+
+def set_obs_per_step_max(m):
+    """Most observation times mapped to one model step (static table size of the in-scan observation; a window exceeding it gives NaN)."""
+    global OBS_PER_STEP_MAX
+    OBS_PER_STEP_MAX = int(m)
+
+
 def set_obs_in_scan(on):
     """Accumulate the observed increments inside the TLM scan (``True``) or gather them from the stacked trajectory (``False``, default)."""
     global OBS_IN_SCAN
@@ -269,14 +278,18 @@ def window_tlm_obs_forced(tlm_op, x_traj, dx0, deta_rows, Hs, obs_window_indices
     observation with ``j(i) = k`` takes ``H_i dx_k``. ``deta_rows``: ``(1, D)`` (constant, not broadcast) or ``(T, D)``."""
     T = x_traj.shape[0] - 1
     n_obs = obs_window_indices.shape[0]
-    idx = jnp.arange(n_obs)
     const = deta_rows.shape[0] == 1
+    M = int(OBS_PER_STEP_MAX)  # observations evaluated per step: only those due at the step (18 Nov 2026: evaluating all n_obs at every step made the 1/20 window 2-3x slower)
+    owi = obs_window_indices
 
     def observe(Y, dx, k):
-        hit = (obs_window_indices == k)[:, None]
-        return Y + jnp.where(hit, jax.vmap(lambda i: Hs[i] @ dx)(idx), 0.0)
+        sel = jnp.nonzero(owi == k, size=M, fill_value=0)[0]
+        ok = (jnp.arange(M) < jnp.sum(owi == k))[:, None]  # the table's padding (fill index 0) is masked by position, not by its index
+        vals = jax.vmap(lambda i: Hs[i] @ dx)(sel)
+        return Y.at[sel].add(jnp.where(ok, vals, 0.0))
 
     Y0 = observe(jnp.zeros((n_obs,) + tuple(jax.eval_shape(lambda: Hs[0] @ dx0).shape), dx0.dtype), dx0, 0)
+    over = jnp.max(jnp.bincount(owi, length=T + 1)) > M  # more observation times at one step than OBS_PER_STEP_MAX: poison the result (fails loudly, never silently drops observations)
 
     def body(carry, inp):
         dx, Y = carry
@@ -293,4 +306,4 @@ def window_tlm_obs_forced(tlm_op, x_traj, dx0, deta_rows, Hs, obs_window_indices
     d_xs = jnp.zeros((T, 0), dx0.dtype) if const else deta_rows
     xs = (ks, x_traj[:T], d_xs) + ((aux,) if aux is not None else ())
     (_, Y), _ = blocked_scan(body, (dx0, Y0), xs, T)
-    return Y
+    return jnp.where(over, jnp.nan, Y)

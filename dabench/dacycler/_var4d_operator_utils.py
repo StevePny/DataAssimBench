@@ -207,6 +207,13 @@ def finalize_lowrank_factors(
 # boundaries and recomputes the steps inside one block at a time (memory ~ T / b + b steps, one more
 # forward pass of the TLM in compute).
 TLM_CHECKPOINT_BLOCK = None
+TLM_CHECKPOINT_AUTO_FRAC = None  # set_tlm_checkpoint_auto(frac): the block chosen per window from its compiled memory (Var4DOperator._compiled_window)
+
+
+def set_tlm_checkpoint_auto(frac):
+    """Choose the TLM checkpoint block on the first window call: the largest whose compiled memory is within ``frac`` of the device (``None`` = off)."""
+    global TLM_CHECKPOINT_AUTO_FRAC
+    TLM_CHECKPOINT_AUTO_FRAC = None if not frac else float(frac)
 
 
 def set_tlm_checkpoint_block(block):

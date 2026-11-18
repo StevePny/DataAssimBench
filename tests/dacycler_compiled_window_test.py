@@ -368,10 +368,38 @@ def test_observations_in_the_scan_give_the_same_analysis(eta_mode, block):
     res = {}
     try:
         ou.set_tlm_checkpoint_block(block)
+        wu.set_obs_per_step_max(4)
         for on in (False, True):
             wu.set_obs_in_scan(on)
             res[on] = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode=eta_mode).cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
     finally:
         wu.set_obs_in_scan(False)
+        wu.set_obs_per_step_max(1)
         ou.set_tlm_checkpoint_block(None)
     np.testing.assert_allclose(np.asarray(res[True][0]['x'].data), np.asarray(res[False][0]['x'].data), rtol=1e-8, atol=1e-10)
+
+
+def test_auto_checkpoint_block_gives_the_same_analysis(monkeypatch):
+    """OceanCurrentsML, 18 Nov 2026: set_tlm_checkpoint_auto chooses the block from the compiled memory (a fake 1 GB device here, so a block is chosen)
+    and the analysis equals the unchekpointed one."""
+    from dabench.dacycler import _var4d_operator_utils as ou
+    from dabench.dacycler import _var4d_weak_utils as wu
+    f, truth, xb = _setup()
+    obs = obs_vector(truth, LOCS)
+    common = dict(start_time=0.0, obs_vector=obs, obs_error_sd=0.05, n_cycles=2, analysis_window=float(S - 1), return_forecast=True, return_background=True)
+    ref = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode="constant").cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
+    dev = jax.devices()[0]
+    monkeypatch.setattr(type(dev), "memory_stats", lambda self: {"bytes_limit": int(1e9)}, raising=False)
+    try:
+        ou.set_tlm_checkpoint_auto(0.9)
+        wu.set_obs_in_scan(True)
+        wu.set_obs_per_step_max(4)
+        res = _inputs_cycler(dab.dacycler.Var4DOperatorWC, Q_half=True, eta_mode="constant").cycle(input_state=state(xb), model_inputs=jnp.asarray(f), **common)
+        chosen = ou.TLM_CHECKPOINT_BLOCK
+    finally:
+        ou.set_tlm_checkpoint_auto(None)
+        ou.set_tlm_checkpoint_block(None)
+        wu.set_obs_in_scan(False)
+        wu.set_obs_per_step_max(1)
+    assert chosen is None or chosen >= 2
+    np.testing.assert_allclose(np.asarray(res[0]['x'].data), np.asarray(ref[0]['x'].data), rtol=1e-8, atol=1e-10)
