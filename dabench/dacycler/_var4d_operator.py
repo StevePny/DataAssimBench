@@ -14,7 +14,8 @@ from dabench import _xarray_jax as xj
 
 from dabench import dacycler
 import dabench.dacycler._utils as dac_utils
-from dabench.dacycler._per_time_h import (make_per_time_H, as_dtype,
+from dabench.dacycler._per_time_h import (LinearObsOperator,
+                                          make_per_time_H, as_dtype,
                                           is_function_operator,
                                           r_inv_diagonal)
 from dabench.model import Model
@@ -117,8 +118,13 @@ class Var4DOperator(dacycler.DACycler):
         B_floor: Isotropic floor for auto-built ``B_factors``.
         R: Observation error covariance matrix.
         H: Observation operator matrix.
-        h: Callable observation operator (currently unused: only
-            linear ``H`` paths are supported, matching :class:`Var4D`).
+        h: Nonlinear observation operator ``h(x) -> (obs_dim,)`` for one
+            observation time (JAX-traceable; ``H`` must then be None).
+            Compiled-window path only (``cycle(compile_once=True)``).
+            Every outer loop recomputes the innovations ``y - h(x)`` on
+            that outer's trajectory and relinearises: the inner loop uses
+            ``H' = jvp(h)`` bound to the trajectory at each observation
+            time (incremental 4D-Var with a nonlinear observation operator).
         n_outer_loops: Outer Gauss-Newton iterations. Default 3.
         n_inner_loops: Inner PCG-Lanczos iterations per outer (an int, or a list: one per outer loop, the last repeating).
             Default 30.
@@ -622,7 +628,8 @@ class Var4DOperator(dacycler.DACycler):
         if self.H is None:
             if self.h is not None:
                 raise ValueError(
-                    "Var4DOperator only supports linear H (matrix).")
+                    "a nonlinear h needs the compiled-window path "
+                    "(cycle(compile_once=True))")
             if obs_inputs is not None:
                 raise ValueError(
                     "obs_inputs need a LinearObsOperator H with "
@@ -648,8 +655,13 @@ class Var4DOperator(dacycler.DACycler):
         owi = jnp.argmin(jnp.abs(obs_times[:, None]
                                  - (cur_time + self._model_timesteps)[None]),
                          axis=1)
-        Hs = self._resolve_Hs_inputs(obs_vals, obs_loc_indices,
-                                     obs_loc_mask, o)
+        nonlinear_h = self.H is None and self.h is not None
+        if nonlinear_h and o is not None:
+            raise ValueError("obs_inputs are for a linear H; a nonlinear h "
+                             "is relinearised internally")
+        Hs = (None if nonlinear_h else
+              self._resolve_Hs_inputs(obs_vals, obs_loc_indices,
+                                      obs_loc_mask, o))
         R_inv_diag = r_inv_diagonal(self.R, obs_vals.shape[-1], obs_error_sd)
         F = self._model_step_inputs()
         aux = (times, u)
@@ -664,12 +676,33 @@ class Var4DOperator(dacycler.DACycler):
             apply_B_half = self._ensure_B_half(
                     x_b_traj[0],
                     lambda x, dx: tlm_op(x, dx, times[0], u0), outer)
+            Hs_k, y_k = Hs, obs_vals
+            if nonlinear_h:
+                Hs_k, y_k = self._linearised_h(x_b_traj[owi], obs_vals,
+                                               obs_loc_mask)
             delta_v, info = self._innerloop_4d(
-                    x_b_traj, v_total, tlm_op, apply_B_half, Hs, obs_vals,
+                    x_b_traj, v_total, tlm_op, apply_B_half, Hs_k, y_k,
                     owi, obs_time_mask, R_inv_diag, outer_idx=outer, aux=aux)
             v_total = v_total + delta_v
         x_a = x_b0 + apply_B_half(v_total)
         return x_a, model_rollout(F, x_a, times, u)
+
+    def _linearised_h(self, x_obs, obs_vals, obs_loc_mask):
+        """Nonlinear ``h`` about the trajectory at the observation times
+        ``x_obs`` (T, D): per-time ``H' = jvp(h)`` and observations shifted so
+        that the inner loop's innovations ``y' - H' x`` equal ``y - h(x)``
+        at ``x = x_obs`` (masked observations are left unchanged)."""
+        h = self.h
+        lin = LinearObsOperator(
+                lambda dx, x_l: jax.jvp(h, (x_l,), (dx,))[1],
+                (obs_vals.shape[-1], x_obs.shape[-1]), x_obs.dtype,
+                takes_inputs=True)
+        Hs = make_per_time_H(lin, obs_vals.shape[0], obs_loc_mask,
+                             self._obs_vector.stationary_observers,
+                             obs_inputs=x_obs)
+        hx, jx = jax.vmap(lambda x: jax.jvp(h, (x,), (x,)))(x_obs)
+        mask = jnp.asarray(obs_loc_mask, obs_vals.dtype)
+        return Hs, obs_vals - mask * (hx - jx)
 
     def fso(self, input_state, start_time, obs_vector, obs_error_sd,
             analysis_window, forecast_error, model_inputs=None,
